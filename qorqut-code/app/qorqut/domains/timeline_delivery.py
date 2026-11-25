@@ -1,6 +1,7 @@
 """What an agent conversation is told of the timelines above a Task, once per conversation.
 
-A Task read through the agent tools carries the state of the Project, each parent Task and the Task itself. A level
+A Task read through the agent tools carries the state of each Project level (the root Project down to the Task's own
+Project, for a Task in a subproject), each parent Task and the Task itself. A level
 this conversation already received at the same revision is replaced by one line that says since when. The record
 (``timeline_deliveries``) is kept per agent and conversation; the conversation's start hook empties it when its context is
 sent again (startup, clear, compact, fork) or the session is recovering, and a resume keeps it. A conversation that cannot be
@@ -14,6 +15,7 @@ from datetime import datetime, timedelta
 
 from qorqut_operations.application import Application
 from qorqut_operations.application.plans import timestamp
+from qorqut_operations.projects.hierarchy import lineage
 from qorqut_operations.timeline import state as timeline_state
 
 from qorqut.domains.timeline import Timeline
@@ -48,8 +50,8 @@ class TimelineDelivery:
 
     @staticmethod
     def levels(task, uow):
-        """``[(item, title)]`` from the top down to the Task: the Project (none for a Global Task), each parent Task root first,
-        the Task."""
+        """``[(item, title)]`` from the top down to the Task: each Project level from the root Project down to the Task's own
+        (none for a Global Task), each parent Task root first, the Task."""
         connection, project = uow.connection, task["project_id"]
         chain, seen, parent = [], {task["id"]}, task.get("parent_id")
         while parent and parent not in seen and len(seen) <= MAX_DEPTH:
@@ -62,8 +64,9 @@ class TimelineDelivery:
             parent = row["parent_id"]
         levels = []
         if project:
-            row = connection.execute("SELECT name FROM projects WHERE id=?", (project,)).fetchone()
-            levels.append(({"type": "project", "id": project, "project_id": project}, row["name"] if row else None))
+            # Every Project level from the root Project down to the Task's own: each is its own level.
+            rows = lineage(connection, project) or [{"id": project, "name": None}]
+            levels.extend(({"type": "project", "id": row["id"], "project_id": row["id"]}, row["name"]) for row in rows)
         return levels + chain[::-1] + [({"type": "task", "id": task["id"], "project_id": project}, task["title"])]
 
     @staticmethod

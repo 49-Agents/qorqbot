@@ -607,6 +607,9 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     # The six Project record operations: one existing Project's inventory, item reads and explicit cross-scope links.
     from qorqut.domains.projects import ProjectRecords
     runtime.projects = ProjectRecords(application, domains.items).register(registry)
+    # Subprojects: place a Project under another Project, or back at the top level, with its folder.
+    from qorqut.domains.projects.move import ProjectMove
+    runtime.project_move = ProjectMove(application, paths).register(registry)
     # Move to project: three operations over the engine's task relocation, plus the host adapter for private conversations,
     # Focus cards and unsupported bindings. The adapter is attached here, before the registry freezes.
     from qorqut.domains.tasks.moves import TaskMoves

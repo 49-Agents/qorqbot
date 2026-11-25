@@ -164,7 +164,7 @@ class ProjectBadgesTests(unittest.TestCase):
         result = explorer.directory(self.viewer, [('path', 'projects')])
         projects = {row['name']:row['project'] for row in result['entries']}
         self.assertEqual(projects['example'], {'id':self.project, 'name':'Example', 'description':'Current project description',
-            'open_tasks':3, 'signoffs':1, 'subprojects':None})
+            'open_tasks':3, 'signoffs':1, 'subprojects':0})
         self.assertIsNone(projects['archived'])
         self.assertIsNone(projects['denied'])
         nested = explorer.directory(self.viewer, [('path', 'projects/example/notes')])

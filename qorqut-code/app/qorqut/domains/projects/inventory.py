@@ -761,7 +761,7 @@ class Inventory:
             return {"reminder": stored}
         if kind == access.PROJECT_TYPE:
             _, row = access.guard(ctx, self.application, uow, project_id=identity)
-            return {"project": access.project_view(row)}
+            return {"project": access.project_view(row, uow)}
         if kind in DOCUMENT_TYPES or kind == "entity":
             return self.document_record(own, {"type": kind, "id": identity}, uow)
         # An installed extension's typed item: its authorized neutral read is the existing domain read.

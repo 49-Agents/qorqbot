@@ -1,6 +1,9 @@
 """Owner-reviewed archive and owner restore of project resources; nothing is deleted.
 
-Restore returns only the project; the supported globals reach it again through their derived scope.
+Archiving a Project also archives every subproject below it that is not archived yet, and marks each with the Project whose
+archiving took it (``archived_with``). Restoring a Project returns exactly the subprojects archived together with it;
+subprojects archived on their own earlier stay archived. A subproject is not restored while its parent is archived.
+Restore returns only those projects; the supported globals reach them again through their derived scope.
 """
 
 from qorqut_agentic.behavior.tool_help import text as instruction_text
@@ -9,6 +12,7 @@ from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, PolicyDecision
 from qorqut_operations.policy.rules import PolicyRules
 from qorqut_operations.project_lifecycle import owner_may_act
+from qorqut_operations.projects import hierarchy
 from qorqut_operations.application.plans import PlanBuilder, apply_records, require_revision, schema, UUID, TEXT
 
 OPERATION = "project_archive"
@@ -61,10 +65,11 @@ class ProjectArchive:
     def archived(ctx, args, options, uow):
         """Archived projects, newest archival first."""
         rows = uow.connection.execute(
-            "SELECT b.id,b.slug,b.name,b.revision,b.archived_at FROM projects b JOIN installation i ON i.id='service' "
-            "WHERE b.archived_at IS NOT NULL ORDER BY b.archived_at DESC, b.slug")
+            "SELECT b.id,b.slug,b.name,b.revision,b.archived_at,b.parent_id,b.archived_with FROM projects b "
+            "JOIN installation i ON i.id='service' WHERE b.archived_at IS NOT NULL ORDER BY b.archived_at DESC, b.slug")
         return {"items": [{"project_id": row["id"], "slug": row["slug"], "name": row["name"], "revision": row["revision"],
-                           "archived_at": row["archived_at"]} for row in rows]}
+                           "archived_at": row["archived_at"], "parent_id": row["parent_id"],
+                           "archived_with": row["archived_with"]} for row in rows]}
 
     @staticmethod
     def guard(ctx, plan, uow):
@@ -97,9 +102,19 @@ class ProjectArchive:
         builder = PlanBuilder(ctx, OPERATION, args, "Archive project: " + before["name"],
                               namespace="global", affected_scope={"kind": "project", "project_id": before["id"]})
         builder.record("projects", before["id"], before,
-            {"archived_at": builder.at, "archived_by": ctx.principal_id}, project_id=None, namespace="global", label=before["name"])
+            {"archived_at": builder.at, "archived_by": ctx.principal_id, "archived_with": None},
+            project_id=None, namespace="global", label=before["name"])
+        # The subprojects still active below it go with it, each marked with this archiving.
+        below = [row for row in hierarchy.descendants(uow.connection, before["id"]) if row["archived_at"] is None]
+        for row in below:
+            child = uow.repository("projects").get(row["id"], required=True)
+            builder.record("projects", child["id"], child,
+                {"archived_at": builder.at, "archived_by": ctx.principal_id, "archived_with": before["id"]},
+                project_id=None, namespace="global", label=child["name"])
         builder.effects.extend([
             "Remove " + before["name"] + " (" + before["slug"] + ") from the active project menu and normal project discovery.",
+            *(["Archive its " + str(len(below)) + " active subproject" + ("s" if len(below) != 1 else "") + " with it: "
+               + ", ".join(row["name"] for row in below) + ". Restoring " + before["name"] + " restores them."] if below else []),
             "Take this project's tasks off every agent's Todo board. Restoring the project does not put them back.",
             "Retain project records and files. No domain, mailbox or external-service changes."])
         plan = builder.build()
@@ -111,7 +126,12 @@ class ProjectArchive:
         project = uow.repository("projects").get(plan.arguments["project_id"], required=True)
         apply_records(ctx, plan, uow)
         if self.release_todos is not None:
+            # The project, then each subproject its archiving took along.
             self.release_todos(uow, project["id"], ctx.principal_id)
+            for change in plan.changes:
+                if (change.kind == "record" and change.resource.resource_type == "projects"
+                        and change.resource.resource_id != project["id"]):
+                    self.release_todos(uow, change.resource.resource_id, ctx.principal_id)
         saved = uow.repository("projects").get(project["id"], required=True)
         return {"project_id": saved["id"], "archived": True, "revision": saved["revision"]}
 
@@ -127,12 +147,21 @@ class ProjectArchive:
         if before["archived_at"] is None:
             raise DomainError("project_not_archived", "This project is not archived")
         project_id = before["id"]
+        if any(row["archived_at"] is not None for row in hierarchy.ancestors(uow.connection, project_id)):
+            raise DomainError("project_archived", "Its parent project is archived; restore the parent first")
         builder = PlanBuilder(ctx, RESTORE, args, "Restore project: " + before["name"],
                               namespace="global", affected_scope={"kind": "project", "project_id": project_id})
-        builder.record("projects", project_id, before, {"archived_at": None, "archived_by": None},
-                                      project_id=None, namespace="global", label=before["name"])
+        cleared = {"archived_at": None, "archived_by": None, "archived_with": None}
+        builder.record("projects", project_id, before, cleared, project_id=None, namespace="global", label=before["name"])
+        # Only the subprojects its own archiving took; one archived on its own stays archived, and so does what went with it.
+        returning = [row for row in hierarchy.descendants(uow.connection, project_id) if row["archived_with"] == project_id]
+        for row in returning:
+            child = uow.repository("projects").get(row["id"], required=True)
+            builder.record("projects", child["id"], child, cleared, project_id=None, namespace="global", label=child["name"])
         builder.effects.extend([
             f"Return {before['name']} ({before['slug']}) and its records, files and integrations to the active project menu.",
+            *([f"Also restore the {len(returning)} subproject{'s' if len(returning) != 1 else ''} archived with it: "
+               + ", ".join(row["name"] for row in returning) + "."] if returning else []),
             "No agent is created or prepared and no session starts.",
             "Every active global agent reaches the project again through derived access."])
         return builder.build()

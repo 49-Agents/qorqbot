@@ -61,7 +61,7 @@ function taskMoveOpen({task, sourceProjectId, sourceName = '', onMoved = null, s
     sel.disabled = pending || (!!hostedContent && !!attempt) || !targets || !targets.length;
     if (targets && sel.dataset.ready !== 'yes') {
       sel.replaceChildren(new Option(targets.length ? 'Choose a project…' : 'No other active projects', ''));
-      for (const project of targets) sel.append(new Option(project.name, project.id));
+      for (const project of targets) sel.append(new Option(typeof workspaceProjectLabel === 'function' ? workspaceProjectLabel(project) : project.name, project.id));
       sel.dataset.ready = 'yes';
     }
     sel.value = destinationId;

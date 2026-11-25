@@ -31,7 +31,7 @@ function recordMoveOpen({kind, record, sourceSlug, sourceProjectId, onMoved = nu
     select.disabled = pending || !targets || !targets.length;
     if (targets && select.options.length !== targets.length + 1) {
       select.replaceChildren(new Option(targets.length ? 'Choose a project' : 'No other project is available', ''),
-        ...targets.map(project => new Option(project.name, project.id)));
+        ...targets.map(project => new Option(typeof workspaceProjectLabel === 'function' ? workspaceProjectLabel(project) : project.name, project.id)));
       select.value = destinationId;
     }
     const box = el.querySelector('[data-move-preview]'); box.replaceChildren();

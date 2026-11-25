@@ -25,7 +25,7 @@ CORE_SCHEMA = (
     revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
-, archived_at TEXT, archived_by TEXT REFERENCES principals(id))""",
+, archived_at TEXT, archived_by TEXT REFERENCES principals(id), parent_id TEXT, archived_with TEXT, folder TEXT)""",
     """CREATE TABLE project_person_details (
     project_id TEXT NOT NULL REFERENCES projects(id),
     principal_id TEXT NOT NULL REFERENCES principals(id),

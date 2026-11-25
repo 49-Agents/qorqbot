@@ -187,7 +187,7 @@ class CreatedProject(unittest.TestCase):
             record=lambda *a, **k: recorded.append(a), build=lambda: None)
         creation = project_creation.Creation(operations)
         creation.workers = lambda uow: []
-        creation.occupied = lambda slug, uow: False
+        creation.occupied = lambda slug, uow, location=None: False
         with mock.patch.object(project_creation, "ref", lambda *parts: parts):
             creation.prepare(builder, {"name": "Alpha"}, uow)
         project = recorded[0][3]["project"]

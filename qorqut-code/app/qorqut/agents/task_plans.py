@@ -521,7 +521,7 @@ class TaskPlans:
             if uow.connection.execute('SELECT 1 FROM agent_profiles WHERE agent_id=?', (ctx.principal_id,)).fetchone() is not None:
                 scopes.append(relative_to_operations(paths, agent_workspace_of(paths, ctx.principal_id)))
             if task.get('project_id'):
-                project = uow.connection.execute('SELECT slug FROM projects WHERE id=?', (task['project_id'],)).fetchone()
+                project = uow.connection.execute('SELECT * FROM projects WHERE id=?', (task['project_id'],)).fetchone()
                 if project is not None:
                     scopes.append(relative_to_operations(paths, project_root(paths, project)))
         except DomainError:

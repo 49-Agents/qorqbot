@@ -53,6 +53,9 @@
 .rw-project-head h3{margin:0 0 4px;font-size:15px;font-weight:600;overflow-wrap:anywhere}
 .rw-project-archived{display:inline-block;margin:0 0 5px;padding:1px 8px;border:1px solid var(--line-2);border-radius:10px;font-size:10px;color:var(--fg-2)}
 .rw-project-summary{margin:0 0 8px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5}
+.rw-project-parent{margin:0 0 4px;overflow-wrap:anywhere}
+.rw-project-subprojects{margin:0 0 10px}
+.rw-project-subprojects>p{margin:0 0 3px}
 .rw-project-list{display:flex;flex-direction:column;gap:1px;min-width:0}
 .rw-project-row{display:flex;align-items:center;gap:4px;min-width:0;border-radius:7px}
 .rw-project-row:hover{background:var(--hover)}

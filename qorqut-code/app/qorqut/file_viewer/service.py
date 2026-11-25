@@ -116,7 +116,7 @@ class FileViewer:
         with self.runtime.database.read() as uow:
             connection = uow.connection
             candidates = [(None, document_path_at_global(paths, relative))]
-            for project in connection.execute("SELECT id, slug FROM projects"):
+            for project in connection.execute("SELECT * FROM projects"):
                 candidates.append((project["id"], document_path_at(paths, project, relative)))
             found = [row for project_id, path in candidates if path is not None for row in connection.execute(
                 "SELECT id, project_id, kind, revision FROM documents WHERE project_id IS ? AND path = ?",

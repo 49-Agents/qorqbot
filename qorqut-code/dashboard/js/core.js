@@ -696,6 +696,41 @@ function workspaceProjects() {
   const rank = new Map(order.map((id, i) => [id, i]));
   return [...state.projects].sort((a, b) => (rank.get(workspaceProjectId(a)) ?? Infinity) - (rank.get(workspaceProjectId(b)) ?? Infinity));
 }
+// Subprojects: a project names its parent (parent_id); lists nest each subproject under its parent, in the saved order.
+const workspaceProjectParent = b => b.parent_id && (state.projects || []).some(x => workspaceProjectId(x) === b.parent_id) ? b.parent_id : null;
+// [{project, depth}] in tree order: each project followed by its own subprojects, at any depth.
+function workspaceProjectTree(projects = workspaceProjects()) {
+  const rows = [], seen = new Set();
+  const visit = (parent, depth) => {
+    for (const b of projects) {
+      if (workspaceProjectParent(b) !== parent || seen.has(workspaceProjectId(b)) || depth > 50) continue;
+      seen.add(workspaceProjectId(b));
+      rows.push({project: b, depth});
+      visit(workspaceProjectId(b), depth + 1);
+    }
+  };
+  visit(null, 0);
+  // A project whose parent could not be placed (a loop in damaged data) still shows, at the top level.
+  for (const b of projects) if (!seen.has(workspaceProjectId(b))) rows.push({project: b, depth: 0});
+  return rows;
+}
+// The project's path from its root project, for pickers: "49 › Z".
+function workspaceProjectPath(b) {
+  const names = [], seen = new Set();
+  for (let at = b; at && !seen.has(workspaceProjectId(at)) && names.length <= 50; ) {
+    seen.add(workspaceProjectId(at));
+    names.unshift(at.name || at.slug);
+    const parent = workspaceProjectParent(at);
+    at = parent ? state.projects.find(x => workspaceProjectId(x) === parent) : null;
+  }
+  return names.join(' › ');
+}
+// A picker's label for a project: its path for a subproject ("49 › Z"), else its name. A project not in the
+// directory keeps the name it came with.
+function workspaceProjectLabel(project) {
+  const known = (state.projects || []).find(b => workspaceProjectId(b) === (project.id || project.project_id) || b.slug === project.slug);
+  return known ? workspaceProjectPath(known) : project.name || project.slug;
+}
 async function goTab(name) {
   if (typeof agentWorkspaceCanLeave === 'function' && !await agentWorkspaceCanLeave(_agpad)) return;
   if (state.scope === "global") return;

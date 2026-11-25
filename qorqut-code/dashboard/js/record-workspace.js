@@ -1990,6 +1990,32 @@ function rwProjectInventory(host, project, sections, {navigate, label = 'items'}
     dispose() { disposed = true; generation++; host.replaceChildren(); },
   };
 }
+// A Project's place among Projects: the path above it and its own subprojects, each opening its Project.
+function rwProjectHierarchy(shell, project, ctx) {
+  const path = Array.isArray(project.path) ? project.path.slice(0, -1) : [];
+  const where = shell.querySelector('.rw-project-parent');
+  where.textContent = path.length ? 'Subproject of ' + path.map(item => item.name || item.slug).join(' › ') : '';
+  where.hidden = !path.length;
+  const box = shell.querySelector('.rw-project-subprojects'), list = box.querySelector('.rw-project-list');
+  const children = Array.isArray(project.subprojects) ? project.subprojects : [];
+  list.replaceChildren(...children.map(child => {
+    const row = rwNode('div', 'rw-project-row');
+    row.dataset.rwItemType = 'project';
+    const open = rwNode('button', 'quiet rw-project-open');
+    open.type = 'button';
+    const icon = rwNode('span', 'rw-project-icon');
+    icon.innerHTML = rwTypeIcon({source: {type: 'project'}});
+    open.append(icon, rwNode('span', 'rw-project-label', child.name || child.slug));
+    open.setAttribute('aria-label', 'Subproject ' + (child.name || child.slug));
+    open.onclick = () => {
+      const target = rwRecordFromItem({source: {type: 'project', id: child.id, project_id: child.id, project_slug: child.slug, label: child.name}}, {can_thread: true});
+      if (target) void ctx.navigate(target);
+    };
+    row.append(open);
+    return row;
+  }));
+  box.hidden = !children.length;
+}
 async function rwProjectDashboard(host, record, ctx) {
   host.classList.add('record-panel', 'rw-project-panel');
   const projectId = record.source.id;
@@ -2006,11 +2032,12 @@ async function rwProjectDashboard(host, record, ctx) {
   }
   // The Folder tab: the title and description, then Documents and Tables as one list.
   const shell = rwNode('div', 'rw-project');
-  shell.innerHTML = `<section class="rw-project-head"><h3 class="rw-project-name"></h3><span class="rw-project-archived" hidden>Archived</span><p class="rw-project-summary muted"></p></section><div class="rw-project-body"></div>`;
+  shell.innerHTML = `<section class="rw-project-head"><h3 class="rw-project-name"></h3><span class="rw-project-archived" hidden>Archived</span><p class="rw-project-parent muted small" hidden></p><p class="rw-project-summary muted"></p></section><section class="rw-project-subprojects" aria-label="Subprojects" hidden><p class="muted small">Subprojects</p><div class="rw-project-list"></div></section><div class="rw-project-body"></div>`;
   host.append(shell);
   shell.querySelector('.rw-project-name').textContent = project.name || record.label || 'Project';
   shell.querySelector('.rw-project-summary').textContent = project.summary || '';
   shell.querySelector('.rw-project-archived').hidden = !project.archived;
+  rwProjectHierarchy(shell, project, ctx);
   Object.assign(project, {id: projectId});
   ctx.title?.(record);
   const inventory = rwProjectInventory(shell.querySelector('.rw-project-body'), project, ['documents', 'tables'],
@@ -2029,6 +2056,7 @@ async function rwProjectDashboard(host, record, ctx) {
       shell.querySelector('.rw-project-name').textContent = fresh.project.name || record.label || 'Project';
       shell.querySelector('.rw-project-summary').textContent = fresh.project.summary || '';
       shell.querySelector('.rw-project-archived').hidden = !fresh.project.archived;
+      rwProjectHierarchy(shell, fresh.project, ctx);
       await inventory.refresh();
     } catch (failure) {
       if (disposed) return;
