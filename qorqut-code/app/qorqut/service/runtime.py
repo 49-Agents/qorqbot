@@ -557,7 +557,11 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
         isolated(uow, "Experience runs due", lambda: runtime.experience.runs.due(uow))
         isolated(uow, "Delta proposal decisions", lambda: settle_proposals(uow))
         isolated(uow, "Rule check decisions", lambda: settle_checks(uow))
+        # The daily Action digest: once a local day is over (00:15 in the installation's time zone), its recorded Actions
+        # become one Context input that the Context queue files with one model run; a missed day is caught up here.
+        isolated(uow, "Context action digest", lambda: action_digests(uow))
 
+    action_digests = paced(60.0, composed.action_digests.run)
     settle_proposals = paced(60.0, lambda uow: runtime.experience.settle(uow))
     settle_checks = paced(60.0, lambda uow: runtime.experience.settle_checks(uow))
     runtime.inbox_nudges = NudgeBackend.build(runtime, inbox, reconcile=reconcile_inbox)

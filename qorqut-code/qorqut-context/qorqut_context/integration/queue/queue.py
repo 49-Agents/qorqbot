@@ -3,8 +3,12 @@
 GENERAL submissions and accepted Action revisions share one sequence. Admission never waits for Context or a model;
 a separate backend driver advances inputs through ``transitions`` and records each outcome. This module holds the
 validation and storage rules; the registered operations in ``operations`` carry them through the v1 prepare/apply
-authority, and ``admit_action_revision`` is the ``on_revision`` port the composition hands the Action writer: it
-queues the writer's exact stored revision before the writer's own transaction commits.
+authority.
+
+Recorded Actions reach Context once a day, as one GENERAL digest input (``integration/action_digest``); the composed
+``on_revision`` port only notes each revision for that digest. ``admit_action_revision`` and ``enqueue_action`` queue one
+Action revision as its own ``action`` input. The composition no longer uses them, and the driver still drains every
+``action`` input already in the queue.
 
 Every input has one owning namespace (``project_id``, NULL for Global) and an attributed submitter. Reads and
 controls are bound to one namespace: nothing here lists across projects.
@@ -21,6 +25,8 @@ from qorqut_operations.application.plans import page, page_position
 from qorqut_operations.contracts import DomainError, canonical_bytes, new_id, utc_now
 from qorqut_operations.tags.catalog import snapshot_order
 
+from qorqut_context.input_modes import ACTION_DIGEST_PREFIX
+
 STATES = ("queued", "processing", "blocked", "published", "discard_requested", "discarded")
 TERMINAL_STATES = ("published", "discarded")
 OPEN_HEAD_STATES = ("processing", "blocked", "discard_requested")
@@ -34,7 +40,8 @@ RESERVED_PREFIX = "foundation/actions/"
 # edit with its own companion binding) creates an input here. The prefixes are not a directory inference: scope is the
 # stored binding.
 EDIT_PREFIX = "foundation/edits/"
-CONTROLLED_PREFIXES = ("foundation/documents/", "foundation/instructions/", EDIT_PREFIX)
+# The daily Action digest admission (``integration/action_digest``) owns the digest directory in the same way.
+CONTROLLED_PREFIXES = ("foundation/documents/", "foundation/instructions/", EDIT_PREFIX, ACTION_DIGEST_PREFIX)
 _METADATA_REQUIRED = frozenset({"kind", "title", "origin"})
 _METADATA_FIELDS = _METADATA_REQUIRED | {"origin_ref", "created_at"}
 OMITTED = object()
@@ -79,7 +86,8 @@ def source_path(path: Any, *, controlled: bool = False) -> str:
     if path.startswith(RESERVED_PREFIX):
         invalid("foundation/actions/ is reserved for accepted Action evidence")
     if path.startswith(CONTROLLED_PREFIXES) and not controlled:
-        invalid("foundation/documents/, foundation/instructions/ and foundation/edits/ belong to their controlled adapters")
+        invalid("foundation/documents/, foundation/instructions/, foundation/edits/ and foundation/action-digests/ belong to "
+                "their controlled adapters")
     return path
 
 
@@ -172,7 +180,8 @@ def public_payload(payload: dict) -> dict:
 
 
 def admit_action_revision(ctx, revision: dict, uow, *, evidence=None) -> str:
-    """The Action writer's ``on_revision`` port: queue one stored Action revision and return the exact input ID.
+    """An ``on_revision`` port that queues one stored Action revision as its own input and returns the exact input ID.
+    Not composed: the composition's port is ``action_digest.admit_revision``.
 
     ``revision`` is the decoded ``action_revisions`` row ``settle`` just read. It is admitted in the caller's open
     transaction (no transaction, hook or retry of its own), so a failure here rolls back the Action, its revision, its

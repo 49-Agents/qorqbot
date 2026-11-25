@@ -1,6 +1,11 @@
-"""New Action evidence through real admission, authorized reads and Context publication."""
+"""Action evidence through the per-revision Action admission, authorized reads and Context publication.
+
+The composed service no longer queues one Context input per Action revision (recorded Actions reach Context through the
+daily Action digest), but the driver still files ``action`` inputs already in the queue. These tests wire the
+per-revision admission in by hand so that path keeps its coverage."""
 from copy import deepcopy
 from dataclasses import replace
+from functools import partial
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -14,7 +19,8 @@ from qorqut_context import Conflict, Context, bootstrap
 from qorqut_context import input_modes as modes
 from qorqut_context.integration.action_evidence import EXCERPT_BYTES, ActionEvidence
 from qorqut_context.integration.driver import submission_of
-from qorqut_context.integration.queue.queue import action_payload, enqueue_action, input_view, public_payload
+from qorqut_context.integration.queue.queue import (action_payload, admit_action_revision, enqueue_action, input_view,
+                                                    public_payload)
 from qorqut_context.integration.service import ContextLocations, ContextSettings, compose_context
 from qorqut_context.pipeline import PropagationError
 from qorqut_context.runner import RunResult, RunnerConfig
@@ -109,7 +115,7 @@ class ActionEvidenceTests(unittest.TestCase):
             routing=NS(routes=lambda *_: ((), ()), snooze_routes=lambda *_: ()))
         self.tasks = TaskOperations(self.app, items, ports)
         self.actions = ActionOperations(self.app, self.tasks.note_references(), tasks=self.tasks,
-                                        on_revision=self.composed.on_revision,
+                                        on_revision=partial(admit_action_revision, evidence=ActionEvidence(self.app)),
                                         clock=lambda: datetime(2026, 11, 10, 12, tzinfo=timezone.utc))
         for contribution in (self.tasks.contribution(), self.actions.contribution()):
             for entry in contribution.entries:

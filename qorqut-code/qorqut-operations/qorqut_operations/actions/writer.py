@@ -101,7 +101,7 @@ def settle(ctx, plan, uow, *, on_revision) -> list[dict]:
     """Admit and announce every Action revision a just-applied plan wrote. Runs inside the applying transaction.
 
     ``on_revision(ctx, exact_revision, uow) -> input_id`` is the composition's required port; it receives the stored
-    revision row and its result is reported as ``input_id``."""
+    revision row and its result (an input ID, or None) is reported as ``input_id``."""
     on_revision = require_on_revision(on_revision)
     settled = []
     for change in plan.changes:

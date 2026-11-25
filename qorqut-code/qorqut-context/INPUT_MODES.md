@@ -216,8 +216,14 @@ and no action nodes. Indexes remain rebuildable, never authoritative.
   publication too. All reads retain existing bounded/pinned behavior. No new
   execution, filesystem, network, messaging, delegation, or source-write tools.
 - Prompt composition uses the common propagator instructions
-  plus exactly one of general_input.md and operational_action.md. Record the
-  combined digest. Bootstrap remains entity discovery, not a trust classifier.
+  plus exactly one of general_input.md, operational_action.md and
+  action_digest.md. Record the combined digest. action_digest.md is the GENERAL
+  policy for a source under foundation/action-digests/ (the host's daily Action
+  digest, see [INTEGRATION.md](INTEGRATION.md#the-daily-action-digest)): it
+  files lasting facts only, creates no nodes for tasks, documents, runs or
+  events and no "agent did X" edges, and prefers existing nodes. The host files
+  recorded Actions through that digest; OPERATIONAL_ACTION remains for Action
+  inputs already queued and for direct library callers. Bootstrap remains entity discovery, not a trust classifier.
 - A successful finish and completed model turn are both still required.
   An already published event recovers without another model invocation. A
   ready draft includes the exact mode outputs. Failed drafts retain them for

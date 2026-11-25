@@ -4,7 +4,27 @@ Context's connection to the Operations platform lives in `qorqut_context.integra
 imports `qorqut_operations` (install `qorqut-context[integration]`; the base engine needs no Operations). Operations has no
 Context import, name or fixture: an Action's revision is admitted through the **required** `on_revision` callable that the
 composition hands to `qorqut_operations.actions` (`ActionOperations(..., on_revision=)` and
-`settle(ctx, plan, uow, on_revision=)`), and Context supplies `qorqut_context.integration.queue.admit_action_revision`.
+`settle(ctx, plan, uow, on_revision=)`), and Context supplies `qorqut_context.integration.action_digest.admit_revision`.
+
+## The daily Action digest
+
+Recording, correcting or withdrawing an Action starts no Context work. `admit_revision` only adds the stored revision to
+`context_action_backlog`, in the Action writer's own transaction; the backlog's `sequence` is its place in commit order.
+Once a local day is over in the installation's time zone (00:15 the next day), `ActionDigests.run(uow)` turns that day's
+revisions into one GENERAL input, submitted by the queue driver's principal in Global scope, at
+`foundation/action-digests/<day>.md` (`<day>-part-<n>.md` for further parts when the day exceeds 64 KiB or 400 lines).
+The host runs it from its inbox reconcile pass, at most once a minute; missed days are caught up oldest first, seven
+digested days per run. Each part has one `context_action_digests` row (day, part, time zone, `through_sequence`, input),
+created with the input in one transaction; the cursor is the largest `through_sequence`. A day whose revisions add nothing
+creates no input, and running again never creates a second input for the same day and part. The directory is controlled:
+public submissions are refused there, and a trigger refuses any input there without its digest row.
+
+The digest lists each Action once in its latest state, by project and Task ("- 09:30, Dana: Sent the annual price to Acme.
+(ref 1a2b3c4d)"), then the day's corrections ("now reads ... It replaces ...") and withdrawals ("did not happen as recorded")
+of Actions recorded on earlier days. The filing runs under `prompts/action_digest.md` (chosen by the path): lasting facts
+only, no nodes for tasks, documents, runs or events, no "agent did X" edges, existing nodes first. Its model calls land in
+the filing usage ledger like any other input. The driver still files `action` inputs already in the queue through
+`submit_action`; `queue.admit_action_revision`, `enqueue_action` and `action_evidence` remain for those and are not composed.
 
 The sections below were moved verbatim from the Operations extraction notes together with the code they describe; only the
 module names changed.

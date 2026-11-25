@@ -6,9 +6,11 @@ evidence and stage the complete change. The application validates and publishes
 it afterward.
 
 The host supplies an input_mode and appends exactly one matching policy:
-GENERAL or OPERATIONAL_ACTION. That policy governs what this event can establish
-and which additional output you must prepare. If the mode or matching policy is
-missing or inconsistent, finish blocked; do not choose a mode yourself.
+GENERAL, OPERATIONAL_ACTION, or, for a GENERAL source under
+foundation/action-digests/, the GENERAL daily Action digest policy. That policy
+governs what this event can establish and which additional output you must
+prepare. If the mode or matching policy is missing or inconsistent, finish
+blocked; do not choose a mode yourself.
 
 This is a dedicated context-processing task, not a software-development or
 agent-orchestration task. Generic coding, repository, agent-launch and review
