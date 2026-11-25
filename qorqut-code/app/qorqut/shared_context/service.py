@@ -2,7 +2,8 @@
 
 The Context composition, driver, queue, filing, reads and lifecycle live in ``qorqut_context.integration``; this module only
 supplies what is the host's own: the runner configuration file, the instance locations from ``InstancePaths``, the roles
-eligible to instruct and edit, the configured coordinator lookup and the change-feed binding of the lifecycle owner.
+eligible to instruct and edit, the configured coordinator lookup, the registered agents' names the filer is told about and
+the change-feed binding of the lifecycle owner.
 ``compose_context`` and ``ContextServices`` keep the stock host's call shape and delegate to the integration; the host remains the
 only owner that starts and stops the services."""
 
@@ -19,6 +20,7 @@ from qorqut_context.integration.service import ContextLocations, ContextSettings
 from qorqut_context.runner import AppServerRunner, RunnerConfig
 from qorqut_context.claude_runner import is_claude
 from qorqut_operations.contracts import DomainError
+from qorqut_operations.global_agents import REPEATABLE_GLOBAL_ROLES, current_global_data
 
 from qorqut import agent_cli_launch
 from qorqut.agents.roles import SUPPORTED_GLOBAL_ROLES
@@ -76,6 +78,22 @@ def coordinator_of(uow) -> str | None:
     return configured_ordubashy(uow)
 
 
+def agent_names_of(uow) -> list[str]:
+    """The names the installation's registered active agents go by, read in the caller's own snapshot: each one's display
+    name, its profile name and, for a role only one agent holds, the role's identifier. Retired, inactive and disabled
+    registrations are left out. The Context library cleans, orders and caps the list."""
+    names = []
+    for row in uow.connection.execute(
+            "SELECT p.display_name, a.name, a.profile_json FROM agent_profiles a JOIN principals p ON p.id=a.agent_id "
+            "WHERE p.kind='agent' AND p.active=1 AND a.status='active' ORDER BY a.name, a.agent_id"):
+        names += [row["display_name"], row["name"]]
+        profile = current_global_data(row["profile_json"])
+        role = profile["role"]["id"] if profile else None
+        if role and role not in REPEATABLE_GLOBAL_ROLES:
+            names.append(role)
+    return names
+
+
 class ManagedCodexRunner(AppServerRunner):
     """The library's app-server runner, started on the Codex Qorqbot selects at each run.
 
@@ -98,7 +116,7 @@ def compose_context(application, paths, settings: ContextSettings | None = None)
     if settings.runner is None and not is_claude(settings.config or RunnerConfig()):
         settings = replace(settings, runner=ManagedCodexRunner(settings.config or RunnerConfig()))
     return integration.compose_context(application, context_locations(paths), settings, instruct_roles=INSTRUCT_ROLES,
-                                       coordinator=coordinator_of)
+                                       coordinator=coordinator_of, agent_names=agent_names_of)
 
 
 def wakes_context(event: dict) -> bool:

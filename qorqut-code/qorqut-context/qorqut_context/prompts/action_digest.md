@@ -34,10 +34,9 @@ is supporting text, not a separate accepted result.
 
 ### What not to file
 
-- No edge or node that only says an agent did something: "Atlas sent X",
-  "Ordubashy checked Y", "agent performed Z". The agents' work stays in the
-  action log; the Context keeps what that work established about the world. Do
-  not create or update a node for an agent to record its activity.
+- Nothing about the agents themselves: the rule on the installation's own
+  agents above applies to every line. Their work stays in the action log; the
+  Context keeps what that work established about the world.
 - No node for a Task, a table, a document, a run, a message, an email, a meeting
   or another event itself. A deliverable is a node only when it is a lasting
   product, account or asset that others will refer to by name.

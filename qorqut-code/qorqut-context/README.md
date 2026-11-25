@@ -6,8 +6,10 @@ handoff note; controlled OPERATIONAL_ACTION submissions file accepted action
 effects and shared Action history, with optional object timelines. The Qorqut
 host files recorded Actions as one GENERAL daily Action digest per local day
 (`foundation/action-digests/`, filed under `prompts/action_digest.md`); see
-[INTEGRATION.md](INTEGRATION.md#the-daily-action-digest). The handoff
-note is operational only. Format 3 adds atomic **notes** (separate Context records
+[INTEGRATION.md](INTEGRATION.md#the-daily-action-digest). Every filing run is
+told that the installation's own agents are not entities of the Context
+(`prompts/installation_agents.md`), with their names when the host supplies
+them. The handoff note is operational only. Format 3 adds atomic **notes** (separate Context records
 for reported happenings, intentions and qualified information), controlled
 **supervised edits** (a preserved supporting document plus explicit node/edge/note
 operations, no model) and add-only **question output** (runtime material outside
