@@ -1,11 +1,13 @@
-# Compaction of the coordinator's conversation
+# Compaction of an agent's conversation
 
-When Ordubashy's conversation fills up, Qorqbot does not let the client
-summarise it. Ordubashy files a handoff, the conversation is closed, and a fresh
-one starts from his instructions, the owner's own messages and that handoff.
+When an agent's conversation fills up, Qorqbot does not let the client
+summarise it. The agent files a handoff, the conversation is closed, and a fresh
+one starts from the agent's instructions, the owner's own messages to it and that
+handoff.
 
-This covers Ordubashy only, and only while he runs on Claude Code. Workers and
-Codex sessions still use the client's own compaction.
+This covers every agent, Ordubashy and the workers alike, and only while the
+agent runs on Claude Code. A Codex session still uses the client's own
+compaction.
 
 Paths are relative to `qorqut-code/app/qorqut/` unless they say otherwise.
 
@@ -16,9 +18,9 @@ Paths are relative to `qorqut-code/app/qorqut/` unless they say otherwise.
 | Instructions (role, rules, plugins) | Not carried. The fresh session's own role command loads them again. |
 | Skills and tool results read along the way | Not carried. The agent reads them again if it needs them. |
 | Operational state (Tasks, Signoffs, Actions) | Not copied. The handoff names the Task that holds each piece of work. |
-| The owner's messages | Quoted in their exact words from the records, each with a status the agent gave it. |
+| The owner's messages | Quoted in their exact words from the records, each with a status the agent gave it. An agent gets the messages the owner sent to it; Ordubashy also gets the private owner threads. |
 | Where the agent stopped | Two or three lines the agent writes, plus the last messages word for word. |
-| Who holds which work | One paragraph the agent writes, plus the open Tasks each worker holds, from the records. |
+| Who holds which work | Ordubashy only: one paragraph he writes, plus the open Tasks each worker holds, from the records. |
 
 No model writes a summary of the conversation.
 
@@ -39,7 +41,14 @@ compacted this way.
 ## The flow
 
 The controller's `step` runs on every pass of the native Chat backend. It never
-waits. One row of `compactions` is its whole durable state.
+waits. Every agent with a running session has a flow of its own, and one agent's
+flow, failure or timeout never touches another's. One row of `compactions` per
+agent is its whole durable state.
+
+An agent with a flow is read on every pass. The agents with a running session and
+no flow are looked at once every 5 seconds (`CHECK_SECONDS`): the state folders
+list the running sessions, and each one is asked for its state. A session that is
+not running is never read, started or woken.
 
 1. **Ask.** `CompactionHandoff.ask` creates the row and fixes the list of owner
    messages the handoff answers for. The request goes to the host as a plain
@@ -48,7 +57,9 @@ waits. One row of `compactions` is its whole durable state.
 2. **File.** The agent files any rule the owner stated on how agents work
    (`experience_observation_file`), then calls `compaction_handoff_file` once, from
    memory. The call is refused as a whole, with every reason, if a listed
-   message has no status or an open one names no Task.
+   message has no status, or Ordubashy's open one names no Task. Another agent's
+   open message may name none, and a Task the agent may not write on is a reason
+   in that list, not a bare denial.
 3. **Stop.** After the filing the controller waits for the turn to end. A turn
    that goes on for two minutes is interrupted.
 4. **Replace.** `SessionOpener.replace` closes the host and starts a fresh
@@ -89,19 +100,24 @@ takes:
 
 - `messages`: one entry per listed message with `status` (`done`, `partly`,
   `remaining`), a `note`, and for an open one the `task_id` that holds it and an
-  optional `next_step`.
+  optional `next_step`. Ordubashy must name the Task. Any other agent leaves
+  `task_id` out when no Task holds the work; the opening then shows the status
+  and note without a Task to read.
 - `tasks`: notes for Tasks that no owner message is tied to.
 - `stopped`: the step in progress, the last action and its result, the next
   action, and what is being waited on.
-- `workers`: who was assigned what.
+- `workers`: who was assigned what. Ordubashy must give it; any other agent may
+  leave it out, and the opening then has no section for it.
 - `not_recorded`: anything that sits on no record.
 
 Filing is what records it. Each note is written onto the Task it names as a
 comment, and a next step is set there, through the Task engine's own
-operations. The owner's words are never copied into a Task note.
+operations. The owner's words are never copied into a Task note. An agent whose
+role may not write on Tasks (the Learning Applier) can name none: its filing
+says what matters in the notes.
 
-Both tools are for the configured Ordubashy in person. A worker, a delegated
-identity and the owner are refused.
+Both tools are for an agent in person, and each agent reads and files only its
+own handoff. A delegated identity and the owner are refused.
 
 A message that is `partly` or `remaining` is listed again in the next handoff
 until one marks it `done`.
@@ -148,13 +164,13 @@ neither id.
 |---|---|
 | `0` | Nothing here. The client compacts as before. |
 | `1` | This compaction, with the client's own left in place behind it. The client's own compaction has come at about 330,000 tokens, only about 30,000 after this one asks, so a slow filing can be overtaken by it; the handoff is then filed from the client's summary. |
-| unset or `only` (the default) | This compaction, and Ordubashy's Claude session is started with `DISABLE_AUTO_COMPACT=1`, so the client never compacts on its own, neither at its limit nor while idle (checked in Claude Code 2.1.328). Its manual `/compact` stays. |
+| unset or `only` (the default) | This compaction, and every agent's Claude session is started with `DISABLE_AUTO_COMPACT=1`, so the client never compacts on its own, neither at its limit nor while idle (checked in Claude Code 2.1.328). Its manual `/compact` stays. |
 
 The variable for `only` comes from the client table
 (`managed_runtime/clients.py`, `launch_environment`). The managed runtime asks
 `CompactionController.replaces_client` at each start of a session, so a change
-of the value applies from the session's next start. No other agent's session
-gets it.
+of the value applies from the session's next start. A Codex session has no such
+switch and keeps its own compaction.
 
 ## Checking a change to the handoff
 

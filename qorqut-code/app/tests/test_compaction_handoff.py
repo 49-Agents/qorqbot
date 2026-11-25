@@ -1,14 +1,16 @@
-"""The coordinator's compaction handoff: what a filing writes, what it refuses, what the next conversation starts with and
+"""An agent's compaction handoff: what a filing writes, what it refuses, what the next conversation starts with and
 which messages the handoff after it answers for. Over the real Task engine; the owner's messages are a list in the test."""
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace as NS
+from unittest import mock
 from uuid import uuid4
 
-from qorqut_operations.contracts import plain
+from qorqut_operations.contracts import PolicyDecision, plain
 
 from qorqut.composition.delegation import HOST_REVIEW_EXCEPTIONS
-from qorqut.domains.compaction_handoff import CompactionHandoff
+from qorqut.composition.policy import resolve_operation_policy
+from qorqut.domains.compaction_handoff import CompactionHandoff, NAME
 
 from test_single_source import Fixture
 
@@ -145,14 +147,132 @@ class CompactionHandoffTests(HandoffCase):
             'Task zzzzz: no Task has this id'])
         self.assertEqual((self.rows(), self.seen(self.pay)), ([], (None, [])))
 
-    def test_only_the_coordinator_in_person_files_or_reads_the_form(self):
+    def test_the_owner_and_a_delegated_identity_neither_file_nor_read_the_form(self):
         self.say('Pay the creators today.', 10)
-        for who in (self.worker, self.owner):
+        delegated = replace(self.ctx(self.lead), delegation_binding_id=str(uuid4()), delegation_assignment_id=str(uuid4()),
+                            delegation_generation=1)
+        for who in (self.ctx(self.owner), delegated):
             for operation, arguments in (('compaction_handoff_file', {'messages': [], 'stopped': STOPPED, 'workers': ''}),
                                          ('compaction_handoff_get', {})):
-                result = self.app.invoke(self.ctx(who), operation, {'scope': 'global', **arguments}, {'idempotency_key': str(uuid4())})
+                # The delegation is judged by the handler itself, as the engine's own refusal of it is not installed here.
+                with mock.patch.object(self.app, 'current_context', side_effect=lambda ctx, uow: ctx):
+                    result = self.app.invoke(who, operation, {'scope': 'global', **arguments}, {'idempotency_key': str(uuid4())})
                 self.assertEqual((result.status, result.error['code']), ('error', 'forbidden'))
         self.assertEqual(self.rows(), [])
+
+    def test_every_role_may_call_both_tools(self):
+        for role in ('ordubashy', 'global-worker', 'learning-applier'):
+            for name in ('compaction_handoff_get', NAME):
+                self.assertEqual(resolve_operation_policy(name, {}, {}, self.registry, role_id=role, scope='global').mode, 'allow')
+        for name in ('compaction_handoff_get', NAME):
+            self.assertNotIn('Coordinator only', self.registry.get(name).description)
+
+    def test_a_worker_files_its_own_handoff_without_workers_and_the_coordinator_may_not_leave_them_out(self):
+        self.say('Pay the creators today.', 10)
+        arguments = {'messages': [{'id': 'm1', 'status': 'partly', 'note': 'Half paid.', 'task_id': self.pay, 'next_step': 'Pay the rest'}],
+                     'stopped': STOPPED}
+        refusal = self.app.invoke(self.ctx(self.lead), 'compaction_handoff_file', {'scope': 'global', **arguments},
+                                  {'idempotency_key': str(uuid4())})
+        self.assertEqual(refusal.error['code'], 'validation_error')
+        self.assertIn('workers is required of the coordinator', refusal.error['message'])
+        self.assertEqual(self.rows(), [])
+        result = plain(self.ok(self.app.invoke(self.ctx(self.worker), 'compaction_handoff_file', {'scope': 'global', **arguments},
+                                               {'idempotency_key': str(uuid4())})))
+        self.assertEqual((result['filed'], result['messages']), (True, 1))
+        row, = self.rows()
+        self.assertEqual((row['agent_id'], row['filing_json']['workers']), (self.worker, ''))
+        with self.db.read() as uow:
+            text = self.tool.opening(self.ctx(self.worker), uow)['text']
+        self.assertIn('PARTLY: Half paid.', text)
+        self.assertNotIn('YOUR WORKERS', text)
+
+    def test_an_agent_reads_and_files_only_its_own_handoff(self):
+        self.say('Pay the creators today.', 10)
+        self.filed([{'id': 'm1', 'status': 'done', 'note': 'Paid.'}])
+        mine, = self.rows()
+        self.app.invoke(self.ctx(self.worker), 'compaction_handoff_file', {
+            'scope': 'global', 'messages': [{'id': 'm1', 'status': 'done', 'note': 'Also paid.'}], 'stopped': STOPPED},
+            {'idempotency_key': str(uuid4())})
+        coordinator, worker = sorted(self.rows(), key=lambda row: row['agent_id'] != self.lead)
+        self.assertEqual((coordinator['id'], coordinator['filing_json']['messages'][0]['note']), (mine['id'], 'Paid.'))
+        self.assertEqual((worker['agent_id'], worker['filing_json']['messages'][0]['note']), (self.worker, 'Also paid.'))
+        with self.db.read() as uow:
+            self.assertEqual((self.tool.rows(uow, self.lead)[0]['id'], self.tool.rows(uow, self.worker)[0]['id']), (mine['id'], worker['id']))
+
+    def test_a_long_owner_message_is_cut_for_the_coordinator_only_and_a_worker_gets_it_whole(self):
+        long = 'Pay everyone. ' + 'x' * 4986
+        self.say(long, 10)
+        for who, whole in ((self.lead, False), (self.worker, True)):
+            with self.db.transaction() as uow:
+                self.tool.ask(self.ctx(who), uow)
+            with self.db.read() as uow:
+                text = self.tool.opening(self.ctx(who), uow)['text']
+            self.assertEqual((long in text, 'owner_input_get' in text), (whole, not whole))
+            self.assertIn('…[cut: read all of it with owner_input_get ' if not whole else long, text)
+
+    def test_a_non_coordinator_files_an_open_message_without_a_task_and_the_coordinator_may_not(self):
+        self.say('Pay the creators today.', 10)
+        entry = {'id': 'm1', 'status': 'partly', 'note': 'Half paid; no Task holds it.'}
+        refusal = self.app.invoke(self.ctx(self.lead), 'compaction_handoff_file', {'scope': 'global', 'messages': [entry], 'stopped': STOPPED,
+                                                                                  'workers': ''}, {'idempotency_key': str(uuid4())})
+        self.assertIn('m1 is partly and names no Task: give task_id, and create the Task first if none holds this work.', refusal.error['message'])
+        self.ok(self.app.invoke(self.ctx(self.worker), 'compaction_handoff_file', {'scope': 'global', 'messages': [entry], 'stopped': STOPPED},
+                                {'idempotency_key': str(uuid4())}))
+        with self.db.read() as uow:
+            text = self.tool.opening(self.ctx(self.worker), uow)['text']
+        self.assertIn('[2026-11-18 09:10 UTC, chat] Pay the creators today.\n    PARTLY: Half paid; no Task holds it.', text)
+        self.assertNotIn('Read: Task', text)
+
+    def test_the_request_tells_each_agent_what_to_do_with_work_no_task_holds(self):
+        self.say('Pay the creators today.', 10)
+        for who, said in ((self.lead, 'so name the Task that really holds the work, and create one first where an open message has none. After'),
+                          (self.worker, 'so name the Task that really holds the work; an open message that no Task holds is filed without one. After')):
+            with self.db.transaction() as uow:
+                _, request = self.tool.ask(self.ctx(who), uow)
+            self.assertIn(said, request)
+
+    def test_a_task_the_agent_may_not_write_on_is_a_listed_reason_and_filing_without_it_writes_nothing_there(self):
+        self.say('Pay the creators today.', 10)
+        resolve = self.app.policy.resolve
+        self.app.policy.resolve = lambda ctx, descriptor, targets, uow: (
+            PolicyDecision('deny', 'test') if descriptor.name in ('tasks_update', 'tasks_comment') else resolve(ctx, descriptor, targets, uow))
+        entry = {'id': 'm1', 'status': 'partly', 'note': 'Half paid.', 'task_id': self.pay, 'next_step': 'Pay the rest'}
+        arguments = {'scope': 'global', 'messages': [entry], 'stopped': STOPPED}
+        refusal = self.app.invoke(self.ctx(self.worker), 'compaction_handoff_file', arguments, {'idempotency_key': str(uuid4())})
+        self.assertEqual(refusal.error['code'], 'validation_error')
+        self.assertEqual(plain(refusal.error['details'])['problems'], [
+            f'Task {self.pay}: you may not write on this Task; leave its task_id out and say what matters in the note.'])
+        self.assertEqual((self.rows(), self.seen(self.pay)), ([], (None, [])))
+        # The coordinator is judged as before: a denied write is a bare denial.
+        bare = self.app.invoke(self.ctx(self.lead), 'compaction_handoff_file', {**arguments, 'workers': ''}, {'idempotency_key': str(uuid4())})
+        self.assertEqual(bare.error['code'], 'policy_denied')
+        arguments['messages'] = [{key: value for key, value in entry.items() if key not in ('task_id', 'next_step')}]
+        self.ok(self.app.invoke(self.ctx(self.worker), 'compaction_handoff_file', arguments, {'idempotency_key': str(uuid4())}))
+        self.assertEqual(self.seen(self.pay), (None, []))
+
+    def test_an_agent_that_may_write_on_tasks_has_its_note_and_next_step_written_on_the_task_it_names(self):
+        self.say('Pay the creators today.', 10)
+        entry = {'id': 'm1', 'status': 'partly', 'note': 'Half paid.', 'task_id': self.pay, 'next_step': 'Pay the rest'}
+        self.ok(self.app.invoke(self.ctx(self.worker), 'compaction_handoff_file', {'scope': 'global', 'messages': [entry], 'stopped': STOPPED},
+                                {'idempotency_key': str(uuid4())}))
+        step, notes = self.seen(self.pay)
+        self.assertEqual((step, len(notes)), ('Pay the rest', 1))
+        self.assertIn('is partly. Half paid.', notes[0])
+
+    def test_an_agent_with_no_owner_messages_is_asked_and_opened_in_plain_words(self):
+        with self.db.transaction() as uow:
+            _, request = self.tool.ask(self.ctx(self.worker), uow)
+        self.assertNotIn('listed below', request)
+        self.assertTrue(request.endswith("The owner's messages to give a status:\n(none in this period: give an empty list for messages)"))
+        self.assertEqual(self.ok(self.app.invoke(self.ctx(self.worker), 'compaction_handoff_get', {'scope': 'global'}, {}))['messages'], ())
+        self.ok(self.app.invoke(self.ctx(self.worker), NAME, {'scope': 'global', 'messages': [], 'stopped': STOPPED},
+                                {'idempotency_key': str(uuid4())}))
+        with self.db.read() as uow:
+            text = self.tool.opening(self.ctx(self.worker), uow)['text']
+        self.assertTrue(text.startswith('This conversation continues your work.'))
+        self.assertEqual([part.split('\n')[0] for part in text.split('\n\n')[1:]], ['WHERE YOU STOPPED'])
+        self.assertNotIn('THE OWNER', text)
+
 
     def test_filing_again_before_the_next_conversation_replaces_the_filing(self):
         self.say('Pay the creators today.', 10)

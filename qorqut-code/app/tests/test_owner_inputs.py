@@ -283,7 +283,7 @@ class OwnerInputsTests(unittest.TestCase):
     def test_the_coordinators_own_messages_for_a_handoff_are_its_chat_and_the_private_threads(self):
         early, _ = self.turn(self.lead, "Send the contract.", at(8))
         mine, _ = self.turn(self.lead, "Chase the invoice.", at(10), via="chat")
-        self.turn(self.worker, "Worker, clean the list.", at(10, 30), via="chat")
+        theirs, _ = self.turn(self.worker, "Worker, clean the list.", at(10, 30), via="chat")
         hidden, _ = self.turn(self.lead, "secret-code-4417", at(11), redacted=True)
         unread, _ = self.turn(self.lead, "Call the bank.", at(11, 30))
         self.archives[self.lead].records.pop()
@@ -291,8 +291,13 @@ class OwnerInputsTests(unittest.TestCase):
         self.stamp_thread("Did the supplier confirm?", at(12))
         with self.runtime.database.read() as uow:
             found = self.runtime.owner_inputs.addressed(self.runtime.coordinator, uow, since=at(9), until=at(13), ids=(early, "chat:" + "0" * 64))
+            # Another agent gets its own chat, never the coordinator's chat, not even by id, and no private thread.
+            own = self.runtime.owner_inputs.addressed(self.runtime.worker, uow, since=at(9), until=at(13), ids=(early,))
+            delegated = replace(self.runtime.worker, delegation_binding_id=new_id(), delegation_assignment_id=new_id(),
+                                delegation_generation=1)
             with self.assertRaises(DomainError) as refusal:
-                self.runtime.owner_inputs.addressed(self.runtime.worker, uow, since=at(9), until=at(13))
+                self.runtime.owner_inputs.addressed(delegated, uow, since=at(9), until=at(13))
+        self.assertEqual([(item["id"], item["channel"], item["text"]) for item in own], [(theirs, "chat", "Worker, clean the list.")])
         self.assertEqual(refusal.exception.code, "forbidden")
         # Its own chat only, a message named by id from before the period, and a message without text keeps its place.
         self.assertEqual([(item["id"], item["channel"], item["text"], item["redacted"]) for item in found[:4]], [
@@ -301,6 +306,17 @@ class OwnerInputsTests(unittest.TestCase):
         self.assertEqual((found[4]["channel"], found[4]["text"], found[4]["place"]),
                          ("thread", "Did the supplier confirm?", {"type": "signoff", "id": chat["id"], "project_id": None, "title": "A private thread"}))
         self.assertEqual(len(found), 5)
+
+    def test_a_carried_id_is_still_listed_for_the_coordinator_and_the_owner_whatever_its_channel_or_agent(self):
+        carried, _ = self.turn(self.lead, "Send the contract.", at(8))
+        theirs, _ = self.turn(self.worker, "Clean the list.", at(8, 30), via="chat")
+        create(self.runtime, "Earlier question?")
+        self.stamp_thread("Earlier question?", at(7))
+        with self.runtime.database.read() as uow:
+            thread = "thread:" + uow.connection.execute("SELECT id FROM owner_conversation_messages WHERE body=?", ("Earlier question?",)).fetchone()[0]
+            for ctx in (self.runtime.coordinator, self.runtime.owner):
+                found = self.runtime.owner_inputs.addressed(ctx, uow, since=at(9), until=at(13), ids=(carried, thread, theirs))
+                self.assertEqual([(item["id"], item["channel"]) for item in found], [(thread, "thread"), (carried, "chat"), (theirs, "chat")])
 
     def test_only_the_owner_and_the_coordinator_in_person_may_read(self):
         self.turn(self.lead, "Send the contract.", at(9))

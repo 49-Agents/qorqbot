@@ -124,7 +124,7 @@ class NativeBackend:
         retention = getattr(self.runtime, 'overseer_retention', None)
         if retention is not None:
             retention.drain.step()
-        # Qorqut's own compaction of the coordinator's conversation (``compaction.py``): one stage per pass, never a wait.
+        # Qorqut's own compaction of every agent's conversation (``compaction.py``): one stage per pass, never a wait.
         compaction = getattr(self.runtime, 'compaction', None)
         if compaction is not None:
             compaction.step()

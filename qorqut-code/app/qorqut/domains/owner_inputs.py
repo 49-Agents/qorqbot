@@ -223,14 +223,14 @@ class OwnerInputs:
 
     # ----- who may read ----------------------------------------------------------------------------------------------
 
-    def caller(self, ctx, uow):
-        """The installation owner or the configured coordinator in person, at Global. A delegated identity acts for its parent
-        on one assignment and never reads the owner's words across the installation."""
+    def caller(self, ctx, uow, *, any_agent=False):
+        """The installation owner or the configured coordinator in person, at Global; with ``any_agent``, any agent in person.
+        A delegated identity acts for its parent on one assignment and never reads the owner's words across the installation."""
         ctx = self.app.current_context(replace(ctx, project_id=None, review_project_id=None), uow)
         owner, coordinator = installation_owner(uow), configured_ordubashy(uow)
         personal = ctx.delegation_assignment_id is None
-        if not personal or not owner or not ((ctx.principal_kind == "human" and ctx.principal_id == owner)
-                                              or (ctx.principal_kind == "agent" and coordinator and ctx.principal_id == coordinator)):
+        agent = ctx.principal_kind == "agent" and (any_agent or coordinator and ctx.principal_id == coordinator)
+        if not personal or not owner or not ((ctx.principal_kind == "human" and ctx.principal_id == owner) or agent):
             raise DomainError("forbidden", "The conversation with the owner is read by the owner or Ordubashy")
         return _Reading(self, ctx, uow, owner, coordinator)
 
@@ -341,21 +341,24 @@ class OwnerInputs:
         return {"item": item}
 
     def addressed(self, ctx, uow, *, since, until, ids=(), limit=PAGE_LIMIT):
-        """The owner's messages to the coordinator itself, oldest first: its own chat and the private owner threads. The
-        newest ``limit`` of each written in ``[since, until)``, and the ones named by ``ids`` whenever they were written.
-        Each is ``{id, at, channel, place, text, redacted}``; ``text`` is None for a possibly private input and for a
-        message that cannot be read now, so a message never drops out of the list for that. For the owner and the
-        coordinator in person. A compaction handoff answers for exactly these."""
-        reading = self.caller(ctx, uow)
+        """The owner's messages to the calling agent itself, oldest first: its own chat and, for the coordinator, the private
+        owner threads. The newest ``limit`` of each written in ``[since, until)``, and the ones named by ``ids`` whenever
+        they were written. Each is ``{id, at, channel, place, text, redacted}``; ``text`` is None for a possibly private
+        input and for a message that cannot be read now, so a message never drops out of the list for that. For any agent in
+        person, and for the owner, whose messages are the coordinator's. A compaction handoff answers for exactly these."""
+        reading = self.caller(ctx, uow, any_agent=True)
+        agent = reading.ctx.principal_id if reading.ctx.principal_kind == "agent" else reading.coordinator
         window = {"since": since, "until": until, "after": (FIRST, FIRST)}
-        rows = {row["item"]: row for channel, agent in (("chat", reading.coordinator), ("thread", None))
-                for row in reading.rows([channel], window, limit, agent, newest=True)}
+        sources = (("chat", agent), ("thread", None)) if agent == reading.coordinator else (("chat", agent),)
+        rows = {row["item"]: row for channel, owner_of in sources
+                for row in reading.rows([channel], window, limit, owner_of, newest=True)}
         for identity in ids:
             channel = identity.split(":", 1)[0]
-            if identity in rows or channel not in ("chat", "thread"):
+            if identity in rows or channel not in dict(sources):
                 continue
-            found = reading.connection.execute(f"SELECT * FROM ({ROWS[channel]}) WHERE item=:item",
-                                               {"owner": reading.owner, "item": identity}).fetchall()
+            own = " AND agent_id=:agent" if channel == "chat" and agent != reading.coordinator else ""
+            found = reading.connection.execute(f"SELECT * FROM ({ROWS[channel]}) WHERE item=:item{own}",
+                                               {"owner": reading.owner, "item": identity, "agent": agent}).fetchall()
             if len(found) == 1:
                 rows[identity] = {**dict(found[0]), "channel": channel}
         return [reading.message(row) for row in sorted(rows.values(), key=lambda row: (row["at"], row["item"]))]
