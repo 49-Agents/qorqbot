@@ -1,9 +1,10 @@
 // Context graph (mockup): Ordubashy's right-pane view of the Global Context base as a graph. Map shows every linked
-// record as a dot coloured by family; Focus shows one record and its neighbourhood in rings, all labelled; the card under
+// record as a dot coloured by family; Focus shows one record and the records linked to it, all named; the card under
 // the graph names the record, quotes it and lists its connections. Drawn with the vendored force-graph (js/vendor).
 //
-// MOCKUP: the overview is read by walking every context_home page (about 18 reads of 60). A real build wants one compact
-// overview read (ids, names, families, edge pairs) from the Context reader instead of walking Home.
+// MOCKUP: the overview is read by walking every context_home page (about 18 reads of 60, one after another because the
+// cursor is opaque) and then context_expand around every record Home cut short. A real build wants one compact overview
+// read (ids, names, families, edge pairs) from the Context reader instead of walking Home.
 const CBRAIN_FAMILIES = [
   ['people', 'People', ['person']],
   ['orgs', 'Organizations', ['organization', 'company']],
@@ -13,68 +14,52 @@ const CBRAIN_FAMILIES = [
   ['materials', 'Materials', ['note', 'document', 'table', 'directory']],
   ['other', 'Other', []],
 ];
-const CBRAIN_PREFS = 'cbrain:prefs:v1';
-const CBRAIN_RING_CAP = 44, CBRAIN_FOCUS_CAP = 90;   // labelled first ring; whole focus
+const CBRAIN_PREFS = 'cbrain:prefs:v2';
+const CBRAIN_REFRESH_MS = 60000;
+const CBRAIN_EASE_MS = 320;
 const cbrainFamily = type => (CBRAIN_FAMILIES.find(([, , types]) => types.includes(type)) || CBRAIN_FAMILIES[CBRAIN_FAMILIES.length - 1])[0];
+const cbrainFamilyIndex = key => CBRAIN_FAMILIES.findIndex(([family]) => family === key);
 const cbrainFirst = (attributes, key) => Array.isArray(attributes?.[key]) && attributes[key].length ? String(attributes[key][0]) : '';
 const cbrainPlain = text => String(text || '').replace(/^#+\s*/gm, '').replace(/[*_`>]/g, '').replace(/\s+/g, ' ').trim();
 const cbrainTypeLabel = type => String(type || 'record').replace(/_/g, ' ');
+// A short label: cut at a word boundary with an ellipsis.
+function cbrainShort(text, max = 28) {
+  text = String(text || '');
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max - 1), space = cut.lastIndexOf(' ');
+  return (space > max * 0.5 ? cut.slice(0, space) : cut).replace(/[\s,.;:–-]+$/, '') + '…';
+}
+// An excerpt that ends on a sentence (or failing that a word), never mid-word or mid-date.
+function cbrainExcerpt(text, max = 300) {
+  if (text.length <= max) return {text, cut: false};
+  const head = text.slice(0, max);
+  const sentence = Math.max(...['. ', '! ', '? '].map(mark => head.lastIndexOf(mark)));
+  if (sentence > max * 0.45) return {text: head.slice(0, sentence + 1), cut: true};
+  return {text: cbrainShort(head, max), cut: true};
+}
 
-function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
-  const reads = new AbortController();
-  const disposers = [];
-  let prefs = {mode: 'map', depth: 1, hidden: [], unlinked: true, card: true};
-  try { prefs = {...prefs, ...JSON.parse(ls(CBRAIN_PREFS) || '{}')}; } catch (_) { /* defaults */ }
-  const save = () => ls(CBRAIN_PREFS, JSON.stringify({depth: prefs.depth, hidden: prefs.hidden, unlinked: prefs.unlinked, card: prefs.card, mode: prefs.mode, last: prefs.last}));
+// The graph read once per page session: reopening the tab, or switching agents and back, draws at once; a copy older
+// than a minute is read again in the background and used from the next opening.
+let cbrainCache = null, cbrainRefreshing = null;
 
-  host.innerHTML = `<section class="cbrain" aria-label="Context graph">
-    <header class="cbrain-head">
-      <button type="button" class="cbrain-icon cbrain-back" aria-label="Back to the previous record" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>
-      <div class="cbrain-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        <input type="search" placeholder="Search context" aria-label="Search context" autocomplete="off" spellcheck="false"><div class="cbrain-results" role="listbox" hidden></div></div>
-      <div class="cbrain-seg" role="group" aria-label="View"><button type="button" class="cbrain-segb" data-mode="map">Map</button><button type="button" class="cbrain-segb" data-mode="focus">Focus</button></div>
-      <div class="cbrain-seg cbrain-depth" role="group" aria-label="Depth"><button type="button" class="cbrain-segb" data-depth="1">1</button><button type="button" class="cbrain-segb" data-depth="2">2</button></div>
-    </header>
-    <div class="cbrain-filters" role="group" aria-label="Families"></div>
-    <div class="cbrain-stage"><div class="cbrain-canvas"></div><p class="cbrain-status" role="status">Reading context…</p>
-      <div class="cbrain-zoom"><button type="button" class="cbrain-icon" data-zoom="fit" aria-label="Fit to view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button></div></div>
-    <aside class="cbrain-card" hidden></aside>
-  </section>`;
-  const $q = selector => host.querySelector(selector);
-  const root = $q('.cbrain'), stage = $q('.cbrain-stage'), canvasHost = $q('.cbrain-canvas'), status = $q('.cbrain-status');
-  const search = $q('.cbrain-search input'), results = $q('.cbrain-results'), card = $q('.cbrain-card'), backButton = $q('.cbrain-back');
-
-  const nodes = new Map(), edges = new Map(), adjacency = new Map();
-  let totals = null, graph = null, palette = {}, selected = null, trail = [], hover = null, hoverLink = null, mapData = null;
-  let fitPending = false, dead = false;
-  const live = () => !dead && isCurrent();
-
-  // ---- palette: read from CSS at paint time so the light and dark themes both apply
-  const readPalette = () => {
-    const style = getComputedStyle(root), v = name => style.getPropertyValue(name).trim();
-    palette = {fg: v('--fg'), fg2: v('--fg-2'), fg3: v('--fg-3'), bg: v('--bg'), line: v('--cb-link'), lineHi: v('--cb-link-hi'), halo: v('--cb-halo'),
-      family: Object.fromEntries(CBRAIN_FAMILIES.map(([key]) => [key, v(`--cb-${key}`)]))};
-  };
-  const themeWatch = new MutationObserver(() => { readPalette(); paintFilters(); });
-  themeWatch.observe(document.documentElement, {attributes: true, attributeFilter: ['data-theme']});
-  disposers.push(() => themeWatch.disconnect());
-
-  // ---- data
-  const op = (operation, args) => pageReadPost(`/root/operations/${operation}`, args, reads.signal).then(coreData);
+function cbrainStore() {
+  const nodes = new Map(), edges = new Map(), adjacency = new Map(), expanded = new Set();
   const addNode = item => {
     if (!item || item.kind !== 'node' || nodes.has(item.id)) return;
     const a = item.attributes || {}, type = cbrainFirst(a, 'basic_entity_type');
-    nodes.set(item.id, {id: item.id, ref: item.ref, name: cbrainFirst(a, 'name') || cbrainPlain(item.summary).slice(0, 60) || 'Untitled',
-      type, family: cbrainFamily(type), aliases: (a.aliases || []).map(String),
-      text: cbrainPlain(cbrainFirst(a, 'definition') || item.summary || cbrainFirst(a, 'body')), count: item.relationship_count || 0});
+    const name = cbrainFirst(a, 'name') || cbrainShort(cbrainPlain(item.summary), 60) || 'Untitled';
+    nodes.set(item.id, {id: item.id, ref: item.ref, name, label: cbrainShort(name), type, family: cbrainFamily(type),
+      aliases: (a.aliases || []).map(String), text: cbrainPlain(cbrainFirst(a, 'definition') || item.summary || cbrainFirst(a, 'body')),
+      count: item.relationship_count || 0});
   };
   const addEdge = rel => {
     if (!rel || rel.kind !== 'edge' || edges.has(rel.id)) return false;
-    edges.set(rel.id, {id: rel.id, source: rel.from.id, target: rel.to.id, name: cbrainFirst(rel.attributes, 'name') || cbrainFirst(rel.attributes, 'tags') || 'related',
-      kind: (cbrainFirst(rel.attributes, 'tags') || cbrainFirst(rel.attributes, 'name') || 'related').replace(/_/g, ' ')});
+    const name = cbrainFirst(rel.attributes, 'name'), tag = cbrainFirst(rel.attributes, 'tags');
+    edges.set(rel.id, {id: rel.id, source: rel.from.id, target: rel.to.id, name: name || tag.replace(/_/g, ' ') || 'related',
+      kind: (tag || name || 'related').replace(/_/g, ' ')});
     return true;
   };
-  const rebuildAdjacency = () => {
+  const rebuild = () => {
     adjacency.clear();
     for (const id of nodes.keys()) adjacency.set(id, []);
     for (const edge of edges.values()) {
@@ -85,157 +70,319 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
     for (const node of nodes.values()) node.degree = Math.max(adjacency.get(node.id).length, node.count);
     [...nodes.values()].sort((a, b) => b.degree - a.degree).forEach((node, rank) => { node.rank = rank; });
   };
-  async function loadAll() {
-    let cursor = null, pages = 0;
-    const started = performance.now();
-    do {
-      const data = await op('context_home', {limit: 60, ...(cursor ? {cursor} : {})});
-      if (!live()) return;
-      if (data.status !== 'ready') {
-        status.textContent = data.status === 'not_initialized' ? 'Context has not been set up yet.' : 'Context cannot be read right now.';
-        return;
-      }
-      totals = data.totals;
-      for (const item of data.nodes || []) { addNode(item); for (const rel of item.relationships || []) addEdge(rel); }
-      pages++;
-      status.textContent = `Reading context… ${nodes.size.toLocaleString()} of ${totals.nodes.toLocaleString()}`;
-      cursor = data.page?.has_more ? data.page.next_cursor : null;
-    } while (cursor && pages < 60);
-    // Home pages carry at most a few relationships per record; read the rest around every record that has more.
-    const truncated = [...nodes.values()].filter(node => node.count > 5).sort((a, b) => b.count - a.count);
-    for (let i = 0; i < truncated.length; i += 6) {
-      await Promise.all(truncated.slice(i, i + 6).map(node => expand(node.id, 1)));
-      if (!live()) return;
+  return {nodes, edges, adjacency, expanded, addNode, addEdge, rebuild, totals: null, at: 0};
+}
+
+// Reads the whole graph into a fresh store. `progress(text)` reports plain status lines.
+async function cbrainLoad(signal, progress = () => {}) {
+  const store = cbrainStore();
+  const op = (operation, args) => pageReadPost(`/root/operations/${operation}`, args, signal).then(coreData);
+  let cursor = null, pages = 0;
+  do {
+    const data = await op('context_home', {limit: 60, ...(cursor ? {cursor} : {})});
+    if (data.status !== 'ready') {
+      const error = new Error(data.status === 'not_initialized' ? 'Context is not set up yet.' : 'Context can’t be read right now.');
+      error.plain = true; throw error;
     }
-    rebuildAdjacency();
-    root.dataset.reads = String(pages);
-    root.dataset.loadMs = String(Math.round(performance.now() - started));
-    status.hidden = true;
-    start();
-  }
-  // All relationships around one record (depth 1 or 2), following pages.
-  const expanded = new Map();
-  async function expand(id, depth) {
-    if ((expanded.get(id) || 0) >= depth) return false;
-    const node = nodes.get(id);
-    let cursor = null, added = false, guard = 0;
-    do {
-      const data = await op('context_expand', {ref: node.ref, depth, direction: 'both', limit: 200, ...(cursor ? {cursor} : {})});
-      if (data.status !== 'ready') return added;
-      for (const rel of data.relationships || []) added = addEdge(rel) || added;
-      cursor = data.page?.has_more ? data.page.next_cursor : null;
-    } while (cursor && ++guard < 10);
-    expanded.set(id, depth);
-    return added;
-  }
+    store.totals = data.totals;
+    for (const item of data.nodes || []) { store.addNode(item); for (const rel of item.relationships || []) store.addEdge(rel); }
+    pages++;
+    progress(`Loading context… ${store.nodes.size.toLocaleString()} of ${data.totals.nodes.toLocaleString()}`);
+    cursor = data.page?.has_more ? data.page.next_cursor : null;
+  } while (cursor && pages < 60);
+  // Home pages carry at most five relationships per record; read the rest around every record that has more.
+  const cut = [...store.nodes.values()].filter(node => node.count > 5).sort((a, b) => b.count - a.count);
+  let done = 0, next = 0;
+  const worker = async () => {
+    while (next < cut.length) {
+      const node = cut[next++];
+      await cbrainExpand(store, node.id, signal);
+      progress(`Loading links… ${++done} of ${cut.length}`);
+    }
+  };
+  await Promise.all(Array.from({length: Math.min(6, cut.length)}, worker));
+  store.rebuild();
+  store.at = Date.now();
+  store.reads = pages + cut.length;
+  return store;
+}
+// Every relationship of one record, following pages. True when something new was added.
+async function cbrainExpand(store, id, signal) {
+  if (store.expanded.has(id)) return false;
+  const node = store.nodes.get(id);
+  let cursor = null, added = false, guard = 0;
+  do {
+    const data = await pageReadPost('/root/operations/context_expand',
+      {ref: node.ref, depth: 1, direction: 'both', limit: 200, ...(cursor ? {cursor} : {})}, signal).then(coreData);
+    if (data.status !== 'ready') return added;
+    for (const rel of data.relationships || []) added = store.addEdge(rel) || added;
+    cursor = data.page?.has_more ? data.page.next_cursor : null;
+  } while (cursor && ++guard < 10);
+  store.expanded.add(id);
+  return added;
+}
+
+function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
+  const reads = new AbortController();
+  const disposers = [];
+  let prefs = {mode: 'map', hidden: [], unlinked: true, card: true, last: null};
+  try { prefs = {...prefs, ...JSON.parse(ls(CBRAIN_PREFS) || '{}')}; } catch (_) { /* defaults */ }
+  prefs.mode = 'map';   // the tab always opens on the Map; Focus reopens the last record
+  const save = () => ls(CBRAIN_PREFS, JSON.stringify({hidden: prefs.hidden, unlinked: prefs.unlinked, card: prefs.card, last: prefs.last}));
+
+  host.innerHTML = `<section class="cbrain" aria-label="Context graph" data-mode="map">
+    <header class="cbrain-head">
+      <button type="button" class="cbrain-icon cbrain-back" aria-label="Back to the previous record" title="Back" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>
+      <div class="cbrain-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input type="search" placeholder="Search context" aria-label="Search context" autocomplete="off" spellcheck="false"><div class="cbrain-results" role="listbox" hidden></div></div>
+      <div class="cbrain-seg" role="group" aria-label="View"><button type="button" class="cbrain-segb" data-mode="map" aria-pressed="true">Map</button><button type="button" class="cbrain-segb" data-mode="focus" aria-pressed="false">Focus</button></div>
+    </header>
+    <div class="cbrain-filters" role="group" aria-label="Families"></div>
+    <div class="cbrain-stage"><div class="cbrain-canvas"></div><p class="cbrain-status" role="status">Loading context…</p>
+      <div class="cbrain-tip" hidden></div>
+      <button type="button" class="cbrain-icon cbrain-fit" aria-label="Fit to view" title="Fit to view" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button></div>
+    <aside class="cbrain-card" hidden></aside>
+  </section>`;
+  const $q = selector => host.querySelector(selector);
+  const root = $q('.cbrain'), stage = $q('.cbrain-stage'), canvasHost = $q('.cbrain-canvas'), status = $q('.cbrain-status');
+  const search = $q('.cbrain-search input'), results = $q('.cbrain-results'), card = $q('.cbrain-card'), backButton = $q('.cbrain-back');
+  const tip = $q('.cbrain-tip'), fitButton = $q('.cbrain-fit');
+
+  let store = null, graph = null, palette = {}, selected = null, trail = [], hover = null, hoverLink = null;
+  let fitPending = false, dead = false, focusInfo = {shown: 0, total: 0}, cardMore = false, openGroups = new Set(), tweenFrame = 0;
+  let pointer = {x: 0, y: 0};
+  const live = () => !dead && isCurrent();
+  // The canvas is sized from the stage's box (the pane may be scaled with CSS zoom), so the layout uses the same box.
+  const size = () => { const box = stage.getBoundingClientRect(); return {w: box.width || 560, h: box.height || 520}; };
+
+  // ---- palette: read from CSS so the light and dark themes both apply
+  const readPalette = () => {
+    const style = getComputedStyle(root), v = name => style.getPropertyValue(name).trim();
+    palette = {fg: v('--fg'), fg2: v('--fg-2'), fg3: v('--fg-3'), bg: v('--bg'), line: v('--cb-link'), lineHi: v('--cb-link-hi'),
+      lineFaint: v('--cb-link-faint'), ring: v('--cb-ring'), sans: v('--sans') || 'Inter, sans-serif',
+      family: Object.fromEntries(CBRAIN_FAMILIES.map(([key]) => [key, v(`--cb-${key}`)]))};
+  };
+  const themeWatch = new MutationObserver(() => { readPalette(); paintFilters(); redraw(); });
+  themeWatch.observe(document.documentElement, {attributes: true, attributeFilter: ['data-theme']});
+  disposers.push(() => themeWatch.disconnect());
 
   // ---- what is shown
   const familyShown = node => !prefs.hidden.includes(node.family);
+  const linksOf = id => store.adjacency.get(id) || [];
   function buildMap() {
-    const keep = [...nodes.values()].filter(node => familyShown(node) && (!prefs.unlinked || adjacency.get(node.id).length));
+    const keep = [...store.nodes.values()].filter(node => familyShown(node) && (!prefs.unlinked || linksOf(node.id).length));
     const ids = new Set(keep.map(node => node.id));
-    mapData = {nodes: keep.map(node => (node.map ||= {id: node.id, base: node})),
-      links: [...edges.values()].filter(edge => ids.has(edge.source) && ids.has(edge.target) && edge.source !== edge.target)
+    return {nodes: keep.map(node => (node.map ||= {id: node.id, base: node})),
+      links: [...store.edges.values()].filter(edge => ids.has(edge.source) && ids.has(edge.target) && edge.source !== edge.target)
         .map(edge => ({source: edge.source, target: edge.target, edge}))};
-    return mapData;
+  }
+
+  // ---- Focus geometry. Graph units equal screen pixels in Focus (zoom 1, centred on the record), so the layout is
+  // computed for the pane's real size: neighbours in two columns that bow outward, evenly spaced to the pane's height,
+  // labels pointing away from the middle and cut to the room they have.
+  function focusGeometry(count) {
+    const {w, h} = size();
+    const padY = 26, labelRoom = Math.max(92, Math.min(210, w * 0.34));
+    const rx = Math.max(44, Math.min(w / 2 - labelRoom - 10, 260));
+    const usable = Math.max(120, h - padY * 2);
+    const rows = Math.max(3, Math.floor(usable / 17));
+    return {w, h, padY, labelRoom, rx, usable, rows, cap: Math.min(rows * 2, 72)};
   }
   function buildFocus() {
-    const center = nodes.get(selected), ring = new Map([[center.id, 0]]);
-    let frontier = [center.id];
-    for (let level = 1; level <= prefs.depth; level++) {
-      const next = new Map();
-      // Depth 2 does not walk on through hubs (agents such as Ordubashy link to hundreds of records): it would only show
-      // the hub's own neighbourhood again.
-      for (const id of frontier) for (const {other} of (level > 1 && nodes.get(id).degree > 40 ? [] : adjacency.get(id))) {
-        if (ring.has(other) || !familyShown(nodes.get(other))) continue;
-        next.set(other, Math.max(next.get(other) || 0, nodes.get(other).degree));
-      }
-      const room = level === 1 ? CBRAIN_RING_CAP : CBRAIN_FOCUS_CAP - ring.size;
-      const chosen = [...next.keys()].sort((a, b) => nodes.get(b).degree - nodes.get(a).degree).slice(0, Math.max(0, room));
-      for (const id of chosen) ring.set(id, level);
-      frontier = chosen;
+    const center = store.nodes.get(selected);
+    const neighbours = new Map();
+    for (const {other} of linksOf(center.id)) {
+      if (other === center.id || neighbours.has(other)) continue;
+      const node = store.nodes.get(other);
+      if (familyShown(node)) neighbours.set(other, node);
     }
-    const list = [...ring].map(([id, level]) => ({id, base: nodes.get(id), level, ...(level === 0 ? {fx: 0, fy: 0} : {})}));
-    const links = [...edges.values()].filter(edge => ring.has(edge.source) && ring.has(edge.target) && edge.source !== edge.target)
-      .map(edge => ({source: edge.source, target: edge.target, edge}));
-    // Nodes per ring, to space each ring for its own size.
-    const counts = [0, 0, 0];
-    for (const level of ring.values()) counts[level]++;
-    return {nodes: list, links, counts, hidden: [...adjacency.get(center.id)].filter(({other}) => !ring.has(other)).length};
+    const geo = focusGeometry(neighbours.size);
+    const chosen = [...neighbours.values()].sort((a, b) => b.degree - a.degree).slice(0, geo.cap)
+      .sort((a, b) => cbrainFamilyIndex(a.family) - cbrainFamilyIndex(b.family) || b.degree - a.degree);
+    const right = chosen.slice(0, Math.ceil(chosen.length / 2)), left = chosen.slice(right.length);
+    const list = [{id: center.id, base: center, level: 0, tx: 0, ty: 0, side: 0}];
+    const place = (column, side) => {
+      const m = column.length;
+      const spacing = m > 1 ? Math.min(geo.usable / (m - 1), 46) : 0, span = spacing * (m - 1);
+      column.forEach((node, index) => {
+        const y = m > 1 ? -span / 2 + index * spacing : 0;
+        const bow = Math.sqrt(Math.max(0, 1 - (y / (geo.usable / 2 + 24)) ** 2));
+        list.push({id: node.id, base: node, level: 1, side, tx: side * geo.rx * (0.5 + 0.5 * bow), ty: y});
+      });
+    };
+    place(right, 1); place(left, -1);
+    const ids = new Set(list.map(node => node.id));
+    const links = [...store.edges.values()].filter(edge => ids.has(edge.source) && ids.has(edge.target) && edge.source !== edge.target)
+      .map(edge => ({source: edge.source, target: edge.target, edge, spoke: edge.source === center.id || edge.target === center.id}));
+    // Two records can be linked more than once; their spoke shows one label naming every relation.
+    const pairs = new Map();
+    for (const link of links) if (link.spoke) {
+      const key = link.source === center.id ? link.target : link.source;
+      if (!pairs.has(key)) { pairs.set(key, link); link.names = []; }
+      pairs.get(key).names.push(link.edge.name);
+    }
+    focusInfo = {shown: chosen.length, total: neighbours.size, geo};
+    return {nodes: list, links};
   }
 
   // ---- drawing
-  const radius = node => node.level === 0 ? 7 : prefs.mode === 'focus' ? 3 + Math.min(5, Math.sqrt(node.base.degree) * 0.8) : 1.6 + Math.min(7, Math.sqrt(node.base.degree) * 0.75);
-  const neighbourSet = id => new Set([id, ...(adjacency.get(id) || []).map(({other}) => other)]);
+  const radius = node => prefs.mode === 'focus'
+    ? (node.level === 0 ? 8 : 3.4 + Math.min(3, Math.sqrt(node.base.degree) * 0.45))
+    : 1.8 + Math.min(6.5, Math.sqrt(node.base.degree) * 0.72);
+  const neighbourSet = id => new Set([id, ...linksOf(id).map(({other}) => other)]);
   let lit = null;
   const setHover = node => {
     hover = node; lit = node ? neighbourSet(node.id) : null;
     canvasHost.style.cursor = node ? 'pointer' : '';
+    showTip();
     redraw();
   };
-  // force-graph pauses painting once the layout is still; a hover drawn by this view has to ask for a frame.
+  // force-graph stops repainting once the layout is still; hover and easing ask for a frame this way.
   const redraw = () => { if (graph) graph.zoom(graph.zoom()); };
-  const shortLabel = (text, max) => text.length > max ? text.slice(0, max - 1) + '…' : text;
+  const nodeColour = node => palette.family[node.base.family] || palette.fg2;
   function drawNode(node, ctx, scale) {
     const r = radius(node), focus = prefs.mode === 'focus';
     const dim = lit && !lit.has(node.id);
-    ctx.globalAlpha = dim ? 0.13 : 1;
-    if (node.id === selected || node === hover) {
-      ctx.beginPath(); ctx.arc(node.x, node.y, r + 3.2, 0, 2 * Math.PI); ctx.fillStyle = palette.halo; ctx.fill();
+    ctx.globalAlpha = dim ? (focus ? 0.28 : 0.12) : 1;
+    if (node.id === selected && focus) {
+      ctx.beginPath(); ctx.arc(node.x, node.y, r + 5, 0, 2 * Math.PI); ctx.fillStyle = palette.ring; ctx.fill();
     }
     ctx.beginPath(); ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
-    ctx.fillStyle = palette.family[node.base.family] || palette.fg2; ctx.fill();
-    if (node.id === selected) { ctx.lineWidth = 1.4 / scale; ctx.strokeStyle = palette.fg; ctx.stroke(); }
-    let show;
-    if (focus) {
-      // When the ring is drawn small, label every k-th record so labels keep about 13px apart; hover shows the rest.
-      const every = Math.ceil(13 / (ringSpacing * scale));
-      show = node.level === 0 || (node.level === 1 && (every <= 1 || node.slot % every === 0)) || scale > 1.8 || node === hover || (hover && lit && lit.has(node.id));
+    ctx.fillStyle = nodeColour(node); ctx.fill();
+    if ((node.id === selected && focus) || node === hover) {
+      ctx.lineWidth = 1.5 / scale; ctx.strokeStyle = palette.fg; ctx.stroke();
     }
-    else show = node === hover || (!dim && (node.base.rank < (stage.clientWidth < 520 ? 7 : 12) || scale > 1.6));
-    if (!show || (dim && node !== hover)) { ctx.globalAlpha = 1; return; }
-    const size = (focus && node.level === 0 ? 12.5 : 11) / scale;
-    ctx.font = `${node.level === 0 || node === hover ? 600 : 450} ${size}px ${getComputedStyle(root).getPropertyValue('--sans') || 'Inter, sans-serif'}`;
-    const text = shortLabel(node.base.name, focus ? (stage.clientWidth < 520 ? 16 : 24) : 22);
-    let x = node.x, y = node.y, align = 'center', base = 'top';
-    if (focus && node.level > 0) {
-      // Labels sit outside their ring, pointing away from the centre, so neighbours do not stack on one another.
-      const gap = r + 5 / scale;
-      x = node.x + node.side * gap; y = node.y;
-      align = node.side > 0 ? 'left' : 'right'; base = 'middle';
-    } else y = node.y + r + 3 / scale;
-    ctx.textAlign = align; ctx.textBaseline = base;
-    ctx.lineWidth = 3 / scale; ctx.strokeStyle = palette.bg; ctx.lineJoin = 'round'; ctx.strokeText(text, x, y);
-    ctx.fillStyle = node.level === 0 || node === hover || node.id === selected ? palette.fg : (focus && node.level > 1 ? palette.fg2 : palette.fg2);
-    if (focus && node.level === 1) ctx.fillStyle = palette.fg;
-    ctx.fillText(text, x, y);
     ctx.globalAlpha = 1;
   }
-  const linkHot = link => (hover && (link.source.id === hover.id || link.target.id === hover.id)) || link === hoverLink;
+
+  // Labels are drawn after the frame, in priority order, so a label never lands on another label or on a large dot.
+  const font = (weight, px, scale) => `${weight} ${px / scale}px ${palette.sans}`;
+  function fitText(ctx, text, max) {
+    if (ctx.measureText(text).width <= max) return text;
+    let lo = 1, hi = text.length;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (ctx.measureText(cbrainShort(text, mid)).width <= max) lo = mid; else hi = mid - 1; }
+    return cbrainShort(text, Math.max(4, lo));
+  }
+  const halo = (ctx, text, x, y, scale) => {
+    ctx.lineWidth = 3.5 / scale; ctx.strokeStyle = palette.bg; ctx.lineJoin = 'round'; ctx.strokeText(text, x, y);
+  };
+  const overlaps = (box, boxes) => boxes.some(b => box.x < b.x + b.w && box.x + box.w > b.x && box.y < b.y + b.h && box.y + box.h > b.y);
+  function drawLabels(ctx, scale) {
+    if (!graph) return;
+    const data = graph.graphData();
+    if (prefs.mode === 'focus') return drawFocusLabels(ctx, scale, data);
+    // Map: the hovered record and its neighbours first, then hubs by rank; everything once zoomed in far enough.
+    const many = scale > 1.7, hubCount = size().w < 480 ? 7 : 12;
+    let candidates = data.nodes.filter(node => node.x !== undefined && (node === hover || (lit ? lit.has(node.id) : (many || node.base.rank < hubCount))));
+    candidates.sort((a, b) => (b === hover) - (a === hover) || a.base.rank - b.base.rank);
+    candidates = candidates.slice(0, lit ? 15 : many ? 80 : hubCount);
+    const boxes = [];
+    // Large dots are obstacles too, so a hub's label never sits on another hub.
+    for (const node of data.nodes) if (node.base.rank < 60 && node.x !== undefined) {
+      const r = radius(node) + 1 / scale; boxes.push({x: node.x - r, y: node.y - r, w: 2 * r, h: 2 * r, id: node.id});
+    }
+    const px = 11, gap = 4 / scale;
+    for (const node of candidates) {
+      const hot = node === hover;
+      ctx.font = font(hot ? 600 : 500, px, scale);
+      const text = fitText(ctx, hot ? node.base.name : node.base.label, (hot ? 260 : 150) / scale);
+      const tw = ctx.measureText(text).width, th = (px + 2) / scale, r = radius(node);
+      const spots = [
+        {x: node.x - tw / 2, y: node.y + r + gap, align: 'center', tx: node.x, ty: node.y + r + gap},
+        {x: node.x - tw / 2, y: node.y - r - gap - th, align: 'center', tx: node.x, ty: node.y - r - gap - th},
+        {x: node.x + r + gap, y: node.y - th / 2, align: 'left', tx: node.x + r + gap, ty: node.y - th / 2},
+        {x: node.x - r - gap - tw, y: node.y - th / 2, align: 'right', tx: node.x - r - gap, ty: node.y - th / 2},
+      ];
+      const others = boxes.filter(b => b.id !== node.id);
+      const spot = spots.find(s => !overlaps({x: s.x, y: s.y, w: tw, h: th}, others)) || (hot ? spots[0] : null);
+      if (!spot) continue;
+      boxes.push({x: spot.x - 2 / scale, y: spot.y, w: tw + 4 / scale, h: th});
+      ctx.textAlign = spot.align; ctx.textBaseline = 'top';
+      halo(ctx, text, spot.tx, spot.ty, scale);
+      ctx.fillStyle = hot || node.base.rank < 5 ? palette.fg : palette.fg2;
+      ctx.fillText(text, spot.tx, spot.ty);
+    }
+  }
+  function drawFocusLabels(ctx, scale, data) {
+    const geo = focusInfo.geo;
+    if (!geo) return;
+    for (const node of data.nodes) {
+      if (node.x === undefined) continue;
+      const r = radius(node), hot = node === hover;
+      if (node.level === 0) {
+        ctx.font = font(600, 12.5, scale);
+        const text = fitText(ctx, node.base.name, Math.max(120, geo.rx * 1.5) / scale);
+        ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+        const y = node.y + r + 9 / scale;
+        halo(ctx, text, node.x, y, scale); ctx.fillStyle = palette.fg; ctx.fillText(text, node.x, y);
+        continue;
+      }
+      const dim = lit && !lit.has(node.id);
+      ctx.globalAlpha = dim ? 0.35 : 1;
+      ctx.font = font(hot ? 600 : 450, 11.5, scale);
+      const x = node.x + node.side * (r + 7 / scale);
+      // Hover shows the whole name in the tooltip; the label keeps to its column.
+      const text = fitText(ctx, node.base.name, (geo.labelRoom - r - 12) / scale);
+      ctx.textAlign = node.side > 0 ? 'left' : 'right'; ctx.textBaseline = 'middle';
+      halo(ctx, text, x, node.y, scale);
+      ctx.fillStyle = hot ? palette.fg : palette.fg2;
+      if (!lit && node.base.degree > 8) ctx.fillStyle = palette.fg;
+      ctx.fillText(text, x, node.y);
+      ctx.globalAlpha = 1;
+    }
+  }
+  const linkTouches = (link, node) => node && (link.source.id === node.id || link.target.id === node.id);
+  const linkHot = link => link === hoverLink || (hover && linkTouches(link, hover) && (prefs.mode === 'map' || link.spoke || hover.id === selected));
+  // In Focus only the record's own links are drawn; links between neighbours appear faintly while one of them is hovered.
+  const linkVisible = link => prefs.mode === 'map' || link.spoke || (hover && hover.id !== selected && linkTouches(link, hover));
   function drawLinkLabel(link, ctx, scale) {
-    // Relation names: the link under the pointer, or in Focus every link of a hovered record that has only a few.
-    const fewLinks = prefs.mode === 'focus' && hover && (adjacency.get(hover.id)?.length || 0) <= 8 && linkHot(link);
-    if (link !== hoverLink && !fewLinks) return;
+    const focusSpoke = prefs.mode === 'focus' && link.names && hover && hover.id !== selected && linkTouches(link, hover);
+    if (link !== hoverLink && !focusSpoke) return;
     const {source: a, target: b} = link;
     if (!a || !b || a.x === undefined) return;
-    const x = (a.x + b.x) / 2, y = (a.y + b.y) / 2, size = 10 / scale, text = shortLabel(link.edge.name, 28);
-    ctx.font = `500 ${size}px ${getComputedStyle(root).getPropertyValue('--sans') || 'Inter, sans-serif'}`;
+    const x = (a.x + b.x) / 2, y = (a.y + b.y) / 2;
+    ctx.font = font(500, 10.5, scale);
+    const names = focusSpoke ? [...new Set(link.names)] : [link.edge.name];
+    const text = fitText(ctx, names[0], 220 / scale) + (names.length > 1 ? `  +${names.length - 1}` : '');
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    const w = ctx.measureText(text).width + 8 / scale, h = size + 5 / scale;
-    ctx.fillStyle = palette.bg; ctx.globalAlpha = 0.92;
-    ctx.beginPath(); ctx.roundRect(x - w / 2, y - h / 2, w, h, 4 / scale); ctx.fill();
-    ctx.globalAlpha = 1; ctx.fillStyle = palette.fg2; ctx.fillText(text, x, y);
+    const w = ctx.measureText(text).width + 12 / scale, h = 18 / scale;
+    ctx.fillStyle = palette.bg; ctx.strokeStyle = palette.line; ctx.lineWidth = 1 / scale;
+    ctx.beginPath(); ctx.roundRect(x - w / 2, y - h / 2, w, h, 5 / scale); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = palette.fg; ctx.fillText(text, x, y);
   }
 
-  // Focus labels sit outside the outermost labelled ring, so its fit leaves room for them at the sides.
-  const fit = () => {
-    if (!graph) return;
-    const width = stage.clientWidth || 600;
-    graph.zoomToFit(400, prefs.mode === 'focus' && prefs.depth === 1 ? Math.min(150, width * 0.3) : prefs.mode === 'focus' ? 36 : 24);
-    // A small neighbourhood would otherwise be blown up to fill the pane.
-    setTimeout(() => { if (graph && graph.zoom() > 1.6) graph.zoom(1.6, 250); }, 420);
+  // A small tooltip with the whole name and type, beside the pointer.
+  function showTip() {
+    if (!hover) { tip.hidden = true; return; }
+    tip.innerHTML = `<strong>${esc(hover.base.name)}</strong><span><em>${esc(cbrainTypeLabel(hover.base.type))}</em> · ${hover.base.degree} ${hover.base.degree === 1 ? 'link' : 'links'}</span>`;
+    tip.hidden = false;
+    placeTip();
+  }
+  function placeTip() {
+    if (tip.hidden) return;
+    const w = stage.clientWidth, h = stage.clientHeight, tw = tip.offsetWidth, th = tip.offsetHeight;
+    tip.style.left = Math.max(8, Math.min(w - tw - 8, pointer.x + 14)) + 'px';
+    tip.style.top = Math.max(8, Math.min(h - th - 8, pointer.y + 16)) + 'px';
+  }
+  // Pointer in the stage's own CSS pixels (the pane is drawn with CSS zoom).
+  const onMove = event => {
+    const box = stage.getBoundingClientRect(), f = box.width / (stage.clientWidth || box.width) || 1;
+    pointer = {x: (event.clientX - box.left) / f, y: (event.clientY - box.top) / f}; placeTip();
   };
-  // ---- the graph
+  stage.addEventListener('pointermove', onMove);
+  disposers.push(() => stage.removeEventListener('pointermove', onMove));
+
+  // ---- view
+  let userMoved = false;
+  const fitMap = (ms = 450) => {
+    if (!graph) return;
+    userMoved = false;
+    graph.zoomToFit(ms, 28);
+    setTimeout(() => { if (graph && prefs.mode === 'map' && graph.zoom() > 2.2) graph.zoom(2.2, 200); }, ms + 20);
+  };
+  const fitFocus = (ms = 0) => { if (graph) { graph.centerAt(0, 0, ms); graph.zoom(1, ms); } };
+  const fit = () => prefs.mode === 'map' ? fitMap() : fitFocus(300);
+
   // A weak pull to the middle keeps small islands (pairs, little stars) from drifting to the edge of the map.
   let gravityNodes = [];
   const gravity = Object.assign(alpha => { for (const node of gravityNodes) { node.vx -= node.x * 0.07 * alpha; node.vy -= node.y * 0.07 * alpha; } },
@@ -250,100 +397,127 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
       .nodeId('id')
       .nodeLabel(() => '')
       .nodeCanvasObject(drawNode)
-      .nodePointerAreaPaint((node, color, ctx) => { ctx.fillStyle = color; ctx.beginPath(); ctx.arc(node.x, node.y, radius(node) + 3, 0, 2 * Math.PI); ctx.fill(); })
-      .linkColor(link => linkHot(link) ? palette.lineHi : (lit ? 'rgba(0,0,0,0)' : palette.line))
-      .linkWidth(link => linkHot(link) ? 1.2 : prefs.mode === 'focus' ? 0.8 : 0.5)
+      .nodePointerAreaPaint((node, color, ctx) => { ctx.fillStyle = color; ctx.beginPath(); ctx.arc(node.x, node.y, radius(node) + 4, 0, 2 * Math.PI); ctx.fill(); })
+      .linkVisibility(linkVisible)
+      .linkColor(link => linkHot(link) ? palette.lineHi : prefs.mode === 'focus' && !link.spoke ? palette.lineFaint : (lit && prefs.mode === 'map' ? 'rgba(0,0,0,0)' : palette.line))
+      .linkWidth(link => linkHot(link) ? 1.3 : prefs.mode === 'focus' ? 0.9 : 0.5)
       .linkCanvasObjectMode(() => 'after')
       .linkCanvasObject(drawLinkLabel)
-      .linkHoverPrecision(4)
-      .onRenderFramePre(() => readPalette())
+      .linkHoverPrecision(3)
+      .linkLabel(() => '')
+      .onRenderFramePost(drawLabels)
       .onNodeHover(node => setHover(node || null))
       .onLinkHover(link => { hoverLink = link || null; redraw(); })
-      .onNodeClick(node => focusOn(node.id))
-      .onBackgroundClick(() => { if (prefs.mode === 'map') { selected = null; paintCard(); } })
-      .onEngineStop(() => { if (fitPending) { fitPending = false; fit(); } })
-      .cooldownTime(4000)
+      .onNodeClick(node => { if (prefs.mode === 'focus' && node.id === selected) return; focusOn(node.id); })
+      .onEngineStop(() => { if (fitPending && prefs.mode === 'map') { fitPending = false; fitMap(); } })
+      .cooldownTime(3500)
       .minZoom(0.2).maxZoom(8);
-    graph.d3Force('charge').strength(-26).distanceMax(260);
-    graph.d3Force('link').distance(26);
-    const resize = () => { const box = stage.getBoundingClientRect(); if (box.width && box.height) graph.width(box.width).height(box.height); };
+    let lastSize = '';
+    const resize = () => {
+      const box = stage.getBoundingClientRect();
+      if (!box.width || !box.height) return;
+      const key = `${Math.round(box.width)}x${Math.round(box.height)}`;
+      if (key === lastSize) return;
+      lastSize = key;
+      graph.width(box.width).height(box.height);
+      if (prefs.mode === 'focus' && selected) paintFocus({ease: false});
+      else { clearTimeout(refit); refit = setTimeout(() => { if (graph && prefs.mode === 'map' && !userMoved) fitMap(200); }, 120); }
+    };
+    let refit = 0;
+    // A Map the owner has zoomed or dragged keeps its view when the pane is resized.
+    const moved = () => { if (prefs.mode === 'map') userMoved = true; };
+    canvasHost.addEventListener('wheel', moved, {passive: true});
+    canvasHost.addEventListener('pointerdown', moved);
+    disposers.push(() => { canvasHost.removeEventListener('wheel', moved); canvasHost.removeEventListener('pointerdown', moved); });
     const observer = new ResizeObserver(resize);
     observer.observe(stage); resize();
     disposers.push(() => observer.disconnect());
-    showMap();   // the tab always opens on the Map; Focus reopens the last record
+    fitButton.hidden = false;
+    showMap();
   }
   function showMap() {
-    prefs.mode = 'map'; save(); syncControls();
-    graph.d3Force('radial', gravity).cooldownTicks(Infinity);
+    cancelAnimationFrame(tweenFrame);
+    prefs.mode = 'map'; trail = []; syncControls();
+    graph.d3Force('radial', gravity);
     graph.d3Force('charge').strength(-26).distanceMax(260);
-    graph.d3Force('link').distance(26).strength(link => 1 / Math.min(adjacency.get(link.source.id ?? link.source)?.length || 1, adjacency.get(link.target.id ?? link.target)?.length || 1));
+    graph.d3Force('link').distance(26).strength(link => 1 / Math.min(linksOf(link.source.id ?? link.source).length || 1, linksOf(link.target.id ?? link.target).length || 1));
     const data = buildMap();
+    const fresh = data.nodes.some(node => node.x === undefined);
+    // A layout already settled (this session) is drawn as it was; a new one is settled before the first frame.
+    for (const node of data.nodes) { delete node.fx; delete node.fy; }
     fitPending = true;
-    graph.warmupTicks(data.nodes.some(node => node.x === undefined) ? 120 : 0).graphData(data);
+    graph.cooldownTicks(fresh ? Infinity : 0).warmupTicks(fresh ? 160 : 0).graphData(data);
+    if (!fresh) { fitPending = false; fitMap(0); }
+    setHover(null);
     paintCard();
     status.hidden = data.nodes.length > 0; status.textContent = 'No records match these filters.';
   }
   async function focusOn(id, {push = true} = {}) {
-    if (!nodes.has(id)) return;
-    if (push && selected && selected !== id && prefs.mode === 'focus') trail.push(selected);
-    if (!push && !selected) trail = [];
+    if (!store.nodes.has(id)) return;
+    const wasFocus = prefs.mode === 'focus';
+    if (push && wasFocus && selected && selected !== id) trail.push(selected);
+    if (id !== selected) { cardMore = false; openGroups = new Set(); }
     selected = id; prefs.mode = 'focus'; prefs.last = id; save(); syncControls(); setHover(null);
-    paintFocus();
+    status.hidden = true;
+    paintFocus({ease: true});
     paintCard();
-    // The overview only carries relationships the Home pages returned; read this record's whole neighbourhood once.
-    const added = await expand(id, 1).catch(() => false);
-    if (added && live() && selected === id) { rebuildAdjacency(); paintFocus(); paintCard(); }
+    // Records Home already read whole need no second read; the others are read once and redrawn if anything was new.
+    const added = await cbrainExpand(store, id, reads.signal).catch(() => false);
+    if (added && live() && selected === id) { store.rebuild(); paintFocus({ease: true}); paintCard(); }
   }
-  // Focus is laid out, not simulated: the first ring is spread so its labels are evenly spaced top to bottom on each
-  // side (labels point outward and never stack), and the second ring sits outside it, each record near its parents.
-  function paintFocus() {
-    const data = buildFocus(), wide = stage.clientWidth || 600;
-    const ring1 = data.nodes.filter(node => node.level === 1), ring2 = data.nodes.filter(node => node.level === 2);
-    const order = (a, b) => CBRAIN_FAMILIES.findIndex(([key]) => key === a.base.family) - CBRAIN_FAMILIES.findIndex(([key]) => key === b.base.family)
-      || b.base.degree - a.base.degree;
-    ring1.sort(order);
-    const r1 = Math.max(110, ring1.length * 5.4), r2 = r1 + Math.max(100, Math.min(170, wide * 0.18));
-    const right = ring1.slice(0, Math.ceil(ring1.length / 2)), left = ring1.slice(right.length);
-    const place = (list, side) => list.forEach((node, index) => {
-      const t = list.length === 1 ? 0 : (index / (list.length - 1)) * 2 - 1;   // -1 (top) .. 1 (bottom)
-      const y = t * r1 * 0.9 * (side > 0 ? 1 : -1);
-      node.fx = side * Math.sqrt(Math.max(0, r1 * r1 - y * y)); node.fy = y; node.side = side; node.slot = index;
-    });
-    ringSpacing = (r1 * 0.9 * 2) / Math.max(1, right.length - 1);
-    place(right, 1); place(left, -1);
-    const angleOf = new Map(ring1.map(node => [node.id, Math.atan2(node.fy, node.fx)]));
-    for (const node of ring2) {
-      let sx = 0, sy = 0;
-      for (const {other} of adjacency.get(node.id)) if (angleOf.has(other)) { sx += Math.cos(angleOf.get(other)); sy += Math.sin(angleOf.get(other)); }
-      node.want = Math.atan2(sy, sx);
+  // Focus is laid out, not simulated. Records ease from where they were drawn (on the Map or the previous Focus) to their
+  // new places; new ones grow out of the record that was clicked.
+  function paintFocus({ease}) {
+    cancelAnimationFrame(tweenFrame);
+    const before = new Map();
+    if (graph && ease) {
+      const data = graph.graphData(), mapMode = !data.nodes.some(node => node.level !== undefined);
+      const {w, h} = size();
+      for (const node of data.nodes) {
+        if (node.x === undefined) continue;
+        if (mapMode) { const p = graph.graph2ScreenCoords(node.x, node.y); before.set(node.id, {x: p.x - w / 2, y: p.y - h / 2}); }
+        else before.set(node.id, {x: node.x, y: node.y});
+      }
     }
-    ring2.sort((a, b) => a.want - b.want).forEach((node, index) => {
-      const angle = ring2.length < 12 ? node.want : -Math.PI + (index + 0.5) / ring2.length * 2 * Math.PI;
-      node.fx = Math.cos(angle) * r2; node.fy = Math.sin(angle) * r2; node.side = Math.cos(angle) >= 0 ? 1 : -1;
-    });
-    for (const node of data.nodes) { node.x = node.fx; node.y = node.fy; }
+    const data = buildFocus();
+    const origin = before.get(selected) || {x: 0, y: 0};
+    for (const node of data.nodes) {
+      const from = ease ? (before.get(node.id) || origin) : {x: node.tx, y: node.ty};
+      node.sx = from.x; node.sy = from.y; node.x = node.fx = from.x; node.y = node.fy = from.y;
+    }
     graph.d3Force('radial', null);
-    fitPending = true;
-    graph.warmupTicks(0).cooldownTicks(1).graphData(data);
-    root.dataset.focusHidden = String(data.hidden);
-    focusHidden = data.hidden;
+    graph.cooldownTicks(0).warmupTicks(0).graphData(data);
+    fitFocus(0);
+    const t0 = performance.now();
+    const step = now => {
+      const k = Math.min(1, (now - t0) / CBRAIN_EASE_MS), e = 1 - (1 - k) ** 3;
+      for (const node of data.nodes) { node.x = node.fx = node.sx + (node.tx - node.sx) * e; node.y = node.fy = node.sy + (node.ty - node.sy) * e; }
+      redraw();
+      if (k < 1 && live()) tweenFrame = requestAnimationFrame(step);
+    };
+    tweenFrame = requestAnimationFrame(step);
+    root.dataset.focusShown = String(focusInfo.shown);
   }
-  let focusHidden = 0, ringSpacing = 20;
 
   // ---- controls
   function syncControls() {
     root.dataset.mode = prefs.mode;
     host.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === prefs.mode)));
-    host.querySelectorAll('[data-depth]').forEach(b => b.setAttribute('aria-pressed', String(Number(b.dataset.depth) === prefs.depth)));
-    $q('[data-mode="focus"]').disabled = !selected && !(prefs.last && nodes.has(prefs.last));
     backButton.hidden = !(prefs.mode === 'focus' && trail.length);
+    fitButton.title = fitButton.ariaLabel = prefs.mode === 'focus' ? 'Recentre' : 'Fit to view';
   }
   function paintFilters() {
+    if (!store) return;
     const counts = Object.fromEntries(CBRAIN_FAMILIES.map(([key]) => [key, 0]));
-    for (const node of nodes.values()) if (!prefs.unlinked || adjacency.get(node.id)?.length) counts[node.family]++;
+    let unlinked = 0;
+    for (const node of store.nodes.values()) {
+      const linked = linksOf(node.id).length > 0;
+      if (!linked) unlinked++;
+      if (!prefs.unlinked || linked) counts[node.family]++;
+    }
     $q('.cbrain-filters').innerHTML = CBRAIN_FAMILIES.filter(([key]) => counts[key]).map(([key, label]) =>
-      `<button type="button" class="cbrain-chip" data-family="${key}" aria-pressed="${!prefs.hidden.includes(key)}"><i style="background:var(--cb-${key})"></i>${label}<span>${counts[key]}</span></button>`).join('')
-      + `<button type="button" class="cbrain-chip cbrain-unlinked" aria-pressed="${!prefs.unlinked}" title="Records with no links">Unlinked<span>${[...nodes.values()].filter(node => !adjacency.get(node.id)?.length).length}</span></button>`;
+      `<button type="button" class="cbrain-chip" data-family="${key}" aria-pressed="${!prefs.hidden.includes(key)}" title="${prefs.hidden.includes(key) ? 'Show' : 'Hide'} ${esc(label.toLowerCase())}"><i style="--dot:var(--cb-${key})"></i>${label}<span>${counts[key]}</span></button>`).join('')
+      + `<button type="button" class="cbrain-chip cbrain-unlinked" aria-pressed="${!prefs.unlinked}" title="${prefs.unlinked ? 'Show' : 'Hide'} records with no links">Unlinked<span>${unlinked}</span></button>`;
   }
   $q('.cbrain-filters').onclick = event => {
     const chip = event.target.closest('.cbrain-chip');
@@ -351,89 +525,129 @@ function contextBrainMount(host, {isCurrent = () => host.isConnected} = {}) {
     if (chip.classList.contains('cbrain-unlinked')) prefs.unlinked = !prefs.unlinked;
     else prefs.hidden = prefs.hidden.includes(chip.dataset.family) ? prefs.hidden.filter(key => key !== chip.dataset.family) : [...prefs.hidden, chip.dataset.family];
     save(); paintFilters();
-    if (prefs.mode === 'map') showMap(); else { paintFocus(); paintCard(); }
+    if (prefs.mode === 'map') showMap(); else { paintFocus({ease: true}); paintCard(); }
+  };
+  // Focus always has a record: the one selected, the last one opened, or the most linked record shown.
+  const focusDefault = () => {
+    if (selected && store.nodes.has(selected)) return selected;
+    if (prefs.last && store.nodes.has(prefs.last)) return prefs.last;
+    return [...store.nodes.values()].filter(familyShown).sort((a, b) => b.degree - a.degree)[0]?.id;
   };
   host.querySelectorAll('[data-mode]').forEach(button => button.onclick = () => {
     if (!graph || button.dataset.mode === prefs.mode) return;
-    if (button.dataset.mode === 'map') { trail = []; showMap(); } else focusOn(selected || prefs.last, {push: false});
-  });
-  host.querySelectorAll('[data-depth]').forEach(button => button.onclick = () => {
-    prefs.depth = Number(button.dataset.depth); save(); syncControls();
-    if (graph && prefs.mode === 'focus') { paintFocus(); paintCard(); }
+    if (button.dataset.mode === 'map') showMap(); else { const id = focusDefault(); if (id) focusOn(id, {push: false}); }
   });
   backButton.onclick = () => { const id = trail.pop(); if (id) focusOn(id, {push: false}); };
-  $q('[data-zoom="fit"]').onclick = () => fit();
+  fitButton.onclick = () => fit();
 
   // ---- search
   let matches = [], active = 0;
   const findMatches = query => {
     const q = query.trim().toLocaleLowerCase();
-    if (!q) return [];
+    if (!q || !store) return [];
     const score = node => {
       const name = node.name.toLocaleLowerCase();
       if (name === q) return 0;
       if (name.startsWith(q)) return 1;
-      if (name.includes(q)) return 2;
-      if (node.aliases.some(alias => alias.toLocaleLowerCase().includes(q))) return 3;
+      if (name.split(/\s+/).some(word => word.startsWith(q))) return 2;
+      if (name.includes(q)) return 3;
+      if (node.aliases.some(alias => alias.toLocaleLowerCase().includes(q))) return 4;
       return 9;
     };
-    return [...nodes.values()].map(node => [score(node), node]).filter(([s]) => s < 9)
+    return [...store.nodes.values()].map(node => [score(node), node]).filter(([s]) => s < 9)
       .sort((a, b) => a[0] - b[0] || b[1].degree - a[1].degree).slice(0, 8).map(([, node]) => node);
   };
   const paintResults = () => {
-    results.hidden = !matches.length;
-    results.innerHTML = matches.map((node, index) => `<button type="button" role="option" class="cbrain-result" data-id="${esc(node.id)}" aria-selected="${index === active}">
-      <i style="background:var(--cb-${node.family})"></i><span>${esc(node.name)}</span><small>${esc(cbrainTypeLabel(node.type))}</small></button>`).join('');
+    const query = search.value.trim();
+    results.hidden = !query || document.activeElement !== search;
+    results.innerHTML = matches.length ? matches.map((node, index) => `<button type="button" role="option" class="cbrain-result" data-id="${esc(node.id)}" aria-selected="${index === active}" title="${esc(node.name)}">
+      <i style="--dot:var(--cb-${node.family})"></i><span>${esc(node.name)}</span><small>${esc(cbrainTypeLabel(node.type))} · ${node.degree} ${node.degree === 1 ? 'link' : 'links'}</small></button>`).join('')
+      : `<p class="cbrain-noresult">No records match.</p>`;
   };
-  const pick = id => { search.value = ''; matches = []; paintResults(); search.blur(); focusOn(id); };
+  const pick = id => { search.value = ''; matches = []; search.blur(); paintResults(); focusOn(id); };
   search.oninput = () => { matches = findMatches(search.value); active = 0; paintResults(); };
+  search.onfocus = () => { matches = findMatches(search.value); paintResults(); };
   search.onkeydown = event => {
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); active = (active + (event.key === 'ArrowDown' ? 1 : matches.length - 1)) % Math.max(1, matches.length); paintResults(); }
+    if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && matches.length) {
+      event.preventDefault(); active = (active + (event.key === 'ArrowDown' ? 1 : matches.length - 1)) % matches.length; paintResults();
+    }
     else if (event.key === 'Enter' && matches[active]) { event.preventDefault(); pick(matches[active].id); }
-    else if (event.key === 'Escape') { search.value = ''; matches = []; paintResults(); }
+    else if (event.key === 'Escape') { search.value = ''; matches = []; search.blur(); paintResults(); }
   };
-  results.onmousedown = event => { const row = event.target.closest('[data-id]'); if (row) { event.preventDefault(); pick(row.dataset.id); } };
-  search.onblur = () => setTimeout(() => { if (live()) { matches = []; paintResults(); } }, 120);
+  results.onmousedown = event => { const row = event.target.closest('[data-id]'); event.preventDefault(); if (row) pick(row.dataset.id); };
+  search.onblur = () => setTimeout(() => { if (live()) paintResults(); }, 100);
 
   // ---- the card
   function paintCard() {
-    const node = selected && nodes.get(selected);
+    const node = selected && prefs.mode === 'focus' && store.nodes.get(selected);
     card.hidden = !node;
+    root.classList.toggle('cbrain-has-card', !!node);
     if (!node) return;
     const groups = new Map();
-    for (const {edge, other} of adjacency.get(node.id)) {
-      const label = edge.kind;   // grouped by the relation's tag (within, related, uses…); the full name shows on hover
-      if (!groups.has(label)) groups.set(label, []);
-      if (!groups.get(label).includes(other)) groups.get(label).push(other);
+    for (const {edge, other} of linksOf(node.id)) {
+      if (other === node.id) continue;
+      if (!groups.has(edge.kind)) groups.set(edge.kind, []);
+      if (!groups.get(edge.kind).includes(other)) groups.get(edge.kind).push(other);
     }
-    const sorted = [...groups].sort((a, b) => b[1].length - a[1].length);
-    const links = adjacency.get(node.id).length;
+    const sorted = [...groups].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+    const links = new Set(linksOf(node.id).map(({other}) => other).filter(id => id !== node.id)).size, excerpt = cbrainExcerpt(node.text);
+    const shownNote = focusInfo.shown < focusInfo.total ? `<span class="cbrain-note">${focusInfo.shown} drawn · ${focusInfo.total - focusInfo.shown} more</span>` : '';
     card.classList.toggle('collapsed', !prefs.card);
     card.innerHTML = `<header class="cbrain-card-head">
-        <i class="cbrain-dot" style="background:var(--cb-${node.family})"></i><h3 title="${esc(node.name)}">${esc(node.name)}</h3>
+        <i class="cbrain-dot" style="--dot:var(--cb-${node.family})"></i><h3 title="${esc(node.name)}">${esc(node.name)}</h3>
         <span class="cbrain-pill">${esc(cbrainTypeLabel(node.type))}</span>
-        <button type="button" class="cbrain-icon cbrain-card-toggle" aria-expanded="${prefs.card}" aria-label="${prefs.card ? 'Collapse details' : 'Expand details'}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
+        <span class="cbrain-count">${links} ${links === 1 ? 'link' : 'links'}</span>
+        <button type="button" class="cbrain-icon cbrain-card-toggle" aria-expanded="${prefs.card}" aria-label="${prefs.card ? 'Collapse details' : 'Expand details'}" title="${prefs.card ? 'Collapse' : 'Expand'}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
       </header>
       <div class="cbrain-card-body">
-        ${node.text ? `<p class="cbrain-text">${esc(node.text)}</p>` : '<p class="cbrain-text muted">No description yet.</p>'}
-        <p class="cbrain-meta">${links} ${links === 1 ? 'link' : 'links'}${prefs.mode === 'focus' && focusHidden ? ` · ${focusHidden} not drawn` : ''}</p>
-        <div class="cbrain-groups">${sorted.slice(0, 6).map(([label, ids]) => `<div class="cbrain-group"><span class="cbrain-rel">${esc(label)}</span>
-          ${ids.slice(0, 6).map(id => `<button type="button" class="cbrain-link" data-id="${esc(id)}"><i style="background:var(--cb-${nodes.get(id).family})"></i>${esc(shortLabel(nodes.get(id).name, 28))}</button>`).join('')}
-          ${ids.length > 6 ? `<span class="cbrain-more">+${ids.length - 6}</span>` : ''}</div>`).join('')}
-          ${sorted.length > 6 ? `<p class="cbrain-meta">${sorted.length - 6} more kinds of link</p>` : ''}</div>
+        ${node.text ? `<p class="cbrain-text${cardMore ? ' open' : ''}">${esc(cardMore ? node.text : excerpt.text)}${excerpt.cut ? ` <button type="button" class="cbrain-more-text">${cardMore ? 'Less' : 'More'}</button>` : ''}</p>`
+          : '<p class="cbrain-text muted">No description yet.</p>'}
+        ${shownNote ? `<p class="cbrain-meta">${shownNote}</p>` : ''}
+        ${sorted.length ? `<div class="cbrain-groups">${sorted.map(([label, ids]) => {
+          const open = openGroups.has(label), list = open ? ids : ids.slice(0, 5);
+          return `<div class="cbrain-group"><span class="cbrain-rel" title="${esc(label)}">${esc(cbrainShort(label, 22))}</span><div class="cbrain-links">
+            ${list.map(id => { const other = store.nodes.get(id); return `<button type="button" class="cbrain-link" data-id="${esc(id)}" title="${esc(other.name)}"><i style="--dot:var(--cb-${other.family})"></i><span>${esc(other.label)}</span></button>`; }).join('')}
+            ${ids.length > 5 ? `<button type="button" class="cbrain-link cbrain-link-more" data-group="${esc(label)}">${open ? 'Fewer' : `+${ids.length - 5}`}</button>` : ''}</div></div>`;
+        }).join('')}</div>` : ''}
       </div>`;
     card.querySelector('.cbrain-card-toggle').onclick = () => { prefs.card = !prefs.card; save(); paintCard(); };
-    card.querySelectorAll('.cbrain-link').forEach(button => button.onclick = () => focusOn(button.dataset.id));
+    card.querySelector('.cbrain-more-text')?.addEventListener('click', () => { cardMore = !cardMore; paintCard(); });
+    card.querySelectorAll('.cbrain-link[data-id]').forEach(button => button.onclick = () => focusOn(button.dataset.id));
+    card.querySelectorAll('[data-group]').forEach(button => button.onclick = () => {
+      const label = button.dataset.group; if (openGroups.has(label)) openGroups.delete(label); else openGroups.add(label); paintCard();
+    });
   }
 
-  syncControls();
-  loadAll().catch(error => {
-    if (!live() || error?.name === 'AbortError') return;
-    status.hidden = false;
-    status.textContent = 'Could not read context. ' + (error?.message || '');
-  });
+  // ---- data: the session copy if there is one, otherwise read now
+  const begin = loaded => {
+    if (!live()) return;
+    store = loaded;
+    root.dataset.reads = String(store.reads || 0);
+    status.hidden = true;
+    start();
+  };
+  if (cbrainCache) {
+    begin(cbrainCache);
+    if (Date.now() - cbrainCache.at > CBRAIN_REFRESH_MS && !cbrainRefreshing) {
+      cbrainRefreshing = cbrainLoad(new AbortController().signal).then(next => { cbrainCache = next; }).catch(() => {}).finally(() => { cbrainRefreshing = null; });
+    }
+  } else {
+    const started = performance.now();
+    (cbrainRefreshing || cbrainLoad(reads.signal, text => { if (live()) status.textContent = text; }))
+      .then(loaded => {
+        cbrainCache = loaded;
+        root.dataset.loadMs = String(Math.round(performance.now() - started));
+        begin(loaded);
+      })
+      .catch(error => {
+        if (!live() || error?.name === 'AbortError') return;
+        status.hidden = false;
+        status.textContent = error?.plain ? error.message : 'Couldn’t load context. Try again later.';
+      });
+  }
   return () => {
     dead = true;
+    cancelAnimationFrame(tweenFrame);
     reads.abort();
     for (const dispose of disposers) dispose();
     if (graph) { graph.pauseAnimation(); graph._destructor?.(); }
