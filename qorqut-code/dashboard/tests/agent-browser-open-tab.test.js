@@ -6,7 +6,7 @@ const path = require('node:path');
 
 const fixture = path.join(__dirname, 'fixtures/agent-browser-open-tab.html');
 const chrome = ['google-chrome', 'chromium', 'chromium-browser'].find(bin => spawnSync(bin, ['--version']).status === 0);
-const AGENT = '3f6c1b9e-2a47-4d1e-9b0c-5e8a7d2c4f10', A = 'A'.repeat(32), B = 'B'.repeat(32);
+const AGENT = '3f6c1b9e-2a47-4d1e-9b0c-5e8a7d2c4f10', OTHER = '9a8b7c6d-1111-4222-8333-444455556666', A = 'A'.repeat(32), B = 'B'.repeat(32);
 const UNAVAILABLE = 'This agent’s browser can’t be opened here.';
 
 // The real agent-browser.js and agent-browser-live.js in headless Chrome, with the API, EventSource and agent navigation stubbed.
@@ -23,9 +23,12 @@ function results() {
 
 test('opening a tab selects it in the live view, switching a view already open on another tab', {skip: !chrome && 'Chrome not installed'}, () => {
   const out = results();
-  // Cold: the agent is navigated to in its Browser mode, and the one live view is on the asked-for tab (not the first page).
+  // Cold: a tab owned by another agent. The pane's own agent is switched to its Browser mode (never the tab owner), nothing is saved for
+  // the tab owner, and the one live view is on the asked-for tab (not the first page).
   assert.equal(out.cold.result, true);
   assert.deepEqual(out.cold.navigations, [[AGENT, 'browser']]);
+  assert.equal(out.cold.selection, null);
+  assert.deepEqual(out.cold.selectGlobals, []);
   assert.deepEqual([out.cold.open, out.cold.picker, out.cold.live], [[B], B, true]);
   assert.equal(out.cold.consumed, true);
   assert.deepEqual(out.cold.toasts, []);
@@ -46,9 +49,11 @@ test('a request is spent by the mount it caused, expires, and is dropped when th
   assert.deepEqual([out.late.open, out.late.picker], [[A], A]);
 });
 
-test('an agent this dashboard does not show, or malformed ids, navigate nowhere', {skip: !chrome && 'Chrome not installed'}, () => {
+test('with no agent pane open, or with malformed ids, nothing is navigated', {skip: !chrome && 'Chrome not installed'}, () => {
   const out = results();
-  assert.deepEqual(out.unknownAgent, {result: false, navigations: [], toasts: [UNAVAILABLE], wanted: null});
+  assert.deepEqual(out.noPane, {result: false, navigations: [], toasts: [UNAVAILABLE], wanted: null});
+  // Elsewhere in the dashboard: the agents page opens, the saved selection stays, the pane that opens gets the Browser view.
+  assert.deepEqual(out.elsewhere, {result: true, selection: null, selectGlobals: ['agents'], navigations: [[AGENT, 'browser']]});
   assert.deepEqual(out.badIds, [false, false, false, false, false, false]);
   assert.deepEqual(out.badIdsEffects, {navigations: 0, toasts: 0, wanted: null});
 });
