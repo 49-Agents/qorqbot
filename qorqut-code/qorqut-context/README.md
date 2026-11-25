@@ -43,9 +43,10 @@ field, its values and a mode (`add`, `replace`, `remove`), with the statement,
 source and date they come from. It builds the `qorqut-graph-edit-v1` plan from
 the published record (same node, every other attribute and the present support
 kept, the edit cited as `self`) and admits it exactly as `context_edit` does. A
-queued edit is refused as stale once anything ahead of it in the shared queue
-publishes, so `personal_set` refuses at once with `busy` while any input is
-unfinished, and saves nothing.
+queued edit runs on the published head when its turn comes if nothing it depends on
+changed since its base, and is refused as `stale_base` and discarded otherwise. A
+`personal_set` behind a change to the owner's record is merged field by field onto
+the current record; only a change to the same field refuses it.
 The host permits only its currently configured Ordubashy to edit the profile or
 its incident relationships, through `personal_set` or `context_edit`, rechecking
 queued edits before publication. Other agents relay facts through the existing inbox. The ordinary
@@ -234,8 +235,11 @@ python -m qorqut_context --repo /tmp/acme-context --runtime /tmp/acme-runtime di
 `recover` performs only mechanical publication/index recovery. `retry` first
 checks Git, then an exact completed ready draft, before starting a fresh model
 attempt. A partial, blocked, or incomplete turn cannot publish. Failed input and
-staged objects remain available for explicit retry or discard; there are no
-automatic new model attempts. The lower-level `Context.publish` remains a
+staged objects remain available for retry or discard; the library itself starts
+no new model attempt on its own. In a host, the queue driver
+(`integration/driver.py`) retries a retryable failure automatically (up to three
+times, after about 1, 5 and 15 minutes) and then lets the blocked input step
+aside for later inputs of other sources. The lower-level `Context.publish` remains a
 controlled-caller API and does not itself require a model completion.
 
 Use `submit edit` with the same foundation path and a new input file, or

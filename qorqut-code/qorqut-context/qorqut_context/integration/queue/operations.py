@@ -75,14 +75,14 @@ def decide(uow, row, intent: str, expected_state: str) -> tuple[str, str, dict |
         raise DomainError("control_pending", "A control request for this input is already pending")
     if intent == "retry":
         if row["state"] != "blocked":
-            raise DomainError("invalid_transition", "Only the blocked head can be retried")
+            raise DomainError("invalid_transition", "Only a blocked input can be retried")
         return "pending", "blocked", None
     if row["state"] == "blocked":
         return "pending", "discard_requested", None
     if row["state"] == "queued" and row["attempt"] == 0 and row["context_event_id"] is None:
         # Definitely unstarted: no Context work exists, so no mechanical discard is needed.
         return "applied", "discarded", {"outcome": "discarded", "reason": "never_started", "mechanical": False}
-    raise DomainError("invalid_transition", "Only the blocked head or an unstarted queued input can be discarded")
+    raise DomainError("invalid_transition", "Only a blocked input or an unstarted queued input can be discarded")
 
 
 class ContextQueueOperations:

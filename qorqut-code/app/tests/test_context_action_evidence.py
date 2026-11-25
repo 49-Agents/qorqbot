@@ -18,7 +18,8 @@ from unittest import mock
 from qorqut_context import Conflict, Context, bootstrap
 from qorqut_context import input_modes as modes
 from qorqut_context.integration.action_evidence import EXCERPT_BYTES, ActionEvidence
-from qorqut_context.integration.driver import submission_of
+from qorqut_context.integration.driver import ContextQueueDriver, submission_of
+from qorqut_context.integration.queue import transitions
 from qorqut_context.integration.queue.queue import (action_payload, admit_action_revision, enqueue_action, input_view,
                                                     public_payload)
 from qorqut_context.integration.service import ContextLocations, ContextSettings, compose_context
@@ -33,6 +34,7 @@ from qorqut_operations.documents.library import SourceLibrary
 from qorqut_operations.documents.operations import DocumentSources
 from qorqut_operations.documents.store import DocumentStore
 from qorqut_operations.items import ItemContribution, ItemResolver
+from qorqut_operations.roles import ORDUBASHY_ROLE
 from qorqut_operations.storage.database import Database
 from qorqut_operations.tasks import TaskOperations, TaskPorts
 from qorqut.composition.assembly import host_assembly
@@ -117,7 +119,7 @@ class ActionEvidenceTests(unittest.TestCase):
         self.actions = ActionOperations(self.app, self.tasks.note_references(), tasks=self.tasks,
                                         on_revision=partial(admit_action_revision, evidence=ActionEvidence(self.app)),
                                         clock=lambda: datetime(2026, 11, 10, 12, tzinfo=timezone.utc))
-        for contribution in (self.tasks.contribution(), self.actions.contribution()):
+        for contribution in (self.tasks.contribution(), self.actions.contribution(), self.composed.queue.contribution()):
             for entry in contribution.entries:
                 self.registry.declare(entry)
             for descriptor in contribution.descriptors:
@@ -384,6 +386,78 @@ class ActionEvidenceTests(unittest.TestCase):
         _, current = submission_of(self.queued(result), "new01")
         self.assertEqual(kwargs["record_context"], current["record_context"])
         self.assertEqual({"action_metadata": meta}, current["private_context"])
+
+
+    # -- a blocked Action input holds only that Action -----------------------------------------------------------------
+
+    def blocked_action_queue(self):
+        """Action A recorded and then corrected, then Action B; A's first filing fails and, with no automatic retry, blocks."""
+        self.driver_id, coordinator = new_id(), new_id()
+        profile = {"status": "active", "role": {"id": ORDUBASHY_ROLE},
+                   "scope": {"kind": "ecosystem", "global_capabilities": ["read_global_context"]}}
+        with self.db.transaction() as uow:
+            uow.repository("principals").insert({"id": self.driver_id, "kind": "system", "display_name": "Context queue driver"})
+            uow.repository("principals").insert({"id": coordinator, "kind": "agent", "display_name": "Coordinator"})
+            now = datetime.now(timezone.utc).isoformat()
+            uow.connection.execute(
+                "INSERT INTO agent_profiles(agent_id,principal_id,name,workspace,profile_json,created_at,updated_at) "
+                "VALUES (?,?,?,?,?,?,?)", (coordinator, coordinator, "Coordinator", "coordinator", json.dumps(profile), now, now))
+        Context.initialize(self.composed.locations.repository, self.composed.locations.runtime)
+        self.driver = ContextQueueDriver(self.db, self.composed.context, self.composed.pipeline, driver_id=self.driver_id,
+            outcomes=self.composed.outcomes, programs=NS(get=lambda _: None), coordinator=lambda uow: coordinator,
+            graph_authority=self.composed.graph_edits.authority, retry_delays=())
+        first = self.record()
+        action = self.queued(first)["payload"]["action_ref"]
+        correction = self.invoke("actions_correct", {"action_id": action,
+            "text": "Owner sent the corrected Example project request."}, expected_revision=1)
+        other = self.record(text="Owner sent a second, unrelated Example request.")
+        ids = [result["context_input_id"] for result in (first, correction, other)]
+        self.runner.fail_once = True
+        self.assertEqual("input_blocked", self.driver.process_next()["status"])
+        return ids
+
+    def state(self, input_id):
+        with self.db.read() as uow:
+            return transitions.get(uow, driver_id=self.driver_id, input_id=input_id)["state"]
+
+    def control(self, name, input_id):
+        """The registered retry/discard operation, invoked in the input's own namespace."""
+        with self.db.read() as uow:
+            project = uow.connection.execute("SELECT project_id FROM context_inputs WHERE id=?", (input_id,)).fetchone()[0]
+        ctx = replace(self.ctx, project_id=project) if project else self.ctx
+        result = self.app.invoke(ctx, name, {"input_id": input_id, "expected_state": "blocked"}, {"idempotency_key": new_id()})
+        self.assertEqual("ok", result.status, result.error)
+        return plain(result.data)["result"]
+
+    def test_a_later_input_for_the_same_action_waits_behind_a_blocked_one_while_another_action_goes_on(self):
+        first, correction, other = self.blocked_action_queue()
+        self.assertEqual("published", self.driver.process_next()["status"])
+        self.assertEqual(("blocked", "queued", "published"), tuple(map(self.state, (first, correction, other))))
+        # Nothing else may start: the correction is held by its own Action's blocked input.
+        self.assertEqual("blocked", self.driver.process_next()["status"])
+        self.assertEqual("queued", self.state(correction))
+        self.assertEqual("pending", self.control("context_queue_retry", first)["status"])
+        self.assertEqual("published", self.driver.process_next()["status"])
+        self.assertEqual("published", self.state(first))
+        self.assertEqual("published", self.driver.process_next()["status"])
+        self.assertEqual("published", self.state(correction))
+        self.assertEqual("idle", self.driver.process_next()["status"])
+
+    def test_discarding_the_blocked_action_input_through_the_operation_releases_its_later_input(self):
+        first, correction, other = self.blocked_action_queue()
+        self.assertEqual("published", self.driver.process_next()["status"])
+        self.assertEqual("discard_requested", self.control("context_queue_discard", first)["state"])
+        self.assertEqual("discarded", self.driver.process_next()["status"])
+        self.assertEqual("discarded", self.state(first))
+        # The correction is released and tried. With the Action's first revision discarded it has no accepted Action to
+        # correct, so Context refuses it for good: that is Context's rule, not the queue holding it.
+        released = self.driver.process_next()
+        self.assertEqual(("input_blocked", correction, False), (released["status"], released["input_id"], released["error"]["retryable"]))
+        self.assertEqual("Action edit/removal requires a current accepted action", released["error"]["message"])
+        self.assertEqual("discard_requested", self.control("context_queue_discard", correction)["state"])
+        self.assertEqual("discarded", self.driver.process_next()["status"])
+        self.assertEqual(("discarded", "discarded", "published"), tuple(map(self.state, (first, correction, other))))
+        self.assertEqual("idle", self.driver.process_next()["status"])
 
 
 if __name__ == "__main__":

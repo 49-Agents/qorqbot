@@ -349,7 +349,9 @@ refused before anything is staged):
 
 **Base.** `expected_revision` must equal the published head when a NEW event is
 admitted, under the same lock that stages it; otherwise `Conflict` is raised before any
-pending state exists, and the plan is never rebased. The whole plan is validated
+pending state exists. The engine never rebases a plan: a host that queues plans runs one
+on a later head only as a new plan whose `expected_revision` is that head (see the host's
+`CONTEXT_GRAPH_EDIT.md`, "Running on a later head"). The whole plan is validated
 against that base at admission, so an unexecutable plan is refused instead of leaving
 pending work. A pending event whose head later moves is retained and refused, like any
 other draft.

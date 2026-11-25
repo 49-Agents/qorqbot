@@ -8,6 +8,7 @@ import hashlib
 import json
 from dataclasses import dataclass, replace
 from pathlib import Path
+import os
 import tempfile
 from types import SimpleNamespace as NS
 import unittest
@@ -77,7 +78,7 @@ class Fixture(Harness):
         super().setUp()
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
+        self.root = Path(os.path.realpath(temporary.name))  # /var is a link to /private/var on a Mac
         # Delta is archived: no caller reaches it, but the Global and project records in it exist.
         self.delta = str(uuid4())
         with self.db.transaction() as uow:

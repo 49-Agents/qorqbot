@@ -41,7 +41,7 @@ import uuid
 
 from qorqut_context import Context, Pipeline
 from qorqut_context.integration.action_digest import ActionDigests, admit_revision
-from qorqut_context.integration.driver import ContextQueueDriver
+from qorqut_context.integration.driver import AUTOMATIC_RETRY_DELAYS, ContextQueueDriver
 from qorqut_context.integration.filing import FilingOutcomes
 from qorqut_context.integration.filing.filing import FilingPorts
 from qorqut_context.integration.filing.programs import FILE, INSTRUCT
@@ -93,6 +93,8 @@ class ContextSettings:
     max_backoff_seconds: float = 60.0
     usage_page_size: int = 100
     usage_max_pages: int = 5
+    # The waits in seconds before each of the driver's automatic retries of a retryable failure.
+    retry_delays: tuple = AUTOMATIC_RETRY_DELAYS
 
     def resolve(self) -> tuple[object, RunnerConfig]:
         if self.config is not None and not isinstance(self.config, RunnerConfig):
@@ -283,7 +285,7 @@ class ContextServices:
         pieces, settings = self.composition, self.composition.settings
         driver = ContextQueueDriver(self.database, pieces.context, pieces.pipeline, driver_id=driver_id, outcomes=pieces.outcomes,
                                     programs=self.programs, coordinator=pieces.coordinator,
-                                    graph_authority=pieces.graph_edits.authority)
+                                    graph_authority=pieces.graph_edits.authority, retry_delays=settings.retry_delays)
         collector = ContextUsageCollector(self.database, pieces.pipeline, driver_id=driver_id, lock_path=self.locations.locks / USAGE_LOCK,
                                           page_size=settings.usage_page_size, max_pages=settings.usage_max_pages)
         self._driver_id, self._driver, self._collector = driver_id, driver, collector

@@ -267,8 +267,9 @@ def detail(uow, row, executions=None) -> dict:
 
 
 def list_inputs(uow, project_id, arguments: dict, operation: str, principal_id: str, executions=None) -> dict:
-    """One page of the namespace's inputs in queue order. ``queue_blocked`` is the single shared fact that something
-    ahead of every later input is blocked; the blocked input itself is named only to a reader of its namespace."""
+    """One page of the namespace's inputs in queue order. ``queue_blocked`` is the single shared fact that some input is
+    blocked (it holds later inputs for its own source, and every later input while it waits for an automatic retry); a
+    blocked input is named only to a reader of its namespace, the oldest of that namespace's own."""
     state = arguments.get("state")
     if state is not None and state not in STATES:
         invalid("state must be a known queue state")
@@ -288,10 +289,11 @@ def list_inputs(uow, project_id, arguments: dict, operation: str, principal_id: 
         [*parameters, limit + 1]).fetchall()
     selected, cursor = page([dict(row) for row in rows], normalized, project_id, operation,
                             key=lambda row: (row["sequence"],), reverse=False)
-    blocked = uow.connection.execute("SELECT id, project_id FROM context_inputs WHERE state='blocked'").fetchone()
+    blocked = uow.connection.execute("SELECT 1 FROM context_inputs WHERE state='blocked' LIMIT 1").fetchone()
+    own = uow.connection.execute("SELECT id FROM context_inputs WHERE state='blocked' AND project_id IS ? ORDER BY sequence LIMIT 1",
+                                 (project_id,)).fetchone()
     return {"items": [input_view(row, **({} if executions is None else {"execution": executions(uow, row)})) for row in selected],
-            "next_cursor": cursor, "queue_blocked": blocked is not None,
-            "blocked_input_id": blocked["id"] if blocked and blocked["project_id"] == project_id else None}
+            "next_cursor": cursor, "queue_blocked": blocked is not None, "blocked_input_id": own["id"] if own else None}
 
 
 def lookup(uow, project_id, input_id: str):

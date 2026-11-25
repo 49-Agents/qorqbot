@@ -1,8 +1,7 @@
 """The read-only Context queue summary of one namespace, for the existing process views.
 
 It counts the Context queue's own rows and nothing else: exact unfinished input states of this namespace, the
-published filings whose terminal receipt is not applied yet, and the single shared fact that something ahead of every later input
-is blocked. It never counts generic job activity (a deferred Context job is not a model that is running), never fabricates a
+published filings whose terminal receipt is not applied yet, and the single shared fact that some input is blocked. It never counts generic job activity (a deferred Context job is not a model that is running), never fabricates a
 pending completion for a graph or Action publication that has no filing, and starts, initializes and writes nothing.
 """
 
@@ -21,7 +20,7 @@ def context_queue_summary(connection, project_id) -> dict:
     The first four counts are the exact unfinished input states of this namespace. ``publication_pending_completion`` counts this
     namespace's published filings whose receipt is pending (or not yet recorded), and ``completion_conflict`` those whose
     receipt is a conflict; an applied receipt counts for neither. ``queue_blocked`` is the shared queue's own fact, across every
-    namespace, and ``blocked_input_id`` names the blocked input only when it belongs to this namespace. A database without the
+    namespace (some input is blocked), and ``blocked_input_id`` names this namespace's oldest blocked input, if any. A database without the
     queue and filing storage is an explicit error, never an empty summary."""
     present = {row[0] for row in connection.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name IN (%s)" % ",".join("?" for _ in TABLES), TABLES)}
@@ -40,7 +39,8 @@ def context_queue_summary(connection, project_id) -> dict:
             "WHERE i.project_id IS ? AND i.state = 'published' AND COALESCE(c.state, 'pending') IN ('pending', 'conflict') "
             "GROUP BY COALESCE(c.state, 'pending')", (project_id,)):
         completions[row["state"]] = row["n"]
-    blocked = connection.execute("SELECT id, project_id FROM context_inputs WHERE state='blocked'").fetchone()
+    blocked = connection.execute("SELECT 1 FROM context_inputs WHERE state='blocked' LIMIT 1").fetchone()
+    own = connection.execute("SELECT id FROM context_inputs WHERE state='blocked' AND project_id IS ? ORDER BY sequence LIMIT 1",
+                             (project_id,)).fetchone()
     return {**counts, "publication_pending_completion": completions["pending"], "completion_conflict": completions["conflict"],
-            "queue_blocked": blocked is not None,
-            "blocked_input_id": blocked["id"] if blocked is not None and blocked["project_id"] == project_id else None}
+            "queue_blocked": blocked is not None, "blocked_input_id": own["id"] if own is not None else None}
