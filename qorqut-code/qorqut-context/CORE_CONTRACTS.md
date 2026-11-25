@@ -744,7 +744,8 @@ past action association, independently of bootstrap sampling. Historical targets
 are readable through object/history/action-timeline tools. Both modes expose
 `stage_handoff_note`; only ACTION exposes `stage_action_associations`. GENERAL
 graph-write schemas omit developments. The common propagator
-prompt plus exactly one mode prompt is combined and its digest is recorded.
+prompt, the installation-agents paragraph (with the host's agent names, if any)
+and exactly one mode prompt are combined and the digest is recorded.
 A blocked finish requires a nonempty handoff note and never permits publication.
 The note and partial draft remain durable and inspectable, not delivered.
 Coverage is not a semantic verifier; the model is responsible for interpreting remaining evidence.

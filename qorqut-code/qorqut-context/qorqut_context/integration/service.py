@@ -129,20 +129,33 @@ class ContextComposition:
     action_digests: ActionDigests | None = None
 
 
+def agent_names_port(database, lookup):
+    """The Pipeline's agent-names port over a host lookup ``lookup(uow) -> names``, read in its own read snapshot each time."""
+    def read():
+        with database.read() as uow:
+            return list(lookup(uow))
+    return read
+
+
 def compose_context(application, locations: ContextLocations, settings: ContextSettings | None, *, instruct_roles,
-                    coordinator) -> ContextComposition:
+                    coordinator, agent_names=None) -> ContextComposition:
     """Compose the Context ports of one instance. Inert: see the module documentation.
 
     ``instruct_roles`` are the roles eligible to instruct and edit; ``coordinator(uow)`` resolves the configured coordinator's
-    principal ID (or None) and is read by the driver at every lookup, in that lookup's own read snapshot. Both are required."""
+    principal ID (or None) and is read by the driver at every lookup, in that lookup's own read snapshot. Both are required.
+    ``agent_names(uow)``, when given, lists the names of the installation's registered active agents; every filing run reads
+    it in its own read snapshot so the filer recognises those names as agents."""
     if not isinstance(locations, ContextLocations):
         raise ValueError("Context composition needs the instance's ContextLocations")
     if instruct_roles is None or not callable(coordinator):
         raise ValueError("Context composition needs instruct_roles and a coordinator(uow) lookup")
+    if agent_names is not None and not callable(agent_names):
+        raise ValueError("The agent_names lookup must be agent_names(uow)")
     settings = settings or ContextSettings()
     runner, config = settings.resolve()
     context = Context(locations.repository, locations.runtime)
-    pipeline = Pipeline(context, runner=runner, config=config)
+    pipeline = Pipeline(context, runner=runner, config=config,
+                        agent_names=None if agent_names is None else agent_names_port(application.database, agent_names))
     outcomes, executions = FilingOutcomes(), ExecutionFacts()
     queue = ContextQueueOperations(outcomes=outcomes, clock=settings.clock, executions=executions,
                                    max_content_bytes=config.source_bytes)

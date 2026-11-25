@@ -21,7 +21,7 @@ A reusable application tool registry is included; a standalone MCP server and
 broader centralized MCP integration are later adapters, not required by this
 local runner. Do not build a second storage engine or a generic agent platform.
 
-The runner uses prompts/propagator.md and prompts/bootstrap.md within qorqut_context.
+The runner uses prompts/propagator.md, prompts/installation_agents.md and prompts/bootstrap.md within qorqut_context.
 
 ## Components and contracts
 

@@ -215,9 +215,13 @@ and no action nodes. Indexes remain rebuildable, never authoritative.
 - Mode-specific tools are absent from the wrong registry and rejected at core
   publication too. All reads retain existing bounded/pinned behavior. No new
   execution, filesystem, network, messaging, delegation, or source-write tools.
-- Prompt composition uses the common propagator instructions
-  plus exactly one of general_input.md, operational_action.md and
-  action_digest.md. Record the combined digest. action_digest.md is the GENERAL
+- Prompt composition uses the common propagator instructions, then
+  installation_agents.md, then exactly one of general_input.md,
+  operational_action.md and action_digest.md. Record the combined digest.
+  installation_agents.md tells every run that the installation's own agents are
+  not entities of the Context (no node for one, no "agent did X" relationship or
+  note); when the host supplies its registered agents' names, a quoted, capped
+  list of them follows that paragraph. action_digest.md is the GENERAL
   policy for a source under foundation/action-digests/ (the host's daily Action
   digest, see [INTEGRATION.md](INTEGRATION.md#the-daily-action-digest)): it
   files lasting facts only, creates no nodes for tasks, documents, runs or

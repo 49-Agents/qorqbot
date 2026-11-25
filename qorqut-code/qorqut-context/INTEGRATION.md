@@ -23,7 +23,9 @@ The digest lists each Action once in its latest state, by project and Task ("- 0
 (ref 1a2b3c4d)"), then the day's corrections ("now reads ... It replaces ...") and withdrawals ("did not happen as recorded")
 of Actions recorded on earlier days. The filing runs under `prompts/action_digest.md` (chosen by the path): lasting facts
 only, no nodes for tasks, documents, runs or events, no "agent did X" edges, existing nodes first. Its model calls land in
-the filing usage ledger like any other input. The driver still files `action` inputs already in the queue through
+the filing usage ledger like any other input. Every filing run, under any policy, is also told that the installation's own
+agents are not entities of the Context, with the names of the registered active agents that the host's `agent_names(uow)`
+lookup supplies to `compose_context`. The driver still files `action` inputs already in the queue through
 `submit_action`; `queue.admit_action_revision`, `enqueue_action` and `action_evidence` remain for those and are not composed.
 
 The sections below were moved verbatim from the Operations extraction notes together with the code they describe; only the

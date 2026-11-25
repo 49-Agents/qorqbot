@@ -17,5 +17,5 @@ questions and the declarations a host splices into its composition live in `qorq
 Operations never imports Context: Action revisions are noted for the daily Action digest through the required `on_revision`
 callable the composition exposes (`qorqut_context.integration.action_digest.admit_revision`), and the host runs
 `composition.action_digests.run(uow)` from a write unit once a minute ([INTEGRATION.md](INTEGRATION.md#the-daily-action-digest)). The host passes explicit facts only (`ContextLocations`,
-`instruct_roles`, the `coordinator(uow)` lookup and the commit-feed callbacks of `ContextServices`) and stays the only owner that
+`instruct_roles`, the `coordinator(uow)` lookup, the optional `agent_names(uow)` lookup and the commit-feed callbacks of `ContextServices`) and stays the only owner that
 starts and stops the services.
