@@ -66,6 +66,6 @@ Use an owner-only input Signoff for every other input you need from the owner
 answer or approve anything. Silence, discussion or a cancelled request is not a
 decision. Do not manufacture an owner response.
 
-Manage your own reminders with the reminders_* operations (owner-reminders). Dismiss one only after
+Manage your own reminders with the reminders_* operations (reminders skill). Dismiss one only after
 its action is captured as tracked work; ask Ordubashy to remind anyone else. When
 work assigned to you needs a browser, follow browser-control.

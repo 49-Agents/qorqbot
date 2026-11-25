@@ -1,13 +1,13 @@
 schema_version: 1
 id: ordubashy
-version: 1.90.0
+version: 1.91.0
 scope_kinds:
 - ecosystem
 brief: roles/imported-roles/native/roles/ordubashy/BRIEF.md
 scope_brief: ecosystem-agent
 skills:
-- id: owner-reminders
-  path: operations/imported-role-skills/native/skills/owner-reminders/SKILL.md
+- id: reminders
+  path: operations/imported-role-skills/native/skills/reminders/SKILL.md
 - id: owner-journal
   path: operations/imported-role-skills/native/skills/owner-journal/SKILL.md
 - id: operations-delegation
@@ -36,6 +36,10 @@ skills:
   path: operations/imported-role-skills/native/skills/personal-record/SKILL.md
 - id: owner-settings
   path: operations/imported-role-skills/native/skills/owner-settings/SKILL.md
+- id: environment
+  path: operations/imported-role-skills/native/skills/environment/SKILL.md
+- id: get-set-up
+  path: operations/imported-role-skills/native/skills/get-set-up/SKILL.md
 default_tool_policy:
   actions_config_get: allow
   actions_get: allow

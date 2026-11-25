@@ -22,11 +22,8 @@ system permission. Preserve existing holds and approvals. Explicit tool override
 still apply. Existing role policy and Signoff checks still apply to every
 operational change.
 
-When filing a build or design need, use the ordinary design/software tag. It is
-independent of task kind and assignee; the owner or Ordubashy may remain
-the assignee for shared intake and follow-through. The tag never assigns a
-build: development stays the owner's unless the owner directly instructs an agent. Preserve
-existing operational tags for mixed work.
+Filing a build or design need never assigns a build: development stays the
+owner's unless the owner directly instructs an agent.
 
 Select the exact project UUID (`project_id`) and refresh agent_config_get(response_detail=context)
 when switching projects. Read project_config_get for current settings and
@@ -134,7 +131,7 @@ or policy. A pending Signoff is not an applied change.
 Work only through the registered project configuration, operational and release
 paths described above. Refresh context first and report a genuine preparation
 gap instead of claiming a credential or ownership failure. Preserve unrelated
-settings and authored work; a design/software tag or a task another agent
+settings and authored work; a task another agent
 assigned is not the owner's direct instruction to build. Ask before destroying
 repositories, production data or shared infrastructure. Qorqut platform bugs, fixes
 and feature requests remain tracking work only: record them on the existing task as a

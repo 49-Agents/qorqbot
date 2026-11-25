@@ -27,12 +27,12 @@ MANAGED_INPUT_SQL = """s.category='input_request' AND s.state='pending'
  AND r.source_id=s.id AND r.attention_destination='management' AND r.management_allowed=1)"""
 
 # Given to Ordubashy at startup and with each prompt while the owner has never written to him, then while the owner has
-# written to him once; ordubashy-core's "Getting set up" describes the welcome and the set-up start.
+# written to him once; the get-set-up skill describes the welcome and the set-up start.
 FIRST_CONVERSATION = ("FIRST CONVERSATION: the owner has just installed Qorqbot and has never written to you. Unless you "
-                      "have already welcomed them in this conversation, make your next reply the welcome that Getting set "
-                      "up describes, not a status report.")
+                      "have already welcomed them in this conversation, make your next reply the welcome that the get-set-up "
+                      "skill describes, not a status report.")
 FIRST_MESSAGE = ("FIRST MESSAGE: the owner has now sent you their first message. Unless a get-set-up run already exists, "
-                 "start the get-set-up workflow now as Getting set up describes, without asking whether they want it.")
+                 "start the get-set-up workflow now as the get-set-up skill describes, without asking whether they want it.")
 
 
 class ManagementService:
