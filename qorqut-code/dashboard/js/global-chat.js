@@ -7,6 +7,7 @@
 // js/agent-terminal-view.js (Terminal view, live/offline wording); every other payload is a managed session and never reaches them.
 const GLOBAL_CHAT_DRAFTS = new Map();           // scope -> unsent composer text
 const GLOBAL_CHAT_FILES = new Map();            // scope -> selected browser Files; copied only when Send is pressed
+const GLOBAL_CHAT_COMPOSER = new Map();         // agent id -> the scope its unsent draft and files were last bound to (`carryComposer`)
 const GLOBAL_CHAT_SENDS = new Map();            // scope -> {text, key, pin}: the frozen identity of an unconfirmed send, reused by a retry
 const GLOBAL_CHAT_INFLIGHT = new Map();         // scope -> {text, promise} of a send still waiting for its response
 const GLOBAL_CHAT_RESENDS = new Map();          // undelivered input id -> {key, pin}: identity of an explicit resend
@@ -530,22 +531,35 @@ function mountGlobalChat(pane, agent, options = {}) {
   if (options.openTerminal) listen(root, 'click', event => { if (event.target.closest('[data-terminal]')) options.openTerminal(); });
 
   // Drops the displayed page and its session so nothing stale can be read, sent or acknowledged until a fresh successful state
-  // arrives. The unsent draft stays in its conversation-specific store.
+  // arrives. The unsent draft stays in the composer and its store, and follows the conversation that arrives (`bindComposer`).
   function invalidatePage() {
-    saveDraft(); composerScope = null; view.setDraft('');
+    saveDraft(); composerScope = null;
     reading = 0; clearTimeout(readTimer);
     session = null; conversation = null; inputs = []; older = null; shown = undefined;
     clears++; entries.clear(); earlier.length = 0;
     paint({entries: []});
   }
 
-  // ---- composer: the draft and the unconfirmed send are bound to this exact agent, provider and conversation
+  // ---- composer: the unconfirmed send is bound to this exact agent, provider and conversation. The owner's unsent draft and files
+  // follow the agent's composer: when the conversation changes (a compaction opens a fresh one, the session closes or reopens, a
+  // remount finds another conversation) they move to the one now bound, and only sending or clearing them removes them.
   function bindComposer() {
     const next = globalChatScope(agentId, conversation) || (agentRuntime.canOpen(session) ? `${agentId}\nmanaged` : null);
     if (next === composerScope) return;
-    composerScope = next;
-    view.setDraft(next ? GLOBAL_CHAT_DRAFTS.get(next) || '' : '');
-    if (next) watchInflight(next);
+    // Unbound for a moment (no conversation yet): what is typed stays in the composer and is kept under the last bound scope.
+    if (!next) { saveDraft(); composerScope = null; return; }
+    carryComposer(GLOBAL_CHAT_COMPOSER.get(agentId), next);
+    composerScope = next; GLOBAL_CHAT_COMPOSER.set(agentId, next);
+    view.setDraft(GLOBAL_CHAT_DRAFTS.get(next) || '');      // the same text leaves the composer (and its caret) untouched
+    watchInflight(next);
+  }
+  // Moves the unsent draft and files from the scope they were bound to onto `to`, unless `to` already holds its own or they are
+  // the message still being sent from `from` (its outcome clears them there).
+  function carryComposer(from, to) {
+    if (!from || from === to) return;
+    const inflight = GLOBAL_CHAT_INFLIGHT.get(from), text = GLOBAL_CHAT_DRAFTS.get(from), files = GLOBAL_CHAT_FILES.get(from);
+    if (text && !GLOBAL_CHAT_DRAFTS.has(to) && inflight?.text !== text) { GLOBAL_CHAT_DRAFTS.set(to, text); GLOBAL_CHAT_DRAFTS.delete(from); }
+    if (files?.length && !GLOBAL_CHAT_FILES.get(to)?.length && !inflight) { GLOBAL_CHAT_FILES.set(to, files); GLOBAL_CHAT_FILES.delete(from); }
   }
   // A send started from an earlier mount of this composer finishes on its own; this mount only shows its outcome.
   function watchInflight(key) {
@@ -556,7 +570,12 @@ function mountGlobalChat(pane, agent, options = {}) {
       paintSession(); void load();
     });
   }
-  const saveDraft = () => { if (!composerScope) return; const text = view.getDraft(); if (text) GLOBAL_CHAT_DRAFTS.set(composerScope, text); else GLOBAL_CHAT_DRAFTS.delete(composerScope); };
+  const saveDraft = () => {
+    const scope = composerScope || GLOBAL_CHAT_COMPOSER.get(agentId);
+    if (!scope) return;
+    const text = view.getDraft();
+    if (text) GLOBAL_CHAT_DRAFTS.set(scope, text); else GLOBAL_CHAT_DRAFTS.delete(scope);
+  };
   const refusalText = problem => problem.offered ? '' : (typeof agentTerminalView !== 'undefined' && agentTerminalView.refusalText(session, problem.code))
     || agentRuntime.refusalText(problem.code, problem.serverMessage) || GLOBAL_CHAT_REFUSAL_TEXT[problem.code] || "Couldn't send. Try again";
   // One admission request. The result is recorded in module state so a mount that was left meanwhile loses nothing.
@@ -784,6 +803,8 @@ function mountGlobalChat(pane, agent, options = {}) {
       else if (action === 'dismiss') { GLOBAL_CHAT_HIDDEN.add(id); paintInputs(); }
     },
   });
+  // A new mount shows the agent's unsent draft at once; the conversation it is bound to follows with the first state (`bindComposer`).
+  if (GLOBAL_CHAT_COMPOSER.has(agentId)) view.setDraft(GLOBAL_CHAT_DRAFTS.get(GLOBAL_CHAT_COMPOSER.get(agentId)) || '');
   paint();
   // Slash commands: the running CLI's catalog, loaded once per provider (native_chat/commands.py).
   if (view.elements?.input && view.elements?.composer) {
