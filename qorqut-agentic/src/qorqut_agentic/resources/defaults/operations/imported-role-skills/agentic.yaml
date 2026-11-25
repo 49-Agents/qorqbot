@@ -113,7 +113,7 @@ entries:
   when_to_use: Review visible daily journal entries when the owner asks, outlining
     possible tasks, progress updates and context additions without applying them.
   path: native/skills/owner-journal/SKILL.md
-- id: asset-30b92b906dba622ac1c2
+- id: asset-8629f31c889defe00fa5
   kind: skill
   description: Create, change, snooze, dismiss or cancel a one-off or recurring reminder
     for yourself or, for Ordubashy, the owner or another agent; also handle a due
@@ -123,7 +123,7 @@ entries:
     for yourself or, for Ordubashy, the owner or another agent; also handle a due
     reminder notice. Use when the owner says "remind me", "remind me to", "remind
     me about", or asks to be reminded later, and when a reminder notice reaches you.
-  path: native/skills/owner-reminders/SKILL.md
+  path: native/skills/reminders/SKILL.md
 - id: asset-99bf41d25a6be7f04e67
   kind: skill
   description: Create a Project, the container for Tasks, assets, documents, tables,
@@ -167,6 +167,16 @@ entries:
     the agent browser, theme, text size, desktop alerts or the Qorqbot
     account. Do it yourself instead of sending the owner to Settings.
   path: native/skills/owner-settings/SKILL.md
+- id: asset-d93fbfd34422c8e6ffa9
+  kind: skill
+  description: "Read or save Settings variables and credentials with environment_list, environment_get and environment_set: see which names exist, read a value a task needs, or save a key the owner gave you. Load it before using any of the three."
+  when_to_use: "Read or save Settings variables and credentials with environment_list, environment_get and environment_set: see which names exist, read a value a task needs, or save a key the owner gave you. Load it before using any of the three."
+  path: native/skills/environment/SKILL.md
+- id: asset-97db9c0803a6e4ae8d78
+  kind: skill
+  description: "The first conversation with a new owner: the welcome, then the agentic-management/get-set-up workflow (the basics about the owner, the tools they want connected, an offer of voice input). Load it when your startup context says FIRST CONVERSATION or FIRST MESSAGE, and when the owner asks to get set up or to redo it."
+  when_to_use: "The first conversation with a new owner: the welcome, then the agentic-management/get-set-up workflow (the basics about the owner, the tools they want connected, an offer of voice input). Load it when your startup context says FIRST CONVERSATION or FIRST MESSAGE, and when the owner asks to get set up or to redo it."
+  path: native/skills/get-set-up/SKILL.md
 - id: asset-3e9a10c8c53c6a7ca327
   kind: skill
   description: Run the daily experience extraction. Read the report of everything

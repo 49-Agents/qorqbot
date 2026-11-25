@@ -36,6 +36,8 @@ def documents(instructions, *, display_name, agent_id, software_boundary, extens
         codex_delegation += (
             instructions.render('workspace-delegation-summary'))
     return {
-        'CLAUDE.md': (core + instructions.render('workspace-claude') + inbox_guidance + '\n' + policy + '\n' + orientation).encode(),
+        # Claude Code reads the core rules in the managed instructions that workspace-claude imports, so CLAUDE.md
+        # carries no second copy. Codex has no import: AGENTS.md keeps them.
+        'CLAUDE.md': (instructions.render('workspace-claude') + inbox_guidance + '\n' + policy + '\n' + orientation).encode(),
         'AGENTS.md': (core + instructions.render('workspace-codex') + codex_delegation + '\n' + policy + '\n' + orientation).encode(),
     }
