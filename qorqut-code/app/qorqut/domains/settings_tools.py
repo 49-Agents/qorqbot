@@ -187,7 +187,7 @@ class SettingsTools:
 
         def clients():
             from qorqut import owner_settings
-            return owner_settings.agent_clients_view()
+            return owner_settings.for_agents(owner_settings.agent_clients_view())
 
         def trust():
             from qorqut import agent_trust
@@ -294,7 +294,7 @@ class SettingsTools:
 
     def _set_agent_client(self, owner, value):
         from qorqut import owner_settings
-        return owner_settings.agent_clients_action(value["provider"], value["action"])
+        return owner_settings.for_agents(owner_settings.agent_clients_action(value["provider"], value["action"]))
 
     def _set_agent_run_mode(self, owner, value):
         switch = self._part("runtime_switch", "Switching how agents run is not available")

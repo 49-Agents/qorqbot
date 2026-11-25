@@ -453,6 +453,8 @@ async function renderGlobalAgents(c) {
   const remembered = staleShell ? null : rememberedRaw;
   // The shell has no workspace view, so a stored workspace descriptor for it means nothing.
   if (savedShell) request = null;
+  // Journal is a Testing mode view: a legacy link or stored descriptor for it opens the agent's default view while Testing mode is off.
+  if (request?.view === 'journal' && !testingModeEnabled()) { request = null; agentWorkspaceStore(null); }
   const target = savedShell ? (staleShell ? undefined : GLOBAL_WORKSPACE_TERMINAL) : agents.find(a => a.agent_id === remembered);
   // A stored Project descriptor for an agent whose pane no longer offers it opens the shared Tables for a table selection,
   // and is otherwise dropped, leaving the agent on its own default view.

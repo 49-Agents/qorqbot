@@ -70,6 +70,8 @@ async function fixture(browser, {paired = false} = {}) {
     window.calls = [];
     window.post = async (url, body) => {
       calls.push([url, body]);
+      if (url.endsWith('/project_record_get')) return {project: {id: body.project_id, name: 'Alpha', summary: ''}};
+      if (url.endsWith('/project_items_list')) return {items: [], next_cursor: null};
       if (url.endsWith('/timeline_view') && body.item.id === 'g1') return {item: body.item, title: 'T', revision: 0, further: {}, state: {goal: null, decisions: [], facts: [], progress: null, questions: []}, entries: [], links: {}, closed_questions: [], next_cursor: null};
       if (url.endsWith('/timeline_view')) return {item: body.item, title: 'T', revision: 1, further: {}, state: {goal: {id: 'g', text: 'Goal of ' + body.item.type + ' ' + body.item.id}, decisions: [], facts: [], progress: null, questions: []},
         entries: [{id: 'g', sequence: 1, action: 'add', kind: 'goal', text: 'Goal of ' + body.item.type + ' ' + body.item.id, created_at: '2026-11-13T10:00:00Z', sources: [], refs: []}], links: {}, closed_questions: [], next_cursor: null};
@@ -165,12 +167,16 @@ test('search lists matching Projects and Tasks from every scope as flat rows', {
   } finally { await browser.close(); }
 });
 
-test('a row opens the record reader on its timeline; Global has no timeline and only opens or closes', {skip: !available}, async () => {
+test('a row opens the record reader (a Project on its Folder tab, a Task on its timeline); Global has no timeline and only opens or closes', {skip: !available}, async () => {
   const browser = await chromium.launch({headless: true, executablePath: executable});
   try {
     const {page, errors} = await fixture(browser, {paired: true});
     assert.match(await page.locator('.agfiles-detail').textContent(), /Select a project or a task/);
     await page.click('[data-select="p:alpha"]');
+    // A Project opens on its Folder tab; its timeline is the tab beside it.
+    await page.locator('.agfiles-detail .rw-project-name').waitFor();
+    assert.equal(await page.locator('.agfiles-detail .rw-record').getAttribute('data-tab'), 'dashboard');
+    await page.click('.agfiles-detail .rw-tab[data-rw-tab="timeline"]');
     await page.locator('.agfiles-detail .rw-timeline .agent-timeline-row').first().waitFor();
     assert.equal(await page.locator('.agfiles-detail .rw-title').textContent(), 'Alpha');
     assert.match(await page.locator('.agfiles-detail .rw-timeline').textContent(), /Goal of project id-alpha/);
@@ -202,6 +208,57 @@ test('a row opens the record reader on its timeline; Global has no timeline and 
     await page.click('.agfiles-detail .rw-close');
     await page.waitForFunction(() => /Select a project or a task/.test(document.querySelector('.agfiles-detail').textContent));
     assert.equal(await page.locator('[data-row][aria-selected="true"]').count(), 0);
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); }
+});
+
+test('the divider between list and reader drags, clamps, resets and is remembered', {skip: !available}, async () => {
+  const browser = await chromium.launch({headless: true, executablePath: executable});
+  try {
+    const {page, errors} = await fixture(browser);
+    // A blank test page has no storage; a plain in-memory one stands in, then the Explorer is mounted again.
+    await page.evaluate(() => {
+      const data = new Map();
+      Object.defineProperty(window, 'localStorage', {configurable: true, value: {getItem: k => data.has(k) ? data.get(k) : null, setItem: (k, v) => data.set(k, String(v)), removeItem: k => data.delete(k)}});
+      agentExplorerMount(window.p);
+    });
+    await page.locator('[data-row="t::g1"]').waitFor();
+    const listWidth = () => page.evaluate(() => Math.round(document.querySelector('.agfiles-tree').getBoundingClientRect().width));
+    const handle = page.locator('.agfiles-split');
+    assert.equal(await handle.getAttribute('role'), 'separator');
+    assert.equal(await handle.getAttribute('aria-orientation'), 'vertical');
+    const start = await listWidth();
+    const box = await handle.boundingBox();
+    const y = box.y + 100, x = box.x + box.width / 2;
+    await page.mouse.move(x, y); await page.mouse.down(); await page.mouse.move(x + 100, y); 
+    assert.equal(await page.evaluate(() => document.querySelector('.agfiles-layout').classList.contains('agfiles-resizing')), true);
+    await page.mouse.up();
+    assert.equal(await listWidth(), start + 100);
+    assert.equal(await page.evaluate(() => localStorage.getItem('qorqut.explorer.listWidth')), String(start + 100));
+    // Clamps: far left stops at 200, far right leaves the reader 320.
+    let b = await handle.boundingBox();
+    await page.mouse.move(b.x + 3, y); await page.mouse.down(); await page.mouse.move(0, y); await page.mouse.up();
+    assert.equal(await listWidth(), 200);
+    b = await handle.boundingBox();
+    await page.mouse.move(b.x + 3, y); await page.mouse.down(); await page.mouse.move(1090, y); await page.mouse.up();
+    assert.equal(await listWidth(), await page.evaluate(() => document.querySelector('.agfiles-layout').clientWidth) - 320);
+    // Keyboard, then double-click reset.
+    await handle.focus(); await page.keyboard.press('ArrowLeft');
+    const afterKey = await listWidth();
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await listWidth(), afterKey + 16);
+    await handle.dblclick();
+    assert.equal(await listWidth(), start);
+    assert.equal(await page.evaluate(() => localStorage.getItem('qorqut.explorer.listWidth')), null);
+    // Remembered across a fresh mount.
+    await page.evaluate(() => { localStorage.setItem('qorqut.explorer.listWidth', '300'); agentExplorerMount(window.p); });
+    await page.locator('[data-row="t::g1"]').waitFor();
+    assert.equal(await listWidth(), 300);
+    // A window too narrow for the stored width keeps both sides within their limits.
+    await page.setViewportSize({width: 700, height: 700});
+    await page.evaluate(() => { document.querySelector('#agpad').style.width = '700px'; });
+    await page.waitForFunction(() => document.querySelector('.agfiles-tree').getBoundingClientRect().width <= 380);
+    assert.ok(await listWidth() >= 200);
     assert.deepEqual(errors, []);
   } finally { await browser.close(); }
 });

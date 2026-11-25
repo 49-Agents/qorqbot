@@ -593,7 +593,7 @@ def require_no_terminal_agents(root, env=None):
     terminals are closed or the owner switches back to managed sessions. Terminals are only listed, never ended here."""
     if read_mode(root) == 'terminal':
         if running_terminal_sessions(root, env):
-            raise ValueError('Agents of this installation run in terminals, and some are running now. Under Settings > Agents, '
+            raise ValueError('Agents of this installation run in terminals, and some are running now. Under Settings > Model/Provider, '
                              'switch to Managed sessions, or close the agents’ terminals yourself. Then update again.')
         return
     live = listening_terminal_sockets(root)

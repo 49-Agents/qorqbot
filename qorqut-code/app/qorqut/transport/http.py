@@ -509,11 +509,15 @@ class HTTPAPI:
                     body = await read_json(request, limit=1024)
                     if not isinstance(body, dict):
                         raise DomainError("validation_error", "An agent client change must be an object")
-                    checked_fields(body, {"provider", "action"}, {"provider", "action"})
-                    if body["provider"] not in ("claude", "codex") or body["action"] not in (
-                            "download", "cancel_download", "connect", "cancel_connect"):
-                        raise DomainError("validation_error", "Choose claude or codex, and download, cancel_download, connect or cancel_connect")
-                    reader = partial(owner_settings.agent_clients_action, body["provider"], body["action"])
+                    checked_fields(body, {"provider", "action", "code", "method"}, {"provider", "action"})
+                    if body["provider"] not in ("claude", "codex") or body["action"] not in owner_settings.ACTIONS:
+                        raise DomainError("validation_error", "Choose claude or codex, and download, cancel_download, connect, switch, "
+                                                              "cancel_connect or submit_code")
+                    for field, limit in (("code", 512), ("method", 20)):
+                        if field in body and (not isinstance(body[field], str) or len(body[field]) > limit):
+                            raise DomainError("validation_error", f"{field} must be text of at most {limit} characters")
+                    reader = partial(owner_settings.agent_clients_action, body["provider"], body["action"],
+                                     **{field: body[field] for field in ("code", "method") if field in body})
                 data = await anyio.to_thread.run_sync(reader)
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"

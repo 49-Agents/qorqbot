@@ -20,6 +20,10 @@ DELETE_LIMIT_SECONDS = 48 * 3600
 BATCH = 20
 PAYLOAD_ID = re.compile(r"[A-Za-z0-9._:-]{1,128}")
 MEDIA_KINDS = ("document", "photo")
+TOO_OLD = {"state": "failed", "error_code": "too_old_48h",
+           "error_message": "Telegram allows deleting a message only within 48 hours; delete it manually"}
+EXPIRED_REQUESTS = ("SELECT * FROM telegram_messages WHERE request_state='pending' AND direction='outbound' "
+                    "AND request_expires_at<=?")
 
 
 class AuthorityMoved(Exception):
@@ -214,6 +218,14 @@ class Dispatcher:
             with bridge.read() as uow:
                 if not store.due_outbox(uow, now, limit=1, uploads=True):
                     return False
+        else:
+            # The step for every other send runs on every pass too. Its look also checks the identity the claim checks, so a
+            # moved binding is still refused when there is nothing to send.
+            def due(uow):
+                bridge.check_binding(uow)
+                return store.due_outbox(uow, now, limit=1, uploads=uploads)
+            if not bridge.has_work(due):
+                return False
         with bridge.write("dispatch.claim") as uow:
             binding = bridge.check_binding(uow)
             for row in store.due_outbox(uow, now, limit=BATCH, uploads=uploads):
@@ -429,10 +441,10 @@ class Dispatcher:
         bridge = self.bridge
         now = bridge.now()
         worked = False
+        if not bridge.has_work(lambda uow: uow.connection.execute(EXPIRED_REQUESTS, (now,)).fetchone()):
+            return False
         with bridge.write("requests.expire") as uow:
-            rows = [dict(r) for r in uow.connection.execute(
-                "SELECT * FROM telegram_messages WHERE request_state='pending' AND direction='outbound' AND request_expires_at<=?",
-                (now,))]
+            rows = [dict(r) for r in uow.connection.execute(EXPIRED_REQUESTS, (now,))]
             for row in rows:
                 store.close_request(uow, row, "expired", row["request_expires_at"])
                 worked = True
@@ -469,11 +481,31 @@ class Cleanup:
         outbox = store.outbox(uow, message["outbox_id"]) if message["outbox_id"] else None
         return (outbox or {}).get("sent_at") or message["occurred_at"]
 
+    def _too_old(self, uow, message, now):
+        return store.parse(now) - store.parse(self._age_anchor(uow, message)) >= store.timedelta(seconds=DELETE_LIMIT_SECONDS)
+
+    def _wait(self, job, outbox, now):
+        """Seconds before a job whose send is still queued or dispatching looks again.
+
+        The bridge's backoff, doubling from its base to its cap, stepped by how long the job has waited so far (since it was
+        queued, or since the owner had the send retried) instead of by ``attempts``: those count delete requests, and waits
+        spent from them would leave no retries for the delete once the message is out. The 48-hour rule ends the wait.
+        """
+        since = max(job["created_at"], outbox["resolved_at"] or job["created_at"])
+        waited = max(0.0, (store.parse(now) - store.parse(since)).total_seconds())
+        return self.bridge.backoff(int(waited / self.bridge.timings["backoff_base"]).bit_length() + 1)
+
     def one(self):
         bridge = self.bridge
         config = bridge.current_config()
         now = bridge.now()
         target = None
+
+        def due(uow):
+            bridge.check_binding(uow)
+            return self._due(uow, now)
+        if not bridge.has_work(due):
+            return False
         with bridge.write("cleanup.claim") as uow:
             bridge.check_binding(uow)
             repository = uow.repository("telegram_cleanup_jobs")
@@ -484,8 +516,18 @@ class Cleanup:
                     if outbox is None or outbox["state"] in ("failed", "cancelled"):
                         repository.update(job["id"], {"state": "deleted", "completed_at": now, "error_code": "never_sent"},
                                           expected_revision=job["revision"])
+                    elif outbox["state"] == "uncertain":
+                        # Only the owner settles an uncertain send, so waiting here would never end. The job stops with nothing
+                        # known to delete; resolving the send queues it again (``store.requeue_cleanup``).
+                        repository.update(job["id"], {"state": "failed", "error_code": store.CLEANUP_SEND_UNCERTAIN,
+                            "error_message": "The send is uncertain; nothing is known to delete until it is resolved"},
+                            expected_revision=job["revision"])
+                    elif self._too_old(uow, message, now):
+                        repository.update(job["id"], TOO_OLD, expected_revision=job["revision"])
                     else:
-                        repository.update(job["id"], {"next_attempt_at": store.plus(now, 30)}, expected_revision=job["revision"])
+                        # Still queued or dispatching: look again after the bridge's backoff, without spending delete attempts.
+                        repository.update(job["id"], {"next_attempt_at": store.plus(now, self._wait(job, outbox, now))},
+                                          expected_revision=job["revision"])
                     continue
                 # Only a message at the exact destination it was saved for, still configured under its own name, is deleted: another
                 # topic of the same group, a former binding and an unconfigured chat are all reported for manual cleanup instead.
@@ -493,10 +535,8 @@ class Cleanup:
                 if destination is None or destination.name != message["chat_name"]:
                     repository.update(job["id"], {"state": "failed", "error_code": "unknown_chat"}, expected_revision=job["revision"])
                     continue
-                if store.parse(now) - store.parse(self._age_anchor(uow, message)) >= store.timedelta(seconds=DELETE_LIMIT_SECONDS):
-                    repository.update(job["id"], {"state": "failed", "error_code": "too_old_48h",
-                        "error_message": "Telegram allows deleting a message only within 48 hours; delete it manually"},
-                        expected_revision=job["revision"])
+                if self._too_old(uow, message, now):
+                    repository.update(job["id"], TOO_OLD, expected_revision=job["revision"])
                     continue
                 repository.update(job["id"], {"state": "deleting", "attempts": job["attempts"] + 1}, expected_revision=job["revision"])
                 target = (job["id"], message["chat_id"], message["telegram_message_id"])

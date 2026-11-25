@@ -567,7 +567,7 @@ test('cannot start: the owner is pointed to Settings (where Claude Code and Code
     assert.match(runtime.refusalText(code), /Claude Code or Codex/, code);
   }
   assert.match(runtime.refusalText('driver_unavailable'), /^Couldn’t start\. Check in Settings that Claude Code or Codex is connected, then send again\.$/);
-  assert.match(runtime.refusalText('cli_unavailable'), /^This agent’s client \(Claude Code or Codex\) isn’t installed yet\. Download it under Settings > Agents, then send again\.$/);
+  assert.match(runtime.refusalText('cli_unavailable'), /^This agent’s client \(Claude Code or Codex\) isn’t installed yet\. Download it under Settings > Model\/Provider, then send again\.$/);
   assert.equal(runtime.refusalText('open_timeout'), 'Still starting. Try again in a moment.');
   assert.equal(runtime.refusalText('resume_failed'), 'Couldn’t continue the earlier conversation, so nothing was started.');
   assert.equal(runtime.refusalText('resume_unavailable'), 'The earlier conversation can’t be continued because its file is missing.');
@@ -766,11 +766,11 @@ test('mountAgentView mounts Chat only: no Terminal view, no switch, and the opti
 });
 
 test('the server\'s own sentence for a missing or signed-out client is shown as it is; the table is only the fallback', () => {
-  const sentence = 'Helper is set to use Codex, and Codex isn\'t signed in yet. Sign in under Settings > Agents, or switch Helper to Claude Code there.';
+  const sentence = 'Helper is set to use Codex, and Codex isn\'t signed in yet. Sign in under Settings > Model/Provider, or switch Helper to Claude Code there.';
   assert.equal(runtime.refusalText('cli_not_signed_in', sentence), sentence);
   assert.equal(runtime.refusalText('cli_unavailable', '  ' + sentence + ' '), sentence);
-  assert.match(runtime.refusalText('cli_not_signed_in'), /isn’t signed in yet\. Sign in under Settings > Agents/);
-  assert.match(runtime.refusalText('cli_unavailable', ''), /Download it under Settings > Agents/);
+  assert.match(runtime.refusalText('cli_not_signed_in'), /isn’t signed in yet\. Sign in under Settings > Model\/Provider/);
+  assert.match(runtime.refusalText('cli_unavailable', ''), /Download it under Settings > Model\/Provider/);
   // only these codes carry a sentence written for the owner; any other code keeps the dashboard's own wording
   assert.equal(runtime.refusalText('open_busy', 'Something internal'), 'Several sessions are starting right now. Try again in a moment.');
   assert.equal(runtime.refusalText('cli_unavailable', 'x'.repeat(500)).includes('xxxx'), false);
@@ -801,4 +801,229 @@ test('the client\'s own words about a failed turn are the session line, until a 
   assert.deepEqual(runtime.summary(failed, 'Helper', true), {key: 'error', line: 'Helper couldn’t answer: You\'ve hit your usage limit. Try again at 4:30 PM.'});
   assert.equal(runtime.summary({...failed, managed: {...failed.managed, last_turn_status: 'completed', turn_error: null}}, 'Helper', true).key, 'live');
   assert.equal(runtime.summary({...failed, managed: {...failed.managed, phase: 'working'}}, 'Helper', true).key, 'working');
+});
+
+// ---- the account notice: a usage limit or a sign-in that is no longer accepted (js/agent-runtime.js, wording and sign-in in js/agent-clients.js)
+const agentClients = require('../js/agent-clients.js');
+const PROBLEM = (over = {}) => ({kind: 'usage_limit', provider: 'claude', resets_at: null, resets_text: 'Nov 28, 7pm (America/New_York)',
+  account: {email: 'owner@example.com', plan: 'Max'}, other_provider: {id: 'codex', ready: true}, ...over});
+const limited = (over = {}, session = {}) => managed({last_turn_status: 'error', turn_error: 'You’ve hit your limit', account_problem: PROBLEM(over)}, session);
+const productRow = (over = {}) => ({installed: true, signed_in: true, account: {email: 'owner@example.com', plan: 'Max'}, source: 'system', version: '2.1.3',
+  install: {phase: 'ready'}, sign_in: {state: 'idle', reason: null}, limit: {reached: true}, switched: null, ...over});
+const connecting = (over = {}) => productRow({sign_in: {state: 'connecting', method: 'browser', page_url: 'https://claude.ai/oauth/x', accepts_code: true, code_submitted: false,
+  switching: true, previous_account: {email: 'owner@example.com', plan: 'Max'}, ...over}});
+
+// A bar with the account notice: `server.view` is what the sign-in state reads give; `server.acts` the actions sent; timers collected.
+function accountBar(first = {claude: productRow(), codex: productRow({limit: {reached: false}})}, over = {}) {
+  const server = {view: first, acts: [], reads: 0, others: [], timers: [], failOther: null};
+  const ui = bar({clients: agentClients, useOther: async client => { server.others.push(client); if (server.failOther) throw server.failOther; return {}; },
+    clientsOptions: {read: async () => { server.reads++; return server.view; }, act: async (provider, action, body) => { server.acts.push({provider, action, ...(body || {})}); return server.view; },
+      schedule: fn => { server.timers.push(fn); return server.timers.length; }, cancel: id => { server.timers[id - 1] = null; }}, ...over});
+  const box = () => ui.el.querySelector('.mchat-account');
+  const buttons = () => box().querySelectorAll('[data-account-action]');
+  const labels = () => buttons().map(b => b.textContent);
+  return {ui, server, box, buttons, labels};
+}
+
+test('account_problem is read as the page uses it, and anything else is none', () => {
+  assert.deepEqual(runtime.managedOf(limited()).accountProblem, {kind: 'usage_limit', provider: 'claude', resetsAt: null, resetsText: 'Nov 28, 7pm (America/New_York)',
+    account: {email: 'owner@example.com', plan: 'Max'}, other: {id: 'codex', ready: true}});
+  assert.equal(runtime.managedOf(managed()).accountProblem, null);
+  for (const bad of [{kind: 'other', provider: 'claude'}, {kind: 'sign_in', provider: 'gemini'}, 'x', 5, [], {provider: 'claude'}]) {
+    assert.equal(runtime.managedOf(managed({account_problem: bad})).accountProblem, null, JSON.stringify(bad));
+  }
+  const odd = runtime.managedOf(managed({account_problem: {kind: 'sign_in', provider: 'codex', account: {email: ''}, other_provider: {id: 'codex', ready: true}}})).accountProblem;
+  assert.deepEqual([odd.account, odd.other], [null, null], 'no empty account, and never the same product as its own alternative');
+});
+
+test('an account problem replaces the plain “couldn’t answer” line; any other failed turn keeps it', () => {
+  assert.equal(runtime.summary(limited(), 'Helper', true).key, 'live');
+  assert.equal(runtime.summary(limited(), 'Helper', true).line, '');
+  const plain = managed({last_turn_status: 'error', turn_error: 'Something broke'});
+  assert.equal(runtime.summary(plain, 'Helper', true).line, 'Helper couldn’t answer: Something broke');
+});
+
+test('a limit shows the notice with its two buttons, and the sign-in state is read once, only while it is up', async () => {
+  const t = accountBar();
+  assert.equal(t.server.reads, 0, 'nothing is read before there is a problem');
+  t.ui.update(managed());
+  assert.equal(t.box().hidden, true);
+  assert.equal(t.server.reads, 0, 'a chat without a problem never reads');
+  t.ui.update(limited());
+  await flush();
+  assert.equal(t.server.reads, 1);
+  assert.equal(t.box().hidden, false);
+  assert.equal(t.ui.el.hidden, false);
+  assert.match(t.box().querySelector('.mchat-notice-text').textContent, /^Claude usage limit reached\. It resets Nov 28, 7pm \(America\/New_York\)\.Signed in as owner@example\.com \(Max\)\. Every agent on Claude Code is waiting\.$/);
+  assert.deepEqual(t.labels(), ['Switch Claude account', 'Use Codex for Ada']);
+  assert.equal(t.buttons()[1].className, 'quiet');
+  assert.equal(t.buttons()[0].getAttribute('aria-label'), 'Switch the Claude Code account');
+  t.ui.update(limited());
+  t.ui.update(limited());
+  await flush();
+  assert.equal(t.server.reads, 1, 'repeated session reads do not read again');
+  assert.equal(t.server.timers.filter(Boolean).length, 0, 'and nothing polls while nothing is under way');
+  // Gone with the problem: hidden, and the controller stopped.
+  t.ui.update(managed({last_turn_status: 'completed'}));
+  assert.equal(t.box().hidden, true);
+  assert.equal(t.ui.el.hidden, true);
+  assert.equal(t.box().querySelector('button'), null);
+  t.ui.dispose();
+});
+
+test('the Codex button is there only while Codex is Ready, and trades places on a Codex limit', async () => {
+  const t = accountBar({claude: productRow(), codex: productRow()});
+  t.ui.update(limited({other_provider: {id: 'codex', ready: false}}));
+  assert.deepEqual(t.labels(), ['Switch Claude account']);
+  t.ui.update(limited({provider: 'codex', other_provider: {id: 'claude', ready: true}}));
+  assert.deepEqual(t.labels(), ['Switch ChatGPT account', 'Use Claude Code for Ada']);
+  assert.match(t.box().querySelector('.mchat-notice-text').textContent, /^Codex usage limit reached\./);
+  t.ui.dispose();
+});
+
+test('Switch sends switch for the product, the notice becomes the sign-in part, and the typed code survives the session reads', async () => {
+  const t = accountBar();
+  t.ui.update(limited());
+  await flush();
+  t.server.view = {claude: connecting(), codex: productRow()};
+  click(t.buttons()[0]);
+  await flush();
+  assert.deepEqual(t.server.acts, [{provider: 'claude', action: 'switch'}]);
+  assert.match(t.box().querySelector('.mchat-notice-text').textContent, /^Finish signing in in the browser window that opened\./);
+  assert.match(t.box().querySelector('.mchat-notice-text').textContent, /Still signed in as owner@example\.com \(Max\) until you finish\./);
+  assert.deepEqual(t.labels(), ['Cancel']);
+  const link = t.box().querySelector('a[data-ac-open]');
+  assert.equal(link.getAttribute('href'), 'https://claude.ai/oauth/x');
+  assert.equal(link.getAttribute('target'), '_blank');
+  assert.equal(link.getAttribute('rel'), 'noopener noreferrer');
+  const input = t.box().querySelector('[data-ac-code]');
+  input.value = 'my-code'; input.focus();
+  t.ui.update(limited());           // the 2 s session read repaints Chat
+  await flush();
+  assert.equal(t.box().querySelector('[data-ac-code]'), input, 'the same field');
+  assert.equal(doc.activeElement, input);
+  // The page address changes: the part is rebuilt and keeps the text and the focus.
+  t.server.view = {claude: connecting({page_url: 'https://claude.ai/oauth/y'}), codex: productRow()};
+  t.server.timers.filter(Boolean).forEach(fn => fn());
+  await flush();
+  assert.equal(t.box().querySelector('[data-ac-code]').value, 'my-code');
+  assert.equal(doc.activeElement, t.box().querySelector('[data-ac-code]'));
+  // Connect and Enter both send it; the field then waits.
+  t.server.view = {claude: connecting({page_url: 'https://claude.ai/oauth/y', code_submitted: true}), codex: productRow()};
+  click(t.box().querySelector('[data-ac-finish]'));
+  await flush();
+  assert.deepEqual(t.server.acts.at(-1), {provider: 'claude', action: 'submit_code', code: 'my-code'});
+  assert.equal(t.box().querySelector('[data-ac-code]').disabled, true);
+  assert.equal(t.box().querySelector('[data-ac-checking]').hidden, false);
+  // Cancel stops the sign-in; the old state returns, and a failure now is shown as such.
+  t.server.view = {claude: productRow({sign_in: {state: 'failed', reason: 'The sign-in window was closed.'}}), codex: productRow()};
+  click(t.buttons()[0]);
+  await flush();
+  assert.deepEqual(t.server.acts.at(-1), {provider: 'claude', action: 'cancel_connect'});
+  t.ui.dispose();
+});
+
+test('a sign-in that failed after the owner tried here says so and offers Try again; one from before is not shown', async () => {
+  const failed = productRow({sign_in: {state: 'failed', reason: 'The sign-in window was closed.'}});
+  const old = accountBar({claude: failed, codex: productRow()});
+  old.ui.update(limited()); await flush();
+  assert.match(old.box().querySelector('.mchat-notice-text').textContent, /^Claude usage limit reached/, 'an old failure stays out of a fresh notice');
+  old.ui.dispose();
+  const t = accountBar({claude: productRow(), codex: productRow()});
+  t.ui.update(limited()); await flush();
+  t.server.view = {claude: failed, codex: productRow()};
+  click(t.buttons()[0]); await flush();
+  assert.match(t.box().querySelector('.mchat-notice-text').textContent, /^Signing in did not finish\. Nothing changed\.Still signed in as owner@example\.com \(Max\)\. The limit resets Nov 28, 7pm \(America\/New_York\)\. The sign-in window was closed\.$/);
+  assert.deepEqual(t.labels(), ['Try again', 'Use Codex for Ada']);
+  click(t.buttons()[0]); await flush();
+  assert.deepEqual(t.server.acts.map(a => a.action), ['switch', 'switch']);
+  t.ui.dispose();
+});
+
+test('a Codex device code is shown with Copy, with no field; and signing in after sign-out says Sign in again and sends connect', async () => {
+  const t = accountBar({claude: productRow({signed_in: false}), codex: productRow()});
+  t.ui.update(limited({kind: 'sign_in', provider: 'codex', other_provider: {id: 'claude', ready: true}}));
+  await flush();
+  assert.match(t.box().querySelector('.mchat-notice-text').textContent, /^Codex is signed out\.The sign-in for owner@example\.com \(Max\) is no longer accepted\.$/);
+  assert.deepEqual(t.labels(), ['Sign in again']);
+  t.server.view = {claude: productRow(), codex: connecting({method: 'device_code', page_url: 'https://auth.openai.com/codex/device', user_code: 'WXYZ-1234', accepts_code: false})};
+  click(t.buttons()[0]); await flush();
+  assert.deepEqual(t.server.acts, [{provider: 'codex', action: 'connect'}]);
+  assert.equal(t.box().querySelector('[data-ac-user-code]').textContent, 'WXYZ-1234');
+  assert.ok(t.box().querySelector('[data-ac-copy]'));
+  assert.equal(t.box().querySelector('[data-ac-code]'), null);
+  assert.match(t.box().querySelector('.mchat-notice-text').textContent, /^Open the sign-in page and type the code shown here\./);
+  t.ui.dispose();
+});
+
+test('Use the other product asks the server for this agent only, and shows a refusal in the notice', async () => {
+  const t = accountBar();
+  t.ui.update(limited()); await flush();
+  click(t.buttons()[1]); await flush();
+  assert.deepEqual(t.server.others, ['codex']);
+  assert.ok(t.ui.changes.length > 0, 'Chat is read again after the request');
+  // A refusal shows its words and the buttons come back.
+  const bad = accountBar();
+  bad.server.failOther = new Error('Codex is not signed in. Sign in first.');
+  bad.ui.update(limited()); await flush();
+  click(bad.buttons()[1]); await flush();
+  assert.match(bad.box().querySelector('.mchat-notice-error').textContent, /^Codex is not signed in\. Sign in first\.$/);
+  assert.equal(bad.buttons()[0].disabled, false);
+  t.ui.dispose(); bad.ui.dispose();
+});
+
+test('while the request is on its way every button waits, and the pressed one says “Switching…”', async () => {
+  let release; const hold = new Promise(resolve => { release = resolve; });
+  const t = accountBar(undefined, {useOther: async () => { await hold; return {}; }});
+  t.ui.update(limited()); await flush();
+  click(t.buttons()[1]); await flush();
+  assert.deepEqual(t.buttons().map(b => [b.textContent, b.disabled]), [['Switch Claude account', true], ['Switching…', true]]);
+  click(t.buttons()[0]);
+  assert.deepEqual(t.server.acts, [], 'a waiting button does nothing');
+  release(); await flush();
+  assert.deepEqual(t.buttons().map(b => b.disabled), [false, false]);
+  t.ui.dispose();
+});
+
+test('the notice keeps its own place: the one-action offer and the cards still work beside it', async () => {
+  const t = accountBar();
+  t.ui.update(limited({}, {})); await flush();
+  const offered = [];
+  t.ui.offer({text: 'The earlier conversation can’t be continued because its file is missing. Nothing was sent.', label: 'Start a new conversation'}, () => offered.push(1));
+  assert.equal(t.ui.el.querySelector('.mchat-notice').hidden, false);
+  assert.equal(t.box().hidden, false);
+  click(t.ui.el.querySelector('.mchat-notice-action'));
+  assert.deepEqual(offered, [1]);
+  assert.equal(t.box().hidden, false, 'answering the offer leaves the account notice');
+  t.ui.update(limited({}, {}));
+  t.ui.dispose();
+});
+
+test('text from the server in the notice is escaped, and a chat without the sign-in script shows no notice', async () => {
+  const t = accountBar();
+  t.ui.update(limited({resets_text: '<img src=x onerror=1>', account: {email: '<b>x</b>@y.test', plan: '<i>'}})); await flush();
+  assert.equal(t.box().querySelector('img'), null);
+  assert.equal(t.box().querySelector('b'), null);
+  assert.match(t.box().textContent, /<img src=x onerror=1>/);
+  t.ui.dispose();
+  const bare = bar();
+  bare.update(limited());
+  assert.equal(bare.el.querySelector('.mchat-account').hidden, true);
+});
+
+test('dispose ends the reads: nothing is read after a chat is closed', async () => {
+  const t = accountBar({claude: connecting(), codex: productRow()});
+  t.ui.update(limited()); await flush();
+  const reads = t.server.reads;
+  t.ui.dispose();
+  t.server.timers.filter(Boolean).forEach(fn => fn());
+  await flush();
+  assert.equal(t.server.reads, reads);
+});
+
+test('global-chat.js hands the bar the sign-in script and the one-agent switch route', () => {
+  const chat = read('js/global-chat.js');
+  assert.match(chat, /clients: typeof agentClients !== 'undefined' \? agentClients : null/);
+  assert.match(chat, /post\(`\$\{base\}\/use-other-product`, \{client\}\)/);
+  assert.ok(read('index.html').indexOf('/js/agent-clients.js') < read('index.html').indexOf('/js/global-chat.js'));
 });

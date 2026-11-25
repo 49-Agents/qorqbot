@@ -1268,7 +1268,8 @@ class OperationalDelegationOperations:
             raise DomainError("operation_unavailable", "Durable worker dispatch is not installed")
         self._require_parent(context)
         registration_id = _canonical_id(registration_id, "registration_id")
-        with self.application.database.transaction(operation="delegation.dispatch.claim") as uow:
+
+        def body(uow):
             current_context = self.application.current_context(context, uow)
             self._require_parent(current_context)
             if current_context.session_registration_id != registration_id:
@@ -1340,6 +1341,12 @@ class OperationalDelegationOperations:
                     "worker_token": binding_data["worker_token"],
                     "events": [self.inbox.event_item(current_context, event, uow) for event in event_rows]}
             return {"assignment": None, "reason": None}
+
+        # A waiting parent asks every few seconds, and usually nothing can run yet (no assignment, a live lease, a wait
+        # not due), which a separate cheaper look could not tell exactly. So the claim takes SQLite's writer only from
+        # its first real change; until then it holds no other writer up. Everything before that change is a read, so a
+        # claim refused the writer there simply runs again in an ordinary write unit.
+        return self.application.database.write_if_needed(body, operation="delegation.dispatch.claim")
 
     def poll_worker(self, context, registration_id, consumer_id, assignment_id, generation,
                     runtime_thread_id=None, turn_number=None, turn_usage=None,

@@ -6,6 +6,14 @@ app-server: ``account/login/start`` returns a page that is opened in the browser
 as completed. One sign-in is pending per provider; a second start replaces the first, a sign-in that has not finished
 after ten minutes fails, and the processes are stopped on cancel and when the service exits (``stop_all``).
 
+Switching and servers: ``claude auth login`` and Codex's login run the same whether or not the product is already signed in, and
+the stored sign-in stays in use until the new one is written, so a switch is the same sign-in started on a signed-in product
+(nothing is changed by cancelling, failing or timing out). On a machine without a browser the owner opens the page elsewhere:
+Claude's CLI reads the code that page shows from its standard input (``submit_code``), and Codex offers a device-code login
+(``account/login/start`` with ``chatgptDeviceCode``: a page and a short code the owner types there). The page and the code are shown
+to the owner in the view and are never logged. When a sign-in completes, the handler set with ``set_completion_handler`` is told
+(Chat restarts the agents of that product).
+
 Status:
 
 * Claude is read from the credential the CLI stored (macOS Keychain item ``Claude Code-credentials``, else
@@ -30,6 +38,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import platform
 import queue
 import re
 import shutil
@@ -41,6 +50,8 @@ import time
 import unicodedata
 from urllib.parse import urlsplit
 import webbrowser
+
+from qorqut import account_state
 
 PROVIDERS = ("claude", "codex")
 SIGN_IN_TIMEOUT = 600            # seconds a pending sign-in may wait for the owner
@@ -57,6 +68,9 @@ OUTPUT_LINE_LIMIT = 4096         # bytes of one line of the sign-in CLI's output
 OUTPUT_LIMIT = 65536             # bytes of the sign-in CLI's output that are looked at in all
 OUTPUT_POLL = 0.2
 REASON_LIMIT = 200
+CODE_LIMIT = 512                 # characters of the code the owner pastes (Claude's is about a hundred)
+CODEX_METHODS = ("browser", "device_code")
+DEVICE_CODE_LIMIT = 64
 
 # Variables that sign the CLI in from the environment. ``auth status`` would report them; the stored sign-in alone would
 # give a wrong answer, and asking the CLI could spend a stored refresh token for nothing, so they are answered here.
@@ -85,6 +99,22 @@ _pending: dict = {}              # provider -> _Pending
 _failed: dict = {}               # provider -> plain reason of the last failed sign-in
 _cli_status_cache: dict = {}     # (path, HOME, CLAUDE_CONFIG_DIR) -> (monotonic time it expires, result)
 _cli_status_flight = threading.Lock()   # held while a ``claude auth status`` runs: never two at once
+_completion_handler = None       # called as handler(provider, switch) in its own thread when a sign-in completed
+
+
+class SignInError(Exception):
+    """A sign-in request that cannot be done now; ``message`` is a plain sentence for the owner."""
+
+    def __init__(self, message, code="validation_error"):
+        super().__init__(message)
+        self.message, self.code = message, code
+
+
+def set_completion_handler(handler):
+    """``handler(provider, switch)`` runs in a new thread after a sign-in completed (``switch`` is ``account_state.switch``'s entry);
+    None removes it. Chat uses it to restart the sessions of that product."""
+    global _completion_handler
+    _completion_handler = handler
 
 
 # ---------------------------------------------------------------- the CLI binary (agent_cli_install's contract)
@@ -339,6 +369,11 @@ class _Pending:
         # group kill would close the owner's browser window with it. The CLI has no other helper, so only it is signalled.
         self.group = provider != "claude"
         self.output = None                   # the Claude CLI's output file (an unlinked temporary file), read by the watcher
+        self.stdin = None                    # the Claude CLI's input: the code the owner pastes goes here
+        self.page_url, self.user_code, self.method = None, None, None
+        self.accepts_code, self.code_submitted = False, False
+        self.previous, self.switching, self.env = None, False, {}
+        self.started_at = time.time()
 
 
 def _popen(command, **options):
@@ -379,6 +414,36 @@ def _stop_process(process, group=True):
         _wait(process, STOP_GRACE)
 
 
+def sign_in_details(provider):
+    """What the owner needs to finish the sign-in that is waiting, else all empty: ``method`` (``browser`` or ``device_code``),
+    ``page_url`` (the sign-in page, https on the product's own domain), ``user_code`` (Codex's device code, typed on that page),
+    ``accepts_code`` (Claude: the page shows a code to paste back, ``submit_code``), ``code_submitted``, ``started_at`` and
+    ``expires_at`` (ISO, UTC), ``switching`` (a sign-in was already stored) and ``previous_account`` (``{email, plan}`` or None).
+    The page and the code are for the owner's eyes only: nothing here logs them."""
+    with _lock:
+        pending = _pending.get(provider)
+        if pending is None:
+            return {"method": None, "page_url": None, "user_code": None, "accepts_code": False, "code_submitted": False,
+                    "started_at": None, "expires_at": None, "switching": False, "previous_account": None}
+        return {"method": pending.method, "page_url": pending.page_url, "user_code": pending.user_code,
+                "accepts_code": pending.accepts_code, "code_submitted": pending.code_submitted,
+                "started_at": _stamp(pending.started_at), "expires_at": _stamp(pending.started_at + SIGN_IN_TIMEOUT),
+                "switching": pending.switching, "previous_account": pending.previous}
+
+
+def _stamp(seconds):
+    from datetime import datetime, timezone
+    return datetime.fromtimestamp(seconds, timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def default_method(provider, system=None):
+    """How a sign-in is done unless the owner chooses: Claude's CLI has one way. Codex opens its page in a browser on the
+    computer that runs Qorqbot where that is a desktop (macOS, Windows) and uses the device code on Linux, which is a server."""
+    if provider != "codex":
+        return "browser"
+    return "device_code" if (system or platform.system()) == "Linux" else "browser"
+
+
 def sign_in_state(provider):
     """``{"state": "idle" | "connecting" | "failed", "reason": plain sentence or None}``."""
     with _lock:
@@ -389,8 +454,9 @@ def sign_in_state(provider):
     return {"state": "idle", "reason": None}
 
 
-def _finish(pending, reason=None):
-    """Record how a sign-in ended, unless it was already replaced or cancelled."""
+def _finish(pending, reason=None, account=None):
+    """Record how a sign-in ended, unless it was already replaced or cancelled. A sign-in that completed (``reason`` None) is
+    reported to the completion handler; ``account`` is the account Codex confirmed (Claude's is read from its store)."""
     with _lock:
         if _pending.get(pending.provider) is not pending:
             return
@@ -400,10 +466,59 @@ def _finish(pending, reason=None):
         else:
             _failed.pop(pending.provider, None)
             _cli_status_cache.clear()         # the next read must see the new sign-in, not a remembered signed-out answer
+    if not reason:
+        _completed(pending, account)
+
+
+def _account_of(status):
+    """``{"email", "plan"}`` of a status that is signed in, else None."""
+    account = status.get("account") if isinstance(status, dict) and status.get("signed_in") else None
+    return {"email": account.get("email"), "plan": account.get("plan")} if isinstance(account, dict) else None
+
+
+def _current_account(env):
+    """The account Claude's store holds now, read from the files (never by asking the CLI), else None."""
+    try:
+        return _account_of(_stored_claude_sign_in(env, platform.system(), subprocess.run, time.time()))
+    except Exception:  # noqa: BLE001 - the account is a courtesy in the view; the sign-in itself did complete
+        return None
+
+
+def _completed(pending, account):
+    """A sign-in finished: remember the switch (the account before and after), make the next status read fresh, and tell the
+    handler, which restarts the agents of this product in a thread of its own."""
+    provider = pending.provider
+    if account is None and provider == "claude":
+        account = _current_account(pending.env)
+    previous = pending.previous
+    changed = not (previous and previous.get("email") and previous.get("email") == (account or {}).get("email"))
+    handler = _completion_handler
+    entry = account_state.record_switch(provider, previous_account=previous, account=account, changed=changed,
+                                        state="restarting" if handler is not None else "done")
+    account_state.forget_clients()
+    if handler is not None:
+        threading.Thread(target=_run_handler, args=(handler, provider, entry), daemon=True, name=f"{provider}-sign-in-done").start()
+
+
+def _run_handler(handler, provider, entry):
+    try:
+        handler(provider, entry)
+    except Exception:  # noqa: BLE001 - nothing may escape a thread of the service; the view says the switch ended
+        account_state.update_switch(provider, state="done")
+
+
+def _close_input(pending):
+    stream, pending.stdin = pending.stdin, None
+    if stream is not None:
+        try:
+            stream.close()
+        except (OSError, ValueError):
+            pass
 
 
 def _stop_pending(pending, cancel_login=True):
     pending.cancelled.set()
+    _close_input(pending)
     server = pending.server
     if cancel_login and server is not None and pending.login_id:
         server.try_send({"id": 0, "method": "account/login/cancel", "params": {"loginId": pending.login_id}})
@@ -459,18 +574,32 @@ def _reason(value, fallback):
     return text[:REASON_LIMIT] if text else fallback
 
 
-def start_sign_in(provider, *, opener=None, environ=None):
-    """Starts the browser sign-in of ``provider`` and returns at once; poll ``sign_in_state``. A pending sign-in of the
-    same provider is stopped and replaced. ``opener(url)`` shows Codex's sign-in page (default: the system browser)."""
+def start_sign_in(provider, *, opener=None, environ=None, method=None, run=subprocess.run):
+    """Starts the sign-in of ``provider`` and returns at once; poll ``sign_in_state`` and ``sign_in_details``. A pending sign-in of
+    the same provider is stopped and replaced. ``opener(url)`` shows Codex's sign-in page (default: the system browser).
+
+    The same call signs in and switches accounts: a stored sign-in stays in use until the new one is written, and a sign-in that is
+    cancelled, fails or times out changes nothing. Whether one was stored is recorded (``previous_account``) so the view can say what
+    changed. ``method`` is Codex's way: ``browser`` (a page opened on this computer) or ``device_code`` (a page and a code, for a
+    computer without a browser); the default is ``default_method``."""
     if provider not in PROVIDERS:
         raise ValueError("Unknown provider")
     name = "Claude Code" if provider == "claude" else "Codex"
+    if method not in (None, "auto", *CODEX_METHODS) or (provider == "claude" and method == "device_code"):
+        raise SignInError(f"{name} cannot sign in that way.")
     env = cli_environment(provider, environ)
     found = resolve_cli(provider, env)
     cancel_sign_in(provider)
     if not found:
         return _fail_now(provider, f"{name} is not downloaded yet. Download it first.")
     pending = _Pending(provider)
+    pending.env = env
+    pending.method = "browser" if provider == "claude" else (method if method in CODEX_METHODS else default_method(provider))
+    if provider == "claude":
+        pending.previous = _current_account(env)
+        pending.switching = pending.previous is not None or _stored_claude_sign_in(env, platform.system(), run, time.time()) is not None
+    else:
+        pending.switching = bool(codex_status(env, cli_path=found["path"], run=run)["signed_in"])
     cwd = env.get("HOME") or "/"
     open_page = opener or _open_browser
     try:
@@ -478,11 +607,13 @@ def start_sign_in(provider, *, opener=None, environ=None):
             # The CLI opens the browser itself. Its output goes to an unlinked temporary file (not a pipe: a browser it starts
             # inherits the descriptor and would keep a pipe open after the CLI is gone) that ``_watch_claude`` reads in
             # bounded pieces, so a sign-in page the CLI could not open is still shown. start_new_session keeps the CLI out of the
-            # service's terminal group; stopping it signals only the CLI (see ``_Pending.group``).
+            # service's terminal group; stopping it signals only the CLI (see ``_Pending.group``). Its input is a pipe that carries
+            # one thing: the code the sign-in page shows, which the owner pastes into Settings (``submit_code``), for a computer
+            # that has no browser to receive it. A browser the CLI starts may inherit that pipe's read end; it never writes to it.
             output = tempfile.TemporaryFile() if hasattr(os, "pread") else None
             sink = output if output is not None else subprocess.DEVNULL
             try:
-                pending.process = _popen([found["path"], "auth", "login", "--claudeai"], stdin=subprocess.DEVNULL,
+                pending.process = _popen([found["path"], "auth", "login", "--claudeai"], stdin=subprocess.PIPE,
                                          stdout=sink, stderr=subprocess.STDOUT if output is not None else subprocess.DEVNULL,
                                          env=env, cwd=cwd, start_new_session=True)
             except BaseException:
@@ -490,6 +621,8 @@ def start_sign_in(provider, *, opener=None, environ=None):
                     output.close()
                 raise
             pending.output = output
+            pending.stdin = getattr(pending.process, "stdin", None)
+            pending.accepts_code = pending.stdin is not None
             target, args = _watch_claude, (pending, open_page)
         else:
             pending.server = _AppServer([found["path"], "app-server", "--listen", "stdio://", *launch_arguments(provider)], env, cwd)
@@ -533,6 +666,9 @@ def _read_claude_output(pending, opener):
     def look(raw):
         text = raw[:OUTPUT_LINE_LIMIT].decode("utf-8", "replace")
         seen["url"] = seen["url"] or _sign_in_page(text)
+        if seen["url"] and pending.page_url is None:
+            with _lock:
+                pending.page_url = seen["url"]
         seen["failed"] = seen["failed"] or _BROWSER_FAILED.search(text) is not None
 
     try:
@@ -577,11 +713,49 @@ def _watch_claude(pending, opener=None):
         code = pending.process.wait(timeout=SIGN_IN_TIMEOUT)
     except subprocess.TimeoutExpired:
         _stop_process(pending.process, pending.group)
+        _close_input(pending)
         _finish(pending, "Claude Code sign-in was not finished in 10 minutes. Try again.")
         return
+    _close_input(pending)
     if pending.cancelled.is_set():
         return
     _finish(pending, None if code == 0 else "Claude Code sign-in did not finish. Try again.")
+
+
+def _checked_code(code):
+    """The code the owner pasted, trimmed, or ``SignInError``. One line of printable characters without spaces, at most
+    ``CODE_LIMIT``: it is written to the CLI's input followed by one newline and nothing else."""
+    if not isinstance(code, str):
+        raise SignInError("Paste the code the sign-in page shows.")
+    code = code.strip()
+    if not code:
+        raise SignInError("Paste the code the sign-in page shows.")
+    if len(code) > CODE_LIMIT or not code.isprintable() or any(c.isspace() for c in code):
+        raise SignInError("That does not look like the code from the sign-in page. Copy it again, all of it.")
+    return code
+
+
+def submit_code(provider, code):
+    """Gives Claude's waiting sign-in the code its page shows (the CLI reads it from its input). The code is never logged, kept
+    or reported back; it is written once and forgotten. ``SignInError`` when the code is not one, when no sign-in is waiting, or
+    when this sign-in takes none (Codex's device code is typed on its page). Returns ``sign_in_state``."""
+    if provider not in PROVIDERS:
+        raise ValueError("Unknown provider")
+    code = _checked_code(code)
+    with _lock:
+        pending = _pending.get(provider)
+        if pending is None:
+            raise SignInError("No sign-in is waiting. Start one first.")
+        if not pending.accepts_code or pending.stdin is None:
+            raise SignInError("This sign-in does not take a code here. Finish it on the sign-in page.")
+        stream = pending.stdin
+        try:
+            stream.write(code.encode("utf-8") + b"\n")
+            stream.flush()
+        except (OSError, ValueError):
+            raise SignInError("Claude Code is not waiting for a code any more. Start the sign-in again.") from None
+        pending.code_submitted = True
+    return sign_in_state(provider)
 
 
 # ---------------------------------------------------------------- Codex app-server (same framing as qorqut_context.runner)
@@ -655,27 +829,46 @@ def _codex_flow(pending, opener):
     early = []
     reason = "Codex sign-in did not finish. Try again."
     stage = "start"
+    confirmed = None
     try:
         # The first launch of the large binary can be slow to answer (macOS checks it first): a longer limit than the rest.
         server.request("initialize", {"clientInfo": {"name": "qorqbot", "title": "Qorqbot", "version": "1"}}, deadline,
                        limit=CODEX_START_TIMEOUT)
         stage = "login"
         server.try_send({"method": "initialized"})
-        login = server.request("account/login/start", {"type": "chatgpt"}, deadline, early)
-        url, pending.login_id = login.get("authUrl"), login.get("loginId")
+        device = pending.method == "device_code"
+        if pending.switching:
+            try:           # the account being replaced is a courtesy for the view: not knowing it never stops the sign-in
+                pending.previous = _codex_account(server.request("account/read", {"refreshToken": False}, deadline).get("account"))
+            except (OSError, TimeoutError):
+                if pending.cancelled.is_set() or server.process.poll() is not None:
+                    raise
+        login = server.request("account/login/start", {"type": "chatgptDeviceCode" if device else "chatgpt"}, deadline, early)
+        url, pending.login_id = login.get("verificationUrl" if device else "authUrl"), login.get("loginId")
         if pending.cancelled.is_set():
             return
         if not isinstance(url, str) or not url.startswith("https://"):
             reason = "Codex did not give a sign-in page. Try again."
             return
-        try:
-            opened = opener(url)
-        except Exception:
-            opened = False
-        if opened is False:
-            reason = "Qorqbot could not open the Codex sign-in page in your browser."
-            _stop_pending(pending)
-            return
+        if device:
+            user_code = login.get("userCode")
+            if not isinstance(user_code, str) or not user_code.strip() or len(user_code) > DEVICE_CODE_LIMIT or not user_code.isprintable():
+                reason = "Codex did not give a sign-in code. Try again."
+                _stop_pending(pending)
+                return
+            with _lock:
+                pending.page_url, pending.user_code = url, user_code.strip()
+        else:
+            with _lock:
+                pending.page_url = url
+            try:
+                opened = opener(url)
+            except Exception:
+                opened = False
+            if opened is False:
+                reason = "Qorqbot could not open the Codex sign-in page in your browser."
+                _stop_pending(pending)
+                return
         completed = _await_completion(server, pending, early, deadline)
         if pending.cancelled.is_set():
             return
@@ -684,7 +877,7 @@ def _codex_flow(pending, opener):
             return
         account = server.request("account/read", {"refreshToken": False}, deadline).get("account")
         if isinstance(account, dict) and account.get("type") == "chatgpt":
-            reason = None
+            reason, confirmed = None, _codex_account(account)
         else:
             reason = "Codex could not confirm the ChatGPT sign-in. Try again."
     except TimeoutError:
@@ -697,8 +890,15 @@ def _codex_flow(pending, opener):
     except OSError as error:
         reason = _reason(str(error), reason) if not pending.cancelled.is_set() else None
     finally:
-        _finish(pending, reason)
+        _finish(pending, reason, confirmed)
         _stop_pending(pending, cancel_login=reason is not None)
+
+
+def _codex_account(account):
+    """``{"email", "plan"}`` from Codex's ``account/read`` answer for a ChatGPT sign-in, else None."""
+    if isinstance(account, dict) and account.get("type") == "chatgpt":
+        return {"email": _text(account.get("email")), "plan": _text(account.get("planType"))}
+    return None
 
 
 def _await_completion(server, pending, early, deadline):

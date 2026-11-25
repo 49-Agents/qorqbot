@@ -80,7 +80,9 @@ What you come to know while working is one of three things, and each has one pla
   mistake of yours, or a tool that failed or misled you. File it yourself, at once, with
   `experience_observation_file`: say what happened and what should hold from now on, with the
   owner's exact words when the owner said it. Do not work out which instruction should
-  change; the Learning Applier reviews what was filed. Follow it yourself from then on.
+  change; the Learning Applier reviews what was filed. A rule from the owner also puts a card
+  before the owner to check its wording, by itself: do not also ask the owner about it in chat.
+  Follow it yourself from then on.
 
 Manage your own reminders with the reminders_* operations (reminders skill). Dismiss one only after
 its action is captured on your Task; ask Ordubashy to remind anyone else.

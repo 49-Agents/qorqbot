@@ -12,15 +12,22 @@ const RW_PROJECT_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentCol
 const RW_LINK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14 14 10M8 16l-1 1a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0M16 8l1-1a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0"/></svg>';
 const RW_FILE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H5v18h14V8zM14 3v5h5M8 13h8M8 17h8"/></svg>';
 const RW_TABLE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16"/></svg>';
-const RW_PROJECT_SECTIONS = [
-  ['work', 'Work'], ['signoffs', 'Signoffs'], ['actions', 'Actions'], ['documents', 'Documents'],
-  ['tables', 'Tables'], ['automation', 'Automation'], ['other', 'Other'],
-];
 // A record gets a Chat tab only when the private channel already supports that source type,
 // or when the typed contract says this exact inventory target is an existing private source.
 const RW_THREAD_TYPES = new Set(['task', 'signoff', 'project', 'reference', 'table']);
 let rwPanelSequence = 0;
 
+// The Tasks tab of a Project record: the Work view (js/agent-work.js) limited to that project. Null when the view is not loaded.
+function rwTasksProject(record) {
+  if (record?.source?.type !== 'project' || record.scopeMissing || !record.project || typeof agentWorkMount !== 'function') return null;
+  return {id: record.source.id, slug: record.project, name: record.project_name || record.label};
+}
+// The Automation tab of a Project record: the old Automation section, on its own tab.
+function rwAutomationProject(record) {
+  return record?.source?.type === 'project' && !record.scopeMissing ? {id: record.source.id} : null;
+}
+// The Folder tab of a Project is simply "Project"; other records keep "<Type> dashboard".
+const rwDashboardLabel = record => record?.source?.type === 'project' ? 'Project' : `${rwTypeLabel(record)} dashboard`;
 function rwEsc(value) { return esc(value == null ? '' : value); }
 function rwNode(tag, className, text) {
   const node = document.createElement(tag);
@@ -279,6 +286,8 @@ function recordWorkspaceMount(host, options = {}) {
     return null;
   }
   function defaultTab(record) {
+    // A Project opens on its Folder tab; a Task on its timeline.
+    if (record?.source?.type === 'project') return 'dashboard';
     if (timelineItem(record) && !taskTypeIcon(record.task_type || record.source?.task_type)) return 'timeline';
     return options.paired || !record.can_thread ? 'dashboard' : 'chat';
   }
@@ -305,17 +314,21 @@ function recordWorkspaceMount(host, options = {}) {
       <button type="button" class="quiet rw-move" hidden>Move to project…</button>
       <div class="rw-tabs" role="tablist" aria-label="Record views"></div>
       <button type="button" class="quiet rw-open-thread" aria-pressed="false" hidden>${RW_CHAT_ICON}</button>${closeIcon}
-    </header><div class="rw-body"><div class="rw-pane rw-timeline" role="tabpanel" tabindex="0" hidden><section class="agent-timeline" aria-label="Timeline"></section></div><div class="rw-pane rw-dashboard" role="tabpanel" tabindex="0" hidden></div><div class="rw-pane rw-activity" role="tabpanel" tabindex="0" hidden></div><div class="rw-pane rw-chat" role="tabpanel" tabindex="0" hidden><div class="agfocus-conversation rw-conversation"></div></div></div>`;
+    </header><div class="rw-body"><div class="rw-pane rw-timeline" role="tabpanel" tabindex="0" hidden><section class="agent-timeline" aria-label="Timeline"></section></div><div class="rw-pane rw-dashboard" role="tabpanel" tabindex="0" hidden></div><div class="rw-pane rw-activity" role="tabpanel" tabindex="0" hidden></div><div class="rw-pane rw-tasks" role="tabpanel" tabindex="0" hidden></div><div class="rw-pane rw-automation" role="tabpanel" tabindex="0" hidden></div><div class="rw-pane rw-chat" role="tabpanel" tabindex="0" hidden><div class="agfocus-conversation rw-conversation"></div></div></div>`;
     item.dashHost = item.recordEl.querySelector('.rw-dashboard');
     item.chatHost = item.recordEl.querySelector('.rw-chat');
     item.activityHost = item.recordEl.querySelector('.rw-activity');
     item.timelineHost = item.recordEl.querySelector('.rw-timeline');
+    item.tasksHost = item.recordEl.querySelector('.rw-tasks');
+    item.automationHost = item.recordEl.querySelector('.rw-automation');
     item.conversationHost = item.recordEl.querySelector('.rw-conversation');
     item.panelId = 'rw-' + (++rwPanelSequence);
     item.dashHost.id = item.panelId + '-dashboard';
     item.chatHost.id = item.panelId + '-chat';
     item.activityHost.id = item.panelId + '-activity';
     item.timelineHost.id = item.panelId + '-timeline';
+    item.tasksHost.id = item.panelId + '-tasks';
+    item.automationHost.id = item.panelId + '-automation';
     item.tabs = item.recordEl.querySelector('.rw-tabs');
     item.tabs.innerHTML = tabsHtml(record, item);
     // The record title is the canonical label; Project cards never use a Focus display-name override.
@@ -340,18 +353,26 @@ function recordWorkspaceMount(host, options = {}) {
       finally { if (item.alive) button.disabled = false; }
     };
     item.recordEl.querySelector('.rw-close').onclick = () => { void close(); };
+    bindTabs(item);
+    for (const [name, pane] of [['timeline', item.timelineHost], ['dashboard', item.dashHost], ['tasks', item.tasksHost], ['automation', item.automationHost], ['chat', item.chatHost], ['activity', item.activityHost]]) pane.hidden = item.tab !== name;
+    item.recordEl.dataset.tab = item.tab;
+    return item;
+  }
+  function bindTabs(item) {
     item.tabs.querySelectorAll('[data-rw-tab]').forEach(tab => {
       tab.onclick = () => selectTab(item, tab.dataset.rwTab);
       tab.onkeydown = event => tabKey(item, event);
     });
-    for (const [name, pane] of [['timeline', item.timelineHost], ['dashboard', item.dashHost], ['chat', item.chatHost], ['activity', item.activityHost]]) pane.hidden = item.tab !== name;
-    item.recordEl.dataset.tab = item.tab;
-    return item;
+  }
+  function timelineTabHtml(item) {
+    return `<button type="button" class="quiet rw-tab" role="tab" data-rw-tab="timeline" id="${item.timelineHost.id}-tab" aria-controls="${item.timelineHost.id}" aria-label="Timeline" title="Timeline">${T_VIEW_ICON.timeline || ''}</button>`;
   }
   function tabsHtml(record, item) {
     const tabs = [];
-    if (timelineItem(record)) tabs.push(`<button type="button" class="quiet rw-tab" role="tab" data-rw-tab="timeline" id="${item.timelineHost.id}-tab" aria-controls="${item.timelineHost.id}" aria-label="Timeline" title="Timeline">${T_VIEW_ICON.timeline || ''}</button>`);
-    tabs.push(`<button type="button" class="quiet rw-tab" role="tab" data-rw-tab="dashboard" id="${item.dashHost.id}-tab" aria-controls="${item.dashHost.id}" aria-label="${rwEsc(rwTypeLabel(record))} dashboard" title="${rwEsc(rwTypeLabel(record))} dashboard">${tabTypeIcon(record)}</button>`);
+    if (timelineItem(record)) tabs.push(timelineTabHtml(item));
+    tabs.push(`<button type="button" class="quiet rw-tab" role="tab" data-rw-tab="dashboard" id="${item.dashHost.id}-tab" aria-controls="${item.dashHost.id}" aria-label="${rwEsc(rwDashboardLabel(record))}" title="${rwEsc(rwDashboardLabel(record))}">${tabTypeIcon(record)}</button>`);
+    if (rwTasksProject(record)) tabs.push(`<button type="button" class="quiet rw-tab" role="tab" data-rw-tab="tasks" id="${item.tasksHost.id}-tab" aria-controls="${item.tasksHost.id}" aria-label="Tasks" title="Tasks">${agentFilesIcon('tasks')}</button>`);
+    if (rwAutomationProject(record)) tabs.push(`<button type="button" class="quiet rw-tab" role="tab" data-rw-tab="automation" id="${item.automationHost.id}-tab" aria-controls="${item.automationHost.id}" aria-label="Automation" title="Automation">${T_VIEW_ICON.routines || ''}</button>`);
     if (record.can_thread && !options.paired) tabs.push(`<button type="button" class="quiet rw-tab" role="tab" data-rw-tab="chat" id="${item.chatHost.id}-tab" aria-controls="${item.chatHost.id}" aria-label="Chat" title="Chat">${RW_CHAT_ICON}</button>`);
     if (record.source.type === 'task') tabs.push(`<button type="button" class="quiet rw-tab" role="tab" data-rw-tab="activity" id="${item.activityHost.id}-tab" aria-controls="${item.activityHost.id}" aria-label="Activity" title="Activity"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M3 12a9 9 0 1 0 2.7-6.4L3 8M3 3v5h5"/><path d="M12 7v5l3 2"/></svg></button>`);
     return tabs.join('');
@@ -602,6 +623,8 @@ function recordWorkspaceMount(host, options = {}) {
     if (item.tab === 'chat') { showChat(item); void item.chat?.refresh?.(); }
     if (item.tab === 'activity') mountActivity(item);
     if (item.tab === 'timeline') mountTimeline(item);
+    if (item.tab === 'tasks') mountTasks(item);
+    if (item.tab === 'automation') mountAutomation(item);
     options.onTitleChange?.(item.record);
     syncChatVisibility();
   }
@@ -689,6 +712,8 @@ function recordWorkspaceMount(host, options = {}) {
     if (!item.dashHost?.hidden) item.scroll = item.dashHost?.scrollTop || 0;
     if (!item.activityHost?.hidden) item.activityScroll = item.activityHost?.scrollTop || 0;
     if (!item.timelineHost?.hidden) item.timelineScroll = item.timelineHost?.scrollTop || 0;
+    if (!item.tasksHost?.hidden) item.tasksScroll = item.tasksHost?.scrollTop || 0;
+    if (!item.automationHost?.hidden) item.automationScroll = item.automationHost?.scrollTop || 0;
   }
   function restoreScroll(item) {
     if (!item?.dashHost) return;
@@ -696,6 +721,8 @@ function recordWorkspaceMount(host, options = {}) {
     item.dashHost.scrollTop = item.scroll || 0;
     if (!item.activityHost?.hidden) item.activityHost.scrollTop = item.activityScroll || 0;
     if (!item.timelineHost?.hidden) item.timelineHost.scrollTop = item.timelineScroll || 0;
+    if (!item.tasksHost?.hidden) item.tasksHost.scrollTop = item.tasksScroll || 0;
+    if (!item.automationHost?.hidden) item.automationHost.scrollTop = item.automationScroll || 0;
   }
   async function back() {
     if (disposed || stack.length < 2) return false;
@@ -756,6 +783,8 @@ function recordWorkspaceMount(host, options = {}) {
       item.chat?.refresh?.();
       if (item.tab === 'activity') item.activity?.refresh();
       if (item.tab === 'timeline') mountTimeline(item);
+      if (item.tab === 'tasks') item.tasks?.refresh();
+      if (item.tab === 'automation') item.automation?.refresh();
     }
   }
   function updateTitle(record) {
@@ -787,6 +816,8 @@ function recordWorkspaceMount(host, options = {}) {
     if (!item?.alive) return;
     if (tab === 'activity' && item.record.source.type !== 'task') tab = 'dashboard';
     if (tab === 'timeline' && !timelineItem(item.record)) tab = 'dashboard';
+    if (tab === 'tasks' && !rwTasksProject(item.record)) tab = 'dashboard';
+    if (tab === 'automation' && !rwAutomationProject(item.record)) tab = 'dashboard';
     if (tab === 'chat' && (!item.record.can_thread || options.paired)) tab = defaultTab(item.record);
     // A hidden dashboard is at scrollTop 0; never let the return toggle overwrite its saved position.
     if (!restore) captureScroll(item);
@@ -797,6 +828,8 @@ function recordWorkspaceMount(host, options = {}) {
     item.chatHost.hidden = tab !== 'chat';
     item.activityHost.hidden = tab !== 'activity';
     item.timelineHost.hidden = tab !== 'timeline';
+    item.tasksHost.hidden = tab !== 'tasks';
+    item.automationHost.hidden = tab !== 'automation';
     const dashTab = item.tabs.querySelector('[data-rw-tab="dashboard"]');
     if (dashTab) dashTab.setAttribute('aria-selected', String(tab === 'dashboard'));
     paintTabs(item);
@@ -811,6 +844,8 @@ function recordWorkspaceMount(host, options = {}) {
     } else if (previous === 'chat' || item.chat) collapseChat(item);
     if (tab === 'activity') { mountActivity(item); restoreScroll(item); }
     if (tab === 'timeline') { mountTimeline(item); restoreScroll(item); }
+    if (tab === 'tasks') { mountTasks(item); restoreScroll(item); }
+    if (tab === 'automation') { mountAutomation(item); restoreScroll(item); }
     syncChatVisibility();
     options.onToggleTab?.(tab);
   }
@@ -823,12 +858,30 @@ function recordWorkspaceMount(host, options = {}) {
     item.chat?.collapse?.();
   }
 
+  // The Tasks pane of a Project: the Work view limited to this project. A row opens its Task through the reader's own navigation,
+  // like a related record on a dashboard (Back returns to the Project).
+  function mountTasks(item) {
+    const project = item?.alive ? rwTasksProject(item.record) : null;
+    if (!project) return;
+    if (item.tasks) { item.tasks.refresh(); return; }
+    item.tasks = agentWorkMount(null, {host: item.tasksHost, scope: project.slug, project,
+      open: record => api.navigate(record)});
+  }
+  // The Automation pane of a Project: the Automation section of the Project inventory (routines, reminders and the like).
+  function mountAutomation(item) {
+    const project = item?.alive ? rwAutomationProject(item.record) : null;
+    if (!project) return;
+    if (item.automation) { void item.automation.refresh(); return; }
+    item.automation = rwProjectInventory(item.automationHost, project, ['automation'], {navigate: record => api.navigate(record), label: 'automations'});
+  }
   // The timeline pane: the item's journal (js/timeline-panel.js), read again each time the pane is shown.
   function mountTimeline(item) {
     const target = item?.alive ? timelineItem(item.record) : null;
     if (!target) return;
     item.timeline ||= timelineJournalMount(item.timelineHost.querySelector('.agent-timeline'), {
       read: async args => coreData(await post('/root/operations/timeline_view', {scope: 'global', item: target, history: true, limit: 50, ...args})),
+      // A Project's Actions and Signoffs join the journal as dated rows; a row opens like the old Project sections did.
+      ...(target.type === 'project' ? {extra: () => rwProjectTimelineRows(target.id), open: row => { const record = row?.item && rwRecordFromProjectItem(row.item, {id: target.id}); if (record) void api.navigate(record); }} : {}),
     });
     void item.timeline.refresh();
   }
@@ -1051,6 +1104,12 @@ function recordWorkspaceMount(host, options = {}) {
     try { item.conversationHost?.replaceChildren(); } catch (_) {}
     item.activityHost?.replaceChildren();
     item.timelineHost?.replaceChildren();
+    try { item.tasks?.dispose(); } catch (_) { /* idem */ }
+    item.tasks = null;
+    item.tasksHost?.replaceChildren();
+    try { item.automation?.dispose(); } catch (_) { /* idem */ }
+    item.automation = null;
+    item.automationHost?.replaceChildren();
     item.record = null;
     if (!stack.length) { dispose(); options.onClose?.(); return; }
     if (wasTop) reveal();
@@ -1804,8 +1863,132 @@ async function rwTableDashboard(host, record, ctx, call) {
 }
 
 // ---------------------------------------------------------------- Project
+// The Actions and Signoffs of a Project as timeline rows (read through project_items_list, every page, closed ones included).
+async function rwProjectTimelineRows(projectId) {
+  const kinds = {action: 'Action', signoff: 'Signoff'};
+  const read = async section => {
+    const items = [];
+    let cursor = null;
+    for (let page = 0; page < 20; page++) {
+      const data = await rwProjectCall('project_items_list', {project_id: projectId, section, root_tasks_only: false,
+        include_closed: true, include_archived: false, limit: 50, ...(cursor ? {cursor} : {})});
+      items.push(...(data.items || []));
+      cursor = data.next_cursor;
+      if (!cursor) break;
+    }
+    return items;
+  };
+  const lists = await Promise.all([read('actions'), read('signoffs')]);
+  return lists.flat().filter(item => kinds[item.type]).map(item => ({
+    id: `${item.type}:${item.id}`, at: item.updated_at || item.created_at || '', text: item.label || 'Untitled', kind: item.type,
+    meta: [kinds[item.type] + (item.type === 'signoff' && item.state ? ` · ${item.state}` : '')], quotes: [], item,
+  }));
+}
 async function rwProjectCall(operation, args = {}, options = {}) {
   return coreData(await post(`/root/operations/${operation}`, {scope: 'global', ...args, ...options}));
+}
+// A Project's inventory list: the named sections read through project_items_list and shown as ONE list, newest update first.
+// The Folder tab merges Documents and Tables; the Automation tab shows the Automation section. A row opens its record through
+// ``navigate``; a linked row keeps its Unlink button. ``refresh`` re-reads from the first page (a read, never an optimistic edit).
+function rwProjectInventory(host, project, sections, {navigate, label = 'items'} = {}) {
+  const projectId = project.id;
+  const states = new Map(sections.map(section => [section, {items: [], cursor: null, loaded: false}]));
+  let generation = 0, disposed = false, loading = false;
+  host.innerHTML = `<div class="rw-project-list"></div><button type="button" class="quiet rw-project-more" data-project-more hidden>More</button><p class="muted rw-project-empty" hidden>Nothing here yet.</p><p class="ferr" role="alert" data-project-error hidden></p>`;
+  const list = host.querySelector('.rw-project-list'), more = host.querySelector('[data-project-more]');
+  const empty = host.querySelector('.rw-project-empty'), errorBox = host.querySelector('[data-project-error]');
+  const stamp = item => { const at = Date.parse(item.updated_at || item.created_at || ''); return Number.isFinite(at) ? at : 0; };
+  function rowFor(item) {
+    const row = rwNode('div', 'rw-project-row');
+    row.dataset.rwItemType = item.type;
+    const open = rwNode('button', 'quiet rw-project-open');
+    open.type = 'button';
+    const icon = rwNode('span', 'rw-project-icon');
+    icon.innerHTML = rwTypeIcon({source: {type: item.type}, task_type: item.task_type, resource_type: item.resource_type});
+    const name = rwNode('span', 'rw-project-label', item.label || 'Untitled');
+    const scope = item.project_id == null ? 'Global' : item.project_id !== projectId ? (item.project_name || item.project_slug || 'Other Project') : '';
+    const scopeEl = rwNode('span', 'rw-project-scope', scope);
+    scopeEl.hidden = !scope;
+    const status = item.state || (item.association?.owned ? 'Owned' : '');
+    const stateEl = rwNode('span', 'rw-project-state', status);
+    stateEl.hidden = !status;
+    const assoc = rwNode('span', 'rw-project-assoc', item.association?.linked ? (item.association.owned ? 'Owned · Linked' : 'Linked') : '');
+    assoc.hidden = !item.association?.linked;
+    open.append(icon, name, scopeEl, stateEl, assoc);
+    open.setAttribute('aria-label', [item.label, scope, item.state].filter(Boolean).join(', '));
+    open.onclick = () => {
+      const target = rwRecordFromProjectItem(item, project);
+      if (target) void navigate?.(target);
+    };
+    row.append(open);
+    if (item.association?.linked && item.association?.link_id) {
+      const unlink = rwNode('button', 'quiet rw-project-unlink', 'Unlink');
+      unlink.type = 'button';
+      unlink.setAttribute('aria-label', 'Unlink ' + (item.label || 'item'));
+      let key = null, pending = false;
+      unlink.onclick = async () => {
+        if (pending) return;
+        pending = true; key ||= newRequestId(); unlink.disabled = true;
+        try {
+          await rwProjectCall('project_items_unlink', {project_id: projectId, link_id: item.association.link_id,
+            expected_revision: item.association.link_revision}, {idempotency_key: key});
+          if (!disposed) await load(false);
+        } catch (failure) {
+          unlink.disabled = false;
+          if (['validation_error', 'forbidden', 'policy_denied', 'not_found', 'revision_conflict'].includes(failure.code)) key = null;
+          if (!disposed) { errorBox.textContent = uiFailure(failure); errorBox.hidden = false; }
+        } finally { pending = false; }
+      };
+      row.append(unlink);
+    }
+    return row;
+  }
+  function paint() {
+    const all = [...states.values()];
+    const items = all.flatMap(state => state.items).map((item, order) => ({item, order}))
+      .sort((a, b) => stamp(b.item) - stamp(a.item) || a.order - b.order).map(entry => entry.item);
+    list.replaceChildren(...items.map(rowFor));
+    empty.hidden = !errorBox.hidden || !!items.length || (!loading && !all.every(state => state.loaded));
+    empty.textContent = loading && !items.length ? 'Loading…' : 'Nothing here yet.';
+    more.hidden = !all.some(state => state.cursor);
+    more.textContent = loading && items.length ? 'Loading more…' : 'More';
+  }
+  async function load(append = false) {
+    const own = ++generation;
+    loading = true; more.disabled = true; errorBox.hidden = true; errorBox.replaceChildren();
+    paint();
+    const targets = sections.filter(section => !append || states.get(section).cursor);
+    try {
+      const pages = await Promise.all(targets.map(section => rwProjectCall('project_items_list', {project_id: projectId, section,
+        root_tasks_only: false, include_closed: false, include_archived: false, limit: 25,
+        ...(append ? {cursor: states.get(section).cursor} : {})})));
+      if (disposed || own !== generation) return;
+      targets.forEach((section, index) => {
+        const state = states.get(section), page = pages[index] || {};
+        state.items = append ? [...state.items, ...(page.items || [])] : (page.items || []);
+        state.cursor = page.next_cursor || null; state.loaded = true;
+      });
+    } catch (failure) {
+      if (disposed || own !== generation) return;
+      // A denied read revokes the whole inventory; a transient failure keeps the rows already authorized, with a Retry.
+      const denied = accessLost(failure) || sourceGone(failure);
+      for (const state of states.values()) { if (denied) Object.assign(state, {items: [], cursor: null}); state.loaded = true; }
+      errorBox.replaceChildren(rwNode('span', '', denied ? `This project's ${label} are unavailable.` : uiFailure(failure, {load: true}) + ' '));
+      const retry = rwNode('button', 'quiet', 'Retry'); retry.type = 'button';
+      retry.onclick = () => { if (!disposed) void load(append && !denied); };
+      errorBox.append(retry);
+      errorBox.hidden = false;
+    } finally {
+      if (!disposed && own === generation) { loading = false; more.disabled = false; paint(); }
+    }
+  }
+  more.onclick = () => load(true);
+  paint();
+  void load(false);
+  return {
+    refresh: () => load(false),
+    dispose() { disposed = true; generation++; host.replaceChildren(); },
+  };
 }
 async function rwProjectDashboard(host, record, ctx) {
   host.classList.add('record-panel', 'rw-project-panel');
@@ -1821,213 +2004,20 @@ async function rwProjectDashboard(host, record, ctx) {
     ctx.title?.({label: project.name});
     if (record.label !== project.name) record.label = project.name;
   }
-  const sectionState = {};
-  let activeSection = 'work', generation = 0, disposed = false;
+  // The Folder tab: the title and description, then Documents and Tables as one list.
   const shell = rwNode('div', 'rw-project');
-  shell.innerHTML = `<section class="rw-project-head"><h3 class="rw-project-name"></h3><span class="rw-project-archived" hidden>Archived</span><p class="rw-project-summary muted"></p>
-    <div class="rw-project-tools"><button type="button" class="quiet" data-project-link>Link existing item</button><button type="button" class="quiet" data-project-closed aria-pressed="false">Closed work</button><button type="button" class="quiet" data-project-archived aria-pressed="false">Archived</button></div></section>
-    <div class="rw-project-sections" role="group" aria-label="Project sections"></div>
-    <div class="rw-project-body"><div class="rw-project-list"></div><button type="button" class="quiet rw-project-more" data-project-more hidden>More</button><p class="muted rw-project-empty" hidden>Nothing here yet.</p><p class="ferr" role="alert" data-project-error hidden></p></div>`;
+  shell.innerHTML = `<section class="rw-project-head"><h3 class="rw-project-name"></h3><span class="rw-project-archived" hidden>Archived</span><p class="rw-project-summary muted"></p></section><div class="rw-project-body"></div>`;
   host.append(shell);
   shell.querySelector('.rw-project-name').textContent = project.name || record.label || 'Project';
   shell.querySelector('.rw-project-summary').textContent = project.summary || '';
   shell.querySelector('.rw-project-archived').hidden = !project.archived;
-  shell.querySelector('.rw-project-sections').innerHTML = RW_PROJECT_SECTIONS.map(([key, label]) =>
-    `<button type="button" class="quiet" data-project-section="${key}" aria-pressed="${key === activeSection}">${label}</button>`).join('');
-  const list = shell.querySelector('.rw-project-list');
-  const more = shell.querySelector('[data-project-more]');
-  const empty = shell.querySelector('.rw-project-empty');
-  const errorBox = shell.querySelector('[data-project-error]');
-  const stateFor = section => sectionState[section] ||= {items: [], cursor: null, loaded: false, loading: false, pending: false, request: 0, key: ''};
-  // A forbidden inventory read revokes this Project's whole inventory authorization, not
-  // just the section that happened to be active. Clear every cached section and invalidate
-  // every in-flight section generation/proxy cursor so another switch cannot flash a stale
-  // page while its own refresh is pending.
-  function invalidateInventorySections() {
-    generation++;
-    for (const state of Object.values(sectionState)) {
-      state.items = []; state.cursor = null; state.loaded = false; state.loading = false;
-      state.pending = false; state.request = 0; state.key = '';
-    }
-  }
-  const filters = () => JSON.stringify([shell.querySelector('[data-project-closed]').getAttribute('aria-pressed') === 'true', shell.querySelector('[data-project-archived]').getAttribute('aria-pressed') === 'true']);
-  function paintSections() {
-    shell.querySelectorAll('[data-project-section]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.projectSection === activeSection)));
-    shell.querySelector('[data-project-archived]').setAttribute('aria-pressed', String(shell.dataset.includeArchived === 'true'));
-  }
-  function rowFor(item) {
-    const row = rwNode('div', 'rw-project-row');
-    row.dataset.rwItemType = item.type;
-    const open = rwNode('button', 'quiet rw-project-open');
-    open.type = 'button';
-    const icon = rwNode('span', 'rw-project-icon');
-    icon.innerHTML = rwTypeIcon({source: {type: item.type}, task_type: item.task_type, resource_type: item.resource_type});
-    const label = rwNode('span', 'rw-project-label', item.label || 'Untitled');
-    const scope = item.project_id == null ? 'Global' : item.project_id !== projectId ? (item.project_name || item.project_slug || 'Other Project') : '';
-    const scopeEl = rwNode('span', 'rw-project-scope', scope);
-    scopeEl.hidden = !scope;
-    const state = item.state || (item.association?.owned ? 'Owned' : '');
-    const stateEl = rwNode('span', 'rw-project-state', state);
-    stateEl.hidden = !state;
-    const assoc = rwNode('span', 'rw-project-assoc', item.association?.linked ? (item.association.owned ? 'Owned · Linked' : 'Linked') : '');
-    assoc.hidden = !item.association?.linked;
-    open.append(icon, label, scopeEl, stateEl, assoc);
-    open.setAttribute('aria-label', [item.label, scope, item.state].filter(Boolean).join(', '));
-    open.onclick = () => {
-      const target = rwRecordFromProjectItem(item, project);
-      if (target) void ctx.navigate(target);
-    };
-    row.append(open);
-    if (item.association?.linked && item.association?.link_id) {
-      const unlink = rwNode('button', 'quiet rw-project-unlink', 'Unlink');
-      unlink.type = 'button';
-      unlink.setAttribute('aria-label', 'Unlink ' + (item.label || 'item'));
-      let key = null, pending = false;
-      unlink.onclick = async () => {
-        if (pending) return;
-        pending = true; key ||= newRequestId(); unlink.disabled = true;
-        try {
-          await rwProjectCall('project_items_unlink', {project_id: projectId, link_id: item.association.link_id,
-            expected_revision: item.association.link_revision}, {idempotency_key: key});
-          if (!disposed) await load(activeSection, false, true);
-        } catch (failure) {
-          unlink.disabled = false;
-          if (['validation_error', 'forbidden', 'policy_denied', 'not_found', 'revision_conflict'].includes(failure.code)) key = null;
-          if (!disposed) { errorBox.textContent = uiFailure(failure); errorBox.hidden = false; }
-        } finally { pending = false; }
-      };
-      row.append(unlink);
-    }
-    return row;
-  }
-  async function load(section, append = false, fresh = false) {
-    const state = stateFor(section);
-    const key = filters();
-    if (state.loading) { if (!append) state.pending = true; return; }
-    if (!append && state.loaded && state.key === key && !fresh) { paint(section); return; }
-    const previous = {items: state.items.slice(), cursor: state.cursor};
-    if (!append && (state.key !== key || fresh)) {
-      // Revalidating a visible, already-authorized page keeps its rows until the fresh read
-      // succeeds or explicitly revokes them; it never flashes an empty cache.
-      const preserve = fresh && state.loaded && state.key === key;
-      if (!preserve) state.items = [];
-      state.cursor = null; state.loaded = false; state.key = key;
-    }
-    state.loading = true;
-    const own = ++generation;
-    state.request = own;
-    if (section === activeSection) { more.disabled = true; errorBox.hidden = true; errorBox.replaceChildren(); paint(section); }
-    try {
-      let data, pages = 0;
-      const [includeClosed, includeArchived] = JSON.parse(key);
-      do {
-        data = await rwProjectCall('project_items_list', {project_id: projectId, section,
-          root_tasks_only: false, include_closed: includeClosed, include_archived: includeArchived,
-          limit: 25, ...(append && state.cursor ? {cursor: state.cursor} : {})});
-        if (disposed || own !== generation) return;
-        state.items = append ? [...state.items, ...(data.items || [])] : (data.items || []);
-        state.cursor = data.next_cursor || null; pages++;
-      } while (append && state.cursor && pages < 1);
-      state.loaded = true;
-      if (section === activeSection) paint(section);
-    } catch (failure) {
-      if (disposed || own !== generation) return;
-      const denied = accessLost(failure) || sourceGone(failure);
-      if (denied) {
-        invalidateInventorySections();
-        const current = stateFor(section);
-        current.loaded = true;
-        current.key = key;
-      } else if (!append) {
-        // Transient failures keep previously authorized rows (and their cursor) available
-        // with a Retry; they are not permission to expose denied content.
-        state.items = previous.items;
-        state.cursor = previous.cursor;
-      }
-      state.loaded = true;
-      if (section === activeSection) {
-        more.disabled = false;
-        errorBox.replaceChildren(rwNode('span', '', denied ? 'This project inventory is unavailable.' : uiFailure(failure, {load: true}) + ' '));
-        const retry = rwNode('button', 'quiet', 'Retry'); retry.type = 'button';
-        retry.onclick = () => {
-          if (disposed) return;
-          if (denied) {
-            const reset = stateFor(section);
-            reset.loaded = false; reset.key = ''; reset.items = []; reset.cursor = null;
-            void load(section, false, true);
-          } else if (append) {
-            // Retry the same continuation; the previously authorized rows and cursor are kept.
-            void load(section, true);
-          } else {
-            state.loaded = false; state.key = ''; state.items = []; state.cursor = null;
-            void load(section, false, true);
-          }
-        };
-        errorBox.append(retry);
-        errorBox.hidden = false;
-        paint(section);
-        more.hidden = true;
-      }
-    } finally {
-      if (disposed || state.request !== own) return;
-      state.loading = false;
-      if (!disposed && section === activeSection) { more.disabled = false; paint(section); }
-      if (!disposed && state.pending) { state.pending = false; void load(section, false, true); }
-    }
-  }
-  function paint(section) {
-    if (section !== activeSection) return;
-    const state = stateFor(section);
-    list.replaceChildren();
-    for (const item of state.items) list.append(rowFor(item));
-    // A failed read keeps its own error message; it never doubles as “nothing here”.
-    empty.hidden = !errorBox.hidden || (!state.loaded && !state.loading) || !!state.items.length;
-    empty.textContent = state.loading && !state.items.length ? 'Loading…' : 'Nothing here yet.';
-    more.hidden = !state.cursor;
-    more.textContent = state.loading && state.items.length ? 'Loading more…' : 'More';
-    paintSections();
-  }
-  function selectSection(section) {
-    if (section === activeSection) return;
-    activeSection = section;
-    paintSections();
-    errorBox.hidden = true;
-    const state = stateFor(section);
-    if (!state.loaded) { list.replaceChildren(); empty.hidden = false; empty.textContent = 'Loading…'; more.hidden = true; }
-    else paint(section);
-    // Re-read a section when it becomes visible; a cached page must not outlive revoked access.
-    void load(section, false, true);
-  }
-  shell.querySelector('.rw-project-sections').onclick = event => {
-    const button = event.target.closest('[data-project-section]');
-    if (button) selectSection(button.dataset.projectSection);
-  };
-  shell.querySelector('[data-project-closed]').onclick = event => {
-    const button = event.currentTarget;
-    button.setAttribute('aria-pressed', String(button.getAttribute('aria-pressed') !== 'true'));
-    stateFor(activeSection).key = '';
-    void load(activeSection, false, true);
-  };
-  shell.querySelector('[data-project-archived]').onclick = event => {
-    const button = event.currentTarget;
-    button.setAttribute('aria-pressed', String(button.getAttribute('aria-pressed') !== 'true'));
-    shell.dataset.includeArchived = String(button.getAttribute('aria-pressed') === 'true');
-    stateFor(activeSection).key = '';
-    void load(activeSection, false, true);
-  };
-  more.onclick = () => load(activeSection, true);
-  shell.querySelector('[data-project-link]').onclick = () => {
-    rwProjectLinkDialog(project, () => load(activeSection, false, true));
-  };
   Object.assign(project, {id: projectId});
   ctx.title?.(record);
-  paint(activeSection);
-  void load(activeSection);
+  const inventory = rwProjectInventory(shell.querySelector('.rw-project-body'), project, ['documents', 'tables'],
+    {navigate: target => ctx.navigate(target), label: 'documents and tables'});
+  let disposed = false;
   async function revalidate() {
     if (disposed) return;
-    // A reveal starts a fresh authorization read; keep the paging control busy until i
-    // completes so a row click cannot race the retained page while it is being revalidated.
-    more.disabled = true;
     try {
       const fresh = await rwProjectCall('project_record_get', {project_id: projectId});
       if (disposed) return;
@@ -2039,96 +2029,17 @@ async function rwProjectDashboard(host, record, ctx) {
       shell.querySelector('.rw-project-name').textContent = fresh.project.name || record.label || 'Project';
       shell.querySelector('.rw-project-summary').textContent = fresh.project.summary || '';
       shell.querySelector('.rw-project-archived').hidden = !fresh.project.archived;
-      await load(activeSection, false, true);
+      await inventory.refresh();
     } catch (failure) {
       if (disposed) return;
       if (accessLost(failure) || sourceGone(failure)) { await ctx.unavailable?.(); return; }
-      stateFor(activeSection).items = []; stateFor(activeSection).cursor = null;
-      list.replaceChildren();
-      errorBox.replaceChildren(rwNode('span', '', uiFailure(failure, {load: true})));
-      errorBox.hidden = false;
-      more.disabled = false;
-      paint(activeSection);
+      void inventory.refresh();
     }
   }
-  // A confirmed move changes what this Project owns; re-read the visible section (a read, never an optimistic edit).
-  const onTaskMoved = () => { if (!disposed) void load(activeSection, false, true); };
-  document.addEventListener('qorqut-task-moved', onTaskMoved);
   return {
     dirty: () => false, hasUnsaved: () => false, onShow: revalidate,
-    dispose() { disposed = true; generation++; document.removeEventListener('qorqut-task-moved', onTaskMoved); host.replaceChildren(); },
+    dispose() { disposed = true; inventory.dispose(); host.replaceChildren(); },
   };
-}
-
-function rwProjectLinkDialog(project, onLinked) {
-  let submission = null, pending = false;
-  const projects = (state.projects || []).filter(candidate => candidate.slug);
-  const scopeOptions = `<option value="">Global</option>${projects.map(candidate => `<option value="${esc(candidate.project_id || candidate.id)}" ${(candidate.project_id || candidate.id) === project.id ? 'selected' : ''}>${esc(candidate.name || candidate.slug)}${candidate.archived ? ' (archived)' : ''}</option>`).join('')}`;
-  modal({title: 'Link an existing item', width: 640, stack: true,
-    body: `<div class="rw-link-dialog"><label>Scope<select class="inp" data-link-scope>${scopeOptions}</select></label>
-      <label>Kind<select class="inp" data-link-type><option value="">Any kind</option><option value="task">Work</option><option value="signoff">Signoff</option><option value="action">Action</option><option value="material">Material</option><option value="person">Person</option><option value="topic">Topic</option><option value="table">Table</option><option value="reminder">Reminder</option><option value="routine">Routine</option><option value="project">Project</option></select></label>
-      <label>Search<input class="inp" type="search" data-link-search placeholder="Search the selected scope…" maxlength="200"></label>
-      <div class="rw-link-results" role="list"></div><p class="muted rw-link-empty" hidden>No matching records.</p>
-      <button type="button" class="quiet" data-link-more hidden>More</button><p class="ferr" role="alert" data-link-error hidden></p></div>`,
-    actions: [{label: 'Close', onClick: close => close()}],
-    onOpen: el => {
-      const scope = el.querySelector('[data-link-scope]'), type = el.querySelector('[data-link-type]'), search = el.querySelector('[data-link-search]');
-      const results = el.querySelector('.rw-link-results'), empty = el.querySelector('.rw-link-empty'), more = el.querySelector('[data-link-more]'), error = el.querySelector('[data-link-error]');
-      let cursor = null, generation = 0, timer = null;
-      const load = async (append = false) => {
-        const own = ++generation;
-        error.hidden = true;
-        if (!append) { results.replaceChildren(); cursor = null; }
-        const sourceProjectId = scope.value || null;
-        try {
-          const data = await rwProjectCall('project_items_candidates', {project_id: project.id, source_project_id: sourceProjectId,
-            ...(type.value ? {type: type.value} : {}), ...(search.value.trim() ? {query: search.value.trim()} : {}),
-            limit: 25, ...(append && cursor ? {cursor} : {})});
-          if (!el.isConnected || own !== generation) return;
-          cursor = data.next_cursor || null;
-          more.hidden = !cursor;
-          for (const item of data.items || []) {
-            const row = rwNode('button', 'quiet rw-link-option');
-            row.type = 'button';
-            row.setAttribute('role', 'listitem');
-            row.innerHTML = `<span class="rw-project-icon">${rwTypeIcon({source: {type: item.type}, task_type: item.task_type, resource_type: item.resource_type})}</span><span class="rw-project-label"></span><span class="rw-project-scope muted"></span>`;
-            row.querySelector('.rw-project-label').textContent = item.label || item.name || 'Untitled';
-            const label = item.project_id == null ? 'Global' : (item.project_name || item.project_slug || 'Other Project');
-            row.querySelector('.rw-project-scope').textContent = label;
-            row.onclick = async () => {
-              if (pending) return;
-              const signature = JSON.stringify([sourceProjectId, item.type, item.id]);
-              if (submission?.signature !== signature) submission = {signature, key: newRequestId()};
-              pending = true; row.disabled = true; error.hidden = true;
-              try {
-                const data = await rwProjectCall('project_items_link', {project_id: project.id,
-                  item: {type: item.type, id: item.id, project_id: item.project_id ?? null}}, {idempotency_key: submission.key});
-                submission = null;
-                el.querySelector('.mx')?.click();
-                onLinked?.(data);
-              } catch (failure) {
-                if (['validation_error', 'forbidden', 'policy_denied', 'not_found', 'revision_conflict'].includes(failure.code)) submission = null;
-                error.textContent = uiFailure(failure); error.hidden = false; row.disabled = false;
-              } finally { pending = false; }
-            };
-            results.append(row);
-          }
-          empty.hidden = !!results.children.length || !!cursor;
-          if (!append) empty.textContent = 'No matching records.';
-        } catch (failure) {
-          if (!el.isConnected || own !== generation) return;
-          if (accessLost(failure) || sourceGone(failure)) {
-            results.replaceChildren(); cursor = null; more.hidden = true; empty.hidden = true;
-          }
-          error.textContent = uiFailure(failure, {load: true}); error.hidden = false;
-        }
-      };
-      scope.onchange = () => load();
-      type.onchange = () => load();
-      search.oninput = () => { clearTimeout(timer); timer = setTimeout(() => load(), 200); };
-      more.onclick = () => load(true);
-      load();
-    }});
 }
 
 // ---------------------------------------------------------------- small shared helpers for entry points

@@ -95,12 +95,28 @@ class RouteTest(unittest.TestCase):
 
     def test_each_action_calls_the_matching_function_and_returns_its_view(self):
         for provider in ("claude", "codex"):
-            for name in ("download", "cancel_download", "connect", "cancel_connect"):
+            for name in ("download", "cancel_download", "connect", "switch", "cancel_connect"):
                 with mock.patch("qorqut.owner_settings.agent_clients_action", return_value=VIEW) as action:
                     response = self.post({"provider": provider, "action": name})
                 self.assertEqual((response.status_code, response.json()["data"]), (200, VIEW), (provider, name))
                 action.assert_called_once_with(provider, name)
                 self.assertEqual(response.headers["cache-control"], "private, no-store")
+
+    def test_the_code_and_the_way_are_passed_on_and_only_when_given(self):
+        for body, extra in (({"provider": "claude", "action": "submit_code", "code": "abc#def"}, {"code": "abc#def"}),
+                            ({"provider": "codex", "action": "connect", "method": "device_code"}, {"method": "device_code"})):
+            with mock.patch("qorqut.owner_settings.agent_clients_action", return_value=VIEW) as action:
+                self.assertEqual(self.post(body).status_code, 200)
+            action.assert_called_once_with(body["provider"], body["action"], **extra)
+
+    def test_a_code_or_way_that_is_not_short_text_is_refused(self):
+        with mock.patch("qorqut.owner_settings.agent_clients_action") as action:
+            for body in ({"provider": "claude", "action": "submit_code", "code": 5},
+                         {"provider": "claude", "action": "submit_code", "code": "x" * 513},
+                         {"provider": "codex", "action": "connect", "method": ["device_code"]}):
+                response = self.post(body)
+                self.assertEqual((response.status_code, response.json()["error"]["code"]), (422, "validation_error"), body)
+        action.assert_not_called()
 
     def test_connect_and_download_reach_the_sign_in_and_install_modules(self):
         from qorqut import agent_cli_sign_in

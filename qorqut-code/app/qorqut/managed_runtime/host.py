@@ -925,9 +925,11 @@ class ManagedHost:
             self.pending.clear()
         self.last_turn = {"status": status, "message_uuids": everything,
                           "outcomes": dict(list(outcomes.items())[:MAX_OUTCOMES]), "finished_at": layout.now_iso()}
-        for key in ("error", "reason", "blocked_message_uuids", "stop_reason"):
+        for key in ("error", "reason", "blocked_message_uuids", "stop_reason", "resets_at", "resets_text"):
             if event.get(key):
                 self.last_turn[key] = event[key]
+        if "error_kind" in event:       # the driver labelled this failed turn (None: neither a limit nor a sign-in problem)
+            self.last_turn["error_kind"] = event["error_kind"]
         self.usage = self._usage(event.get("usage")) or self.usage
         self._touch()
 

@@ -39,14 +39,14 @@ class States(unittest.TestCase):
     def test_the_sentence_names_the_agent_its_client_the_state_and_the_action(self):
         ready, bad = {"state": "ready"}, lambda name: {"state": name}
         expected = {
-            ("codex", "not_signed_in", True): ("cli_not_signed_in", "Helper is set to use Codex, and Codex isn't signed in yet. Sign in under Settings > Agents, or switch Helper to Claude Code there."),
-            ("codex", "not_signed_in", False): ("cli_not_signed_in", "Helper is set to use Codex, and Codex isn't signed in yet. Sign in under Settings > Agents, then send again."),
-            ("codex", "not_installed", True): ("cli_unavailable", "Helper is set to use Codex, and Codex isn't installed yet. Download it under Settings > Agents, or switch Helper to Claude Code there."),
-            ("claude", "not_installed", False): ("cli_unavailable", "Helper is set to use Claude Code, and Claude Code isn't installed yet. Download it under Settings > Agents, then send again."),
-            ("codex", "too_old", True): ("cli_unavailable", "Helper is set to use Codex, and the Codex on this computer is too old. Download Qorqbot's own copy under Settings > Agents, or switch Helper to Claude Code there."),
-            ("codex", "no_version", False): ("cli_unavailable", "Helper is set to use Codex, and the Codex on this computer didn't report its version. Download Qorqbot's own copy under Settings > Agents, then send again."),
-            ("codex", "downloading", True): ("cli_unavailable", "Helper is set to use Codex, and Codex is still downloading. Wait for the download to finish under Settings > Agents, or switch Helper to Claude Code there."),
-            ("claude", "signing_in", True): ("cli_not_signed_in", "Helper is set to use Claude Code, and Claude Code isn't signed in yet. Finish signing in in your browser, or start again under Settings > Agents, or switch Helper to Codex there."),
+            ("codex", "not_signed_in", True): ("cli_not_signed_in", "Helper is set to use Codex, and Codex isn't signed in yet. Sign in under Settings > Model/Provider, or switch Helper to Claude Code there."),
+            ("codex", "not_signed_in", False): ("cli_not_signed_in", "Helper is set to use Codex, and Codex isn't signed in yet. Sign in under Settings > Model/Provider, then send again."),
+            ("codex", "not_installed", True): ("cli_unavailable", "Helper is set to use Codex, and Codex isn't installed yet. Download it under Settings > Model/Provider, or switch Helper to Claude Code there."),
+            ("claude", "not_installed", False): ("cli_unavailable", "Helper is set to use Claude Code, and Claude Code isn't installed yet. Download it under Settings > Model/Provider, then send again."),
+            ("codex", "too_old", True): ("cli_unavailable", "Helper is set to use Codex, and the Codex on this computer is too old. Download Qorqbot's own copy under Settings > Model/Provider, or switch Helper to Claude Code there."),
+            ("codex", "no_version", False): ("cli_unavailable", "Helper is set to use Codex, and the Codex on this computer didn't report its version. Download Qorqbot's own copy under Settings > Model/Provider, then send again."),
+            ("codex", "downloading", True): ("cli_unavailable", "Helper is set to use Codex, and Codex is still downloading. Wait for the download to finish under Settings > Model/Provider, or switch Helper to Claude Code there."),
+            ("claude", "signing_in", True): ("cli_not_signed_in", "Helper is set to use Claude Code, and Claude Code isn't signed in yet. Finish signing in in your browser, or start again under Settings > Model/Provider, or switch Helper to Codex there."),
         }
         for (client, name, other_ready), answer in expected.items():
             with self.subTest(client=client, state=name, other_ready=other_ready):
@@ -93,7 +93,7 @@ class Refusal(base.ManagerFixture):
             manager.ensure_open(self.profile(), 5)
         self.assertEqual(refused.exception.code, "cli_not_signed_in")
         self.assertEqual(refused.exception.message, "Helper is set to use Codex, and Codex isn't signed in yet. Sign in under "
-                                                    "Settings > Agents, or switch Helper to Claude Code there.")
+                                                    "Settings > Model/Provider, or switch Helper to Claude Code there.")
         self.assertEqual((self.launcher.started, self.prepared), ([], []))
 
     def test_codex_not_installed_keeps_the_stable_code(self):
@@ -102,7 +102,7 @@ class Refusal(base.ManagerFixture):
         with self.assertRaises(hosts.ManagedError) as refused:
             manager.ensure_open(self.profile(), 5)
         self.assertEqual(refused.exception.code, "cli_unavailable")
-        self.assertTrue(refused.exception.message.endswith("Download it under Settings > Agents, then send again."))
+        self.assertTrue(refused.exception.message.endswith("Download it under Settings > Model/Provider, then send again."))
         self.assertEqual(self.launcher.started, [])
 
     def test_a_ready_client_opens_and_an_agent_with_no_client_set_moves_to_the_ready_one(self):

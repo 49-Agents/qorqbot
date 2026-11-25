@@ -171,7 +171,7 @@ silently starts a new conversation.
 
 `<state folder>/options.json` holds `client` (`claude` or `codex`), `model` and
 `effort` (`minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra`), each optional.
-The owner sets them in Settings > Agents, or with the model pill at the bottom left
+The owner sets them in Settings > Model/Provider, or with the model pill at the bottom left
 of the agent's chat composer. The routes are
 `GET/POST /api/root/agents/<id>/chat/options` (owner only).
 `GET /api/root/agents/<id>/chat/models` lists the models the agent's client
@@ -263,7 +263,7 @@ and never ends it; it can be left running. Run it
 with the same `CLAUDE_CONFIG_DIR`, `HOME` and `CODEX_HOME` the old clients had,
 or the conversations are not found. It only touches the installation's own tmux
 socket. It refuses on an installation set to Terminals (legacy); there, the
-setting in Settings > Agents is the way back to managed sessions.
+setting in Settings > Model/Provider is the way back to managed sessions.
 
 ### Role and plugin packages of a release
 
@@ -297,7 +297,7 @@ sets the root of the owner's Workspace shell, which exists in Terminals mode onl
 
 An installation can run its agents in tmux terminals instead of managed sessions. It is one setting for the whole
 installation, never per agent. Managed sessions are the default and the recommended choice, for new installations and for
-every upgrade. The owner chooses under Settings > Agents > "How agents run": "Managed sessions (recommended)" or
+every upgrade. The owner chooses under Settings > Model/Provider > "How agents run": "Managed sessions (recommended)" or
 "Terminals (legacy)". Only the owner can change it; no agent tool, operation or extension operation does.
 
 - **The setting** is the file `<runtime>/managed-agents/runtime.json` (`qorqut/managed_runtime/mode.py`). A missing,

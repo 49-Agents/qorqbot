@@ -625,53 +625,31 @@ function recordStoryMount(el, ctx) {
   const parts = {};
   const overview = recordNode('section', 'record-section record-story-overview');
   overview.innerHTML = `<div class="record-section-head"><h4>Overview</h4><span class="record-section-tools"></span></div>
-    <div class="record-overview" data-story-read tabindex="0" role="button" aria-label="Edit Story overview"></div>
-    <div class="record-overview-edit" data-story-editpane hidden><textarea class="inp" data-story-overview aria-label="Story overview" rows="7" maxlength="20000"></textarea>
-    <div class="record-actions"><button type="button" class="btn" data-story-save>Save</button><button type="button" class="quiet" data-story-discard>Discard</button><button type="button" class="quiet" data-story-latest hidden>Use latest revision</button></div></div>
+    <textarea class="editable-field" data-story-overview aria-label="Story overview" rows="3" maxlength="20000" placeholder="No overview yet."></textarea>
+    ${efActionsHtml({save: 'data-story-save', discard: 'data-story-discard'})}
+    <div class="record-actions"><button type="button" class="quiet" data-story-latest hidden>Use latest revision</button></div>
     <p class="ferr" role="alert" data-story-error hidden></p>`;
-  const read = overview.querySelector('[data-story-read]'), field = overview.querySelector('[data-story-overview]');
-  const editWrap = overview.querySelector('[data-story-editpane]'), save = overview.querySelector('[data-story-save]');
-  const discard = overview.querySelector('[data-story-discard]');
-  let base = ctx.task.overview || '', editing = false;
-  const paintRead = () => {
-    read.textContent = base || 'No overview yet.';
-    read.classList.toggle('muted', !base);
-  };
-  const showRead = () => {
-    editing = false;
-    read.hidden = false; editWrap.hidden = true;
-    field.value = base;
-    paintRead();
-  };
-  // Activation opens the editor once; a repeated click or key press never resets a draft already being typed.
-  const enterEdit = () => {
-    if (editing) return;
-    editing = true;
-    read.hidden = true; editWrap.hidden = false;
-    field.value = base;
-    field.focus({preventScroll: true});
-  };
-  paintRead();
-  const saver = recordSaver(ctx, {error: overview.querySelector('[data-story-error]'), latest: overview.querySelector('[data-story-latest]'), setBusy: busy => { save.disabled = busy; discard.disabled = busy; }});
+  const field = overview.querySelector('[data-story-overview]');
+  let base = ctx.task.overview || '';
+  const fieldApi = efField(field, {onChange: () => overviewActions.sync(), onEscape: () => discardEdit()});
+  field.value = base; fieldApi.saved = base; fieldApi.grow();
+  const saver = recordSaver(ctx, {error: overview.querySelector('[data-story-error]'), latest: overview.querySelector('[data-story-latest]'), setBusy: busy => overviewActions.busy(busy)});
   const saveOverview = async () => {
-    if (!editing) return true;
     if (field.value === base) { saver.show('The overview has no changes to save.'); return true; }
     const value = field.value;
     const saved = await saver.run({overview: value}, () => { base = value; parts.links?.refresh(); parts.activity?.refresh(); });
-    if (saved) showRead();
+    if (saved) { fieldApi.set(base); overviewActions.sync(); }
     return saved;
   };
-  read.onclick = () => enterEdit();
-  read.onkeydown = event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); enterEdit(); } };
-  discard.onclick = () => { saver.show(''); showRead(); };
-  save.onclick = () => { void saveOverview(); };
+  const discardEdit = () => { saver.show(''); fieldApi.reset(); overviewActions.sync(); };
+  const overviewActions = efActions(overview.querySelector('.ef-actions'), {isDirty: () => field.value !== base, onSave: () => { void saveOverview(); }, onDiscard: discardEdit});
   // Adopting a newer snapshot keeps an unsaved overview as typed and refreshes only a clean one.
   const adopt = fresh => {
     if (!('overview' in fresh)) return;
-    const dirty = editing && field.value !== base;
+    const dirty = field.value !== base;
     base = fresh.overview || '';
-    if (!dirty) field.value = base;
-    if (!editing) paintRead();
+    fieldApi.set(base, {keepTyped: dirty});
+    overviewActions.sync();
   };
   overview.querySelector('[data-story-latest]').onclick = () => saver.adoptLatest(adopt);
   const children = recordSection('Child tasks'), links = recordSection('Linked tasks');
@@ -685,8 +663,8 @@ function recordStoryMount(el, ctx) {
   parts.emails = recordRelated(emails.body, ctx, 'email');
   parts.activity = recordActivity(activity.body, ctx);
   return {
-    dirty: () => editing && field.value !== base,
-    hasUnsaved: () => editing && field.value !== base,
+    dirty: () => field.value !== base,
+    hasUnsaved: () => field.value !== base,
     save: saveOverview,
     adopt,
     // Reopening refreshes what others can change; the overview keeps any unsaved text.
@@ -699,18 +677,19 @@ function recordStoryMount(el, ctx) {
 function recordCustomerMount(el, ctx) {
   const task = ctx.task;
   const form = recordNode('section', 'record-section');
-  form.innerHTML = `<h4>Customer</h4><p class="record-archived" data-customer-archived hidden>Archived</p>
-    <label>Name<input class="inp" data-customer-name maxlength="1000" autocomplete="off" value="${esc(task.title || '')}"></label>
+  form.innerHTML = `<h4 class="ef-section-title">Customer</h4><p class="record-archived" data-customer-archived hidden>Archived</p>
+    <div class="ef-stack"><label class="ef-label">Name<input class="editable-field ef-title" data-customer-name maxlength="1000" autocomplete="off" value="${esc(task.title || '')}"></label>
     ${customerFieldsHtml(task)}
-    <label>Summary<textarea class="inp" data-customer-summary rows="3" maxlength="20000">${esc(task.overview || '')}</textarea></label>
-    <div class="record-actions"><button type="button" class="btn" data-customer-save>Save details</button><button type="button" class="quiet" data-customer-archive></button><button type="button" class="quiet" data-customer-latest hidden>Use latest revision</button></div><p class="ferr" role="alert" data-customer-error hidden></p>`;
+    <label class="ef-label">Summary<textarea class="editable-field" data-customer-summary rows="3" maxlength="20000">${esc(task.overview || '')}</textarea></label></div>
+    ${efActionsHtml({save: 'data-customer-save', discard: 'data-customer-discard'})}
+    <div class="record-actions"><button type="button" class="quiet" data-customer-archive></button><button type="button" class="quiet" data-customer-latest hidden>Use latest revision</button></div><p class="ferr" role="alert" data-customer-error hidden></p>`;
   const fields = form.querySelector('[data-task-customer]');
   fields.hidden = false;
   const input = {name: form.querySelector('[data-customer-name]'), summary: form.querySelector('[data-customer-summary]'), kind: fields.querySelector('[data-customer-kind]'), state: fields.querySelector('[data-customer-state]')};
   const states = customerStatesMount(fields, ctx.project);
-  const stateButton = recordNode('button', 'quiet', 'Set state'); stateButton.type = 'button'; stateButton.dataset.customerSaveState = '';
+  const stateButton = recordNode('button', 'quiet ef-inline-btn', 'Set state'); stateButton.type = 'button'; stateButton.dataset.customerSaveState = '';
   input.state.after(stateButton);
-  const save = form.querySelector('[data-customer-save]'), archive = form.querySelector('[data-customer-archive]');
+  const archive = form.querySelector('[data-customer-archive]');
   let base;
   const adoptBase = source => {
     const profile = source.customer_profile || {};
@@ -725,6 +704,11 @@ function recordCustomerMount(el, ctx) {
   };
   paintArchive();
   const setBusy = busy => { for (const control of form.querySelectorAll('input,textarea,select,button')) control.disabled = busy; };
+  // One Save / Discard pair serves every detail field except the state, which keeps its own Set state button.
+  const detailFields = () => [[input.name, base.title], [input.summary, base.overview], ...Object.keys(base.customer_profile).map(key => [profileInput(key), base.customer_profile[key]])];
+  const settleFields = () => {
+    for (const [field, saved] of [...detailFields(), [input.state, base.customer_state]]) { const api = field._ef; api.saved = saved; if (field.ownerDocument.activeElement !== field && !api.dirty()) api.rest(); api.grow(); }
+  };
   const saver = recordSaver(ctx, {error: form.querySelector('[data-customer-error]'), latest: form.querySelector('[data-customer-latest]'), setBusy});
   const profileNow = () => customerFieldsRead(fields).customer_profile;
   const detailChanges = () => {
@@ -737,7 +721,7 @@ function recordCustomerMount(el, ctx) {
     return changes;
   };
   // Saving details never carries the state, and saving the state never carries the details.
-  save.onclick = () => {
+  const saveDetails = () => {
     const changes = detailChanges();
     if (!Object.keys(changes).length) { saver.show('There are no detail changes to save.'); return; }
     if ('title' in changes && !changes.title) { saver.show('A customer needs a name.'); return; }
@@ -750,6 +734,16 @@ function recordCustomerMount(el, ctx) {
       parts.links?.refresh(); parts.activity?.refresh();
     });
   };
+  const discardDetails = () => {
+    saver.show('');
+    input.name.value = base.title; input.summary.value = base.overview; input.kind.value = base.customer_kind;
+    for (const key of Object.keys(base.customer_profile)) profileInput(key).value = base.customer_profile[key];
+    for (const [field] of detailFields()) { if (field.ownerDocument.activeElement === field) field.blur(); }
+    settleFields(); actions.sync();
+  };
+  const actions = efActions(form.querySelector('.ef-actions'), {isDirty: () => Object.keys(detailChanges()).length > 0, onSave: saveDetails, onDiscard: discardDetails});
+  efMount(form, {onChange: () => actions.sync(), onEscape: field => { if (field === input.state) { field.value = base.customer_state; field.blur(); settleFields(); } else discardDetails(); }});
+  input.kind.addEventListener('change', () => actions.sync());
   stateButton.onclick = () => {
     const value = customerNormalizeState(input.state.value);
     input.state.value = value;
@@ -778,6 +772,7 @@ function recordCustomerMount(el, ctx) {
     for (const key of Object.keys(base.customer_profile)) if (!dirty.profile[key]) profileInput(key).value = base.customer_profile[key];
     if (base.customer_state) states.extend(base.customer_state);
     paintArchive();
+    settleFields(); actions.sync();
   };
   form.querySelector('[data-customer-latest]').onclick = () => saver.adoptLatest(adopt);
   const parts = {};

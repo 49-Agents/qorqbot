@@ -363,10 +363,15 @@ class TelegramOperations:
             hook = bridge.sent_hooks.get(outbox["source_kind"])
             if hook is not None:
                 hook(uow, store.outbox(uow, outbox["id"]), provider)
+            # A cleanup that stopped on this uncertain send now has a known message to delete.
+            if store.requeue_cleanup(uow, outbox, now=now) is not None:
+                bridge.wake()
         else:
             # The frozen target and binding stay as saved: dispatch rechecks them and fails closed if they changed.
             store.set_outbox(uow, outbox, state="queued", attempts=0, next_attempt_at=now, error_code=None, error_message=None,
                              resolved_by=ctx.principal_id, resolved_at=now)
+            # The same message is sent again, so a cleanup that stopped on the uncertain send waits for this one instead.
+            store.requeue_cleanup(uow, outbox, now=now)
             bridge.wake()
         return self.view(uow, store.message(uow, message["id"]), owner=True)
 

@@ -133,7 +133,7 @@ class UnreachableWorkerTests(unittest.TestCase):
         self.assertEqual(self.told(), [SCOUT])
         summary = self.conn.execute('SELECT summary FROM inbox_events').fetchone()[0]
         self.assertIn('is not installed or not usable on this computer', summary)
-        self.assertIn('tell the owner to download the client under Settings > Agents', summary)
+        self.assertIn('tell the owner to download the client under Settings > Model/Provider', summary)
 
     def test_a_busy_or_slow_host_never_makes_a_streak_and_a_success_ends_one(self):
         clock = [NOW - timedelta(hours=1)]

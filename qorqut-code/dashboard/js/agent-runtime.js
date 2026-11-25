@@ -2,9 +2,10 @@
 // for each state (asleep, opening, working, ready, off, cannot start), the Stop button, the activity line, the question cards, the
 // refusal texts. js/global-chat.js calls it.
 // The server shapes are in docs/MANAGED-RUNTIME.md. `session.managed` is
-// {open, off, phase, activity, turn_started_at, can_stop, closed_text, pending: [{request_id, kind: 'question', tool, questions:
+// {open, off, phase, activity, turn_started_at, can_stop, closed_text, account_problem, pending: [{request_id, kind: 'question', tool, questions:
 // [{question, header, options: [{label, description}], multiSelect}]}]}. `off` is true for an agent the owner ended: it stays off
-// until the owner sends a message. A session without `managed` reads as open. `session.execution` is not read any more.
+// until the owner sends a message. `account_problem` is null or {kind: 'usage_limit' | 'sign_in', provider, resets_at, resets_text, account:
+// {email, plan}, other_provider: {id, ready}}: the last answer failed because of the account, and Chat shows a notice for it. A session without `managed` reads as open. `session.execution` is not read any more.
 // Every string from the server reaches the page as text or through escapeHtml.
 const agentRuntime = (() => {
   const WORKING = new Set(['working', 'blocked']);
@@ -16,6 +17,16 @@ const agentRuntime = (() => {
   const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
   const clip = (value, max) => { const text = String(value ?? '').replace(/\s+/g, ' ').trim(); return text.length > max ? text.slice(0, max - 1) + '…' : text; };
 
+  // `account_problem` as the page uses it, or null when the last answer did not fail for the account.
+  function accountProblemOf(raw) {
+    if (!raw || typeof raw !== 'object' || !['usage_limit', 'sign_in'].includes(raw.kind) || !['claude', 'codex'].includes(raw.provider)) return null;
+    const text = value => typeof value === 'string' && value.trim() ? clip(value, 120) : null;
+    const who = raw.account && typeof raw.account === 'object' ? {email: text(raw.account.email) || '', plan: text(raw.account.plan) || ''} : null;
+    const other = raw.other_provider && ['claude', 'codex'].includes(raw.other_provider.id) && raw.other_provider.id !== raw.provider
+      ? {id: raw.other_provider.id, ready: raw.other_provider.ready === true} : null;
+    return {kind: raw.kind, provider: raw.provider, resetsAt: text(raw.resets_at), resetsText: text(raw.resets_text), account: who && who.email ? who : null, other};
+  }
+
   // The managed part of a session in one normalized shape, or null while there is no session yet.
   function managedOf(session) {
     if (!session) return null;
@@ -26,6 +37,7 @@ const agentRuntime = (() => {
     return {open, off, phase: typeof raw.phase === 'string' ? raw.phase : '', activity: typeof raw.activity === 'string' ? raw.activity : '',
       turnStartedAt: raw.turn_started_at ?? null, canStop: raw.can_stop === true, pending,
       closedText: typeof raw.closed_text === 'string' ? clip(raw.closed_text, 240) : '',
+      accountProblem: accountProblemOf(raw.account_problem),
       // The client's own words about the last turn when it failed (an account problem, a usage limit and when to try again).
       turnError: raw.last_turn_status === 'error' && typeof raw.turn_error === 'string' ? clip(raw.turn_error, 300) : ''};
   }
@@ -52,7 +64,8 @@ const agentRuntime = (() => {
     if (session.reason === 'capture_disabled') return {key: 'disabled', line: ''};
     if (session.reason === 'binding_not_ready' || session.reason === 'capture_not_ready' || managed.phase === 'starting' || (session.can_send && !viewing)) return {key: 'starting', line: `Starting ${label}…`};
     if (working(session, managed)) return {key: 'working', line: ''};
-    if (managed.turnError) return {key: 'error', line: `${label} couldn’t answer: ${managed.turnError}`};
+    // An account problem has its own notice above the line (createBar), with the buttons that fix it.
+    if (managed.turnError && !managed.accountProblem) return {key: 'error', line: `${label} couldn’t answer: ${managed.turnError}`};
     // Ready says nothing: the composer being usable already says it.
     return {key: 'live', line: ''};
   }
@@ -95,8 +108,8 @@ const agentRuntime = (() => {
     managed_command: 'This command isn’t available when Qorqbot runs the agent.',
     driver_unavailable: 'Couldn’t start. Check in Settings that Claude Code or Codex is connected, then send again.',
     // The server's other refusals when a message opens a closed session (native_chat/chat.py `_OPEN_REFUSALS`).
-    cli_unavailable: 'This agent’s client (Claude Code or Codex) isn’t installed yet. Download it under Settings > Agents, then send again.',
-    cli_not_signed_in: 'This agent’s client (Claude Code or Codex) isn’t signed in yet. Sign in under Settings > Agents, then send again.',
+    cli_unavailable: 'This agent’s client (Claude Code or Codex) isn’t installed yet. Download it under Settings > Model/Provider, then send again.',
+    cli_not_signed_in: 'This agent’s client (Claude Code or Codex) isn’t signed in yet. Sign in under Settings > Model/Provider, then send again.',
     resume_failed: 'Couldn’t continue the earlier conversation, so nothing was started.',
     resume_unavailable: 'The earlier conversation can’t be continued because its file is missing.',
     open_timeout: 'Still starting. Try again in a moment.',
@@ -160,14 +173,18 @@ const agentRuntime = (() => {
   // The Stop button, the activity line and the question cards, in one block above the session line. `send(path, body)` posts to the agent's
   // chat route and returns its data or throws; `binding()` is the live session's binding id.
   // `stopHere: false`: the agent is stopped from elsewhere (the composer's Send turns into Stop, via `stop()`), so the line shows no Stop.
-  function createBar({label, send, binding, onChange, onError, now = Date.now, doc = globalThis.document, stopHere = true}) {
+  // `clients` is js/agent-clients.js (the notice for an account problem reads and changes the products' sign-in through it; without it the
+  // notice is not shown) and `clientsOptions` its controller's options (tests). `useOther(client)` switches this agent to the other product.
+  function createBar({label, send, binding, onChange, onError, now = Date.now, doc = globalThis.document, stopHere = true, clients = null, clientsOptions = {}, useOther = null}) {
     const el = doc.createElement('div');
     el.className = 'mchat'; el.hidden = true;
     el.innerHTML = `<div class="mchat-notice" role="alert" hidden><span class="mchat-notice-text"></span><button type="button" class="mchat-notice-action"></button></div>
+      <div class="mchat-notice mchat-account" role="alert" hidden></div>
       <div class="mchat-cards" role="group" aria-label="Waiting for you"></div>
       <div class="mchat-activity" role="status" aria-live="polite" hidden><span class="mchat-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="mchat-activity-text"></span><button type="button" class="quiet mchat-stop" hidden>Stop</button></div>`;
     const notice = el.querySelector('.mchat-notice'), noticeText = el.querySelector('.mchat-notice-text'), noticeAction = el.querySelector('.mchat-notice-action');
     let choose = null;
+    const accountBox = el.querySelector('.mchat-account');
     const cardsHost = el.querySelector('.mchat-cards'), line = el.querySelector('.mchat-activity'), lineText = el.querySelector('.mchat-activity-text'), stop = el.querySelector('.mchat-stop');
     const cards = new Map();                      // request id -> {node, data, sentAt, inflight}
     let stopping = false, last = null, serial = 0, disposed = false;
@@ -180,14 +197,70 @@ const agentRuntime = (() => {
     const offer = (what, onChoose) => { noticeText.textContent = what.text; noticeAction.textContent = what.label; choose = onChoose; notice.hidden = false; el.hidden = false; };
     // The activity line can be shown elsewhere (the chat's focus strip); the block then takes no room for it.
     const lineHere = () => !line.hidden && line.parentNode === el;
-    const clearOffer = () => { choose = null; notice.hidden = true; noticeText.textContent = ''; el.hidden = !(cards.size || lineHere()); };
+    const clearOffer = () => { choose = null; notice.hidden = true; noticeText.textContent = ''; el.hidden = !(cards.size || lineHere() || !accountBox.hidden); };
     const fail = (node, text) => { const box = node.querySelector('.mchat-card-error'); box.textContent = text; box.hidden = !text; };
+
+    // ---- the account notice: a usage limit or a sign-in that is no longer accepted. The products' sign-in state is read only while it is up.
+    const acct = {problem: null, ctl: null, attempted: false, busy: '', error: '', shape: ''};
+    const acctStop = () => { acct.ctl?.stop(); Object.assign(acct, {ctl: null, problem: null, attempted: false, busy: '', error: '', shape: ''}); accountBox.hidden = true; accountBox.innerHTML = ''; };
+    function acctPaint() {
+      const problem = acct.problem;
+      if (!problem || disposed) return;
+      const provider = problem.provider, view = acct.ctl?.state.view, pending = acct.ctl?.state.pending[provider] || acct.busy;
+      const info = clients.accountNotice(problem, view && view[provider], {agent: label, attempted: acct.attempted, busy: pending, now: now(),
+        error: acct.error || acct.ctl?.state.errors[provider] || ''});
+      const shape = JSON.stringify([info.key, info.text, info.small, info.error, info.actions, info.signin && clients.signInShape(info.signin)]);
+      if (shape !== acct.shape) {
+        const kept = clients.captureCode(accountBox), had = accountBox.contains(doc.activeElement) && doc.activeElement.closest?.('button');
+        acct.shape = shape;
+        accountBox.dataset.state = info.key;
+        // While a sign-in waits, the notice's buttons (Cancel) belong to the sign-in step, at its bottom right.
+        const buttons = info.actions.map(a => `<button type="button" class="${a.kind === 'quiet' ? 'quiet' : ''}" data-account-action="${escapeHtml(a.id)}" data-provider="${escapeHtml(provider)}"${a.disabled ? ' disabled aria-busy="true"' : ''} aria-label="${escapeHtml(a.busy ? a.label : a.aria)}">${escapeHtml(a.label)}</button>`).join('');
+        acct.buttons = buttons;
+        accountBox.innerHTML = `<span class="mchat-notice-text">${escapeHtml(info.text)}${info.small ? `<small>${escapeHtml(info.small)}</small>` : ''}${info.error ? `<small class="mchat-notice-error" role="alert">${escapeHtml(info.error)}</small>` : ''}</span>
+          <div class="mchat-notice-actions">${info.signin ? '' : buttons}</div>
+          ${info.signin ? `<div class="ac-code" data-ac-signin data-provider="${escapeHtml(provider)}"></div>` : ''}`;
+        const slot = accountBox.querySelector('[data-ac-signin]');
+        if (slot) { clients.paintSignIn(slot, info.signin, buttons); clients.restoreCode(accountBox, kept); }
+        // A pressed button that was replaced hands focus on to the next one that can still be pressed.
+        if (had && !accountBox.contains(doc.activeElement)) accountBox.querySelector('button:not([disabled])')?.focus?.({preventScroll: true});
+      } else if (info.signin) clients.paintSignIn(accountBox.querySelector('[data-ac-signin]'), info.signin, acct.buttons || '');
+      accountBox.hidden = false; el.hidden = false;
+    }
+    function acctSync(problem) {
+      if (!problem || !clients) { if (acct.problem || acct.ctl) acctStop(); el.hidden = !(cards.size || lineHere() || !notice.hidden); return; }
+      // A different problem (the other product, or the limit turning into a sign-in) starts afresh.
+      if (acct.problem && (acct.problem.provider !== problem.provider || acct.problem.kind !== problem.kind)) acctStop();
+      acct.problem = problem;
+      if (!acct.ctl) {
+        acct.ctl = clients.controller({...clientsOptions, onChange: acctPaint, live: () => !!acct.problem && !disposed});
+        void acct.ctl.refresh({quiet: true});
+      }
+      acctPaint();
+    }
+    async function acctAction(id, provider) {
+      if (!acct.ctl || acct.busy) return;
+      acct.error = '';
+      if (id === 'use_other') {
+        const other = acct.problem?.other;
+        if (!other || typeof useOther !== 'function') return;
+        acct.busy = 'use_other'; acctPaint();
+        try { await useOther(other.id); }
+        catch (problem) { acct.error = (problem && problem.message) || `Couldn’t switch ${label}. Try again.`; }
+        finally { acct.busy = ''; if (!disposed) { acctPaint(); onChange(); } }
+        return;
+      }
+      if (id !== 'cancel_connect') acct.attempted = true;
+      await acct.ctl.run(provider, id);
+      if (!disposed) onChange();
+    }
 
     function update(session) {
       last = session;
       const managed = managedOf(session);
       el.hidden = !managed;
-      if (!managed) { for (const [, card] of cards) card.node.remove(); cards.clear(); stopping = false; clearOffer(); el.hidden = true; return; }
+      if (!managed) { for (const [, card] of cards) card.node.remove(); cards.clear(); stopping = false; acctSync(null); clearOffer(); el.hidden = true; return; }
+      acctSync(managed.accountProblem);
       if (managed.open) clearOffer();
       const info = activity(session);
       line.hidden = !info.text; lineText.textContent = info.text;
@@ -209,7 +282,7 @@ const agentRuntime = (() => {
       }
       cardsHost.hidden = cards.size === 0;
       // The block takes room only while it has something to show.
-      el.hidden = !(cards.size || lineHere() || !notice.hidden);
+      el.hidden = !(cards.size || lineHere() || !notice.hidden || !accountBox.hidden);
     }
     async function interrupt() {
       if (stopping || !binding()) { if (!binding()) onError('Couldn’t stop. Try again in a moment.'); return; }
@@ -235,6 +308,9 @@ const agentRuntime = (() => {
     }
     el.addEventListener('click', event => {
       if (event.target.closest('.mchat-stop')) { void interrupt(); return; }
+      if (clients && clients.signInEvent(event, (provider, code) => { acct.attempted = true; void acct.ctl?.run(provider, 'submit_code', {code}); })) return;
+      const account = event.target.closest('[data-account-action]');
+      if (account) { if (!account.disabled) void acctAction(account.dataset.accountAction, account.dataset.provider); return; }
       if (event.target.closest('.mchat-notice-action')) { const run = choose; clearOffer(); if (run) run(); return; }
       const button = event.target.closest('[data-answer]');
       const node = button?.closest('[data-request-id]');
@@ -245,6 +321,10 @@ const agentRuntime = (() => {
       if (line.parentNode === el || !event.target.closest('.mchat-stop')) return;
       event.stopPropagation?.(); void interrupt();
     });
+    // Enter in the sign-in code field sends it, like its button.
+    el.addEventListener('keydown', event => {
+      if (clients) clients.signInEvent(event, (provider, code) => { acct.attempted = true; void acct.ctl?.run(provider, 'submit_code', {code}); });
+    });
     // Enter in a typed answer sends the card, like its button.
     el.addEventListener('keydown', event => {
       if (event.key !== 'Enter' || event.isComposing || !event.target.matches?.('[data-q-other]')) return;
@@ -252,7 +332,7 @@ const agentRuntime = (() => {
       const node = event.target.closest('[data-request-id]');
       if (node) void answer(node.dataset.requestId);
     });
-    return {el, line, update, offer, clearOffer, stop: () => interrupt(), get stopping() { return stopping; }, dispose() { disposed = true; el.remove(); line.remove(); cards.clear(); }, get session() { return last; }};
+    return {el, line, update, offer, clearOffer, stop: () => interrupt(), get stopping() { return stopping; }, dispose() { disposed = true; acctStop(); el.remove(); line.remove(); cards.clear(); }, get session() { return last; }};
   }
 
   return {managedOf, closed, canOpen, working, summary, startHint, emptyText, placeholder, unavailableText, activity, refusalText, isRetryable, newConversationOffer,

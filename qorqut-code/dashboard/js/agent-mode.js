@@ -1,5 +1,5 @@
 // How agents run on this installation: as managed sessions (the default, recommended) or, as a legacy option, each in its own
-// terminal. One setting for the whole installation; only the owner changes it, here in Settings > Agents.
+// terminal. One setting for the whole installation; only the owner changes it, here in Settings > Model/Provider.
 // Server: GET /root/agents/runtime -> {mode, recommended, terminals: {available, reason, detail, agents}, busy, switching, last};
 // POST /root/agents/runtime {mode, force?, trust?} -> the same view, or a refusal (turns_running names the agents mid-turn).
 // `terminals.trusted` says whether the owner already let Qorqbot mark its agent folders as trusted in Claude Code; when not, the

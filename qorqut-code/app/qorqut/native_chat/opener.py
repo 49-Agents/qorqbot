@@ -357,6 +357,44 @@ class SessionOpener:
                 raise DomainError("not_replaced", "The closed conversation was opened again", retryable=True)
             return fresh
 
+    def restart(self, profile: dict, text: str | None, key: str, *, between=None, close_seconds: float = 45.0) -> str:
+        """Close the agent's open session, run ``between()`` (a change that needs no session open, such as its client), and open it
+        again, resuming the conversation the agent's client can resume (a conversation of the other client cannot be: the
+        agent then starts a fresh one and is sent its role first). ``text`` is delivered to the new session as its first message
+        (None: nothing is sent); the host keeps one copy of a message uuid, so a retry with the same ``key`` sends it once.
+        Returns the new session's binding id.
+
+        The owner accepts that a restart interrupts the turn that runs (the close is graceful: it stops the turn and ends the
+        client). Used when the account of a product changed (``account_switch.py``). Like ``replace``: all of it runs under the
+        agent's flight, so no wake or owner open starts a session in between; an agent that is off or paused is refused
+        (``agent_off``) and never turned on; no failure is paced or counted. ``DomainError`` when the session was not restarted."""
+        agent_id, managed = profile["agent_id"], self.managed
+        if managed is None:
+            raise DomainError("managed_unavailable", "This agent's session is not open")
+        if mode.switching(self._paths()):
+            raise DomainError(*SWITCHING, retryable=True)
+        total, poll = self._limits()[:2]
+        with self._flight(agent_id, self._clock() + total, SESSION_OPENING[0]):
+            self._require_on(agent_id)
+            running = self._conversation(agent_id)
+            if running == "":
+                raise DomainError(*SESSION_OPENING, retryable=True)      # a host that has no conversation yet: not ours to close
+            if running is not None:
+                managed.close(agent_id, "graceful")
+                gone = self._clock() + close_seconds
+                while self._conversation(agent_id) is not None:
+                    if self._clock() >= gone:
+                        raise DomainError("close_timeout", "The session did not close in time", retryable=True)
+                    self._sleep(poll)
+                self._require_on(agent_id)                               # the owner may have ended it while it closed
+            if between is not None:
+                between()
+            deadline = self._clock() + total
+            binding = self._bound(profile, text, key, False, deadline, total)
+            if text is not None:
+                managed.send_first(agent_id, text, managed.first_message_uuid(agent_id, key, text), deadline)
+            return binding
+
     def _require_on(self, agent_id: str) -> None:
         if self.desired(agent_id) in NOT_WAKEABLE:
             raise DomainError("agent_off", "This agent is turned off")
@@ -382,9 +420,9 @@ class SessionOpener:
         if found is not None:
             return found
         opened = self.managed.ensure_open(profile, timeout=total, new_conversation=new_conversation)
-        message_uuid = self.managed.first_message_uuid(agent_id, key, text)
+        message_uuid = self.managed.first_message_uuid(agent_id, key, text) if text is not None else None
         role_pending = bool((opened or {}).get("role_pending"))
-        deliver_at, delivered = self._clock() + (grace if role_pending else 0.0), False
+        deliver_at, delivered = self._clock() + (grace if role_pending else 0.0), text is None      # no text: nothing to hand over
         while True:
             self._wake_backend()
             try:

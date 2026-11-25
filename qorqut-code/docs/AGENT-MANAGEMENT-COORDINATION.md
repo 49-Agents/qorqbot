@@ -136,7 +136,7 @@ these bounds alone; full production load measurement remains a rollout check.
 
 Ordubashy runs on Codex or Claude Code. Every prepared workspace carries both
 clients' hooks and instructions, so the owner chooses the CLI Ordubashy runs in
-Settings > Agents, and management intake, delegated answers and the Focus
+Settings > Model/Provider, and management intake, delegated answers and the Focus
 board and automatic durable workers follow that session. The profile `runtime` is only the
 default: the CLI used until a client is chosen there, which Chat names first. Change it
 with `agents_update` and `changes={"runtime":"codex"}` or `{"runtime":"claude-code"}`;

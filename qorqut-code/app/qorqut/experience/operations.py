@@ -16,9 +16,18 @@ Nothing here applies an approved proposal.
 
 Every agent adds to the same queue with ``experience_observation_file`` (the owner's decision, 23 November 2026): a rule
 or correction the owner gave on how work is done, a lesson from a mistake, a tool that failed or misled. It is filed at
-once, with no Signoff, as an observation of no run under the standing cluster ``AGENTS_CLUSTER``, and changes nothing by
-itself: the weekly review reads it like any other observation. The filing agent decides only that the point is about how
-agents work; where a change belongs is the Learning Applier's to work out.
+once as an observation of no run under the standing cluster ``AGENTS_CLUSTER``, and changes nothing by itself: the weekly
+review reads it like any other observation. The filing agent decides only that the point is about how agents work; where a
+change belongs is the Learning Applier's to work out.
+
+A rule the owner gave (kind ``owner_complaint``) also gets a card for the owner, in the same transaction: an operation
+Signoff of ``experience_rule_check`` (the owner's decision, 24 November 2026), titled "Approve proposed learning", whose one editable
+field is the rule as filed. It checks the agent's wording; it approves no change to an instruction. Approving applies the
+operation: the rule is marked approved by the owner, with the owner's text if the owner edited it. Rejecting deletes the
+rule (``rule_check_updated``, through the Signoff status observer); the owner's note reaches the filing agent as every
+decision on its own Signoff does. A rule a delta proposal already names is marked rejected instead of deleted. With no
+answer the rule stays in the queue, marked not checked. The operation is the host's own: no agent is offered it as a tool,
+and it is always held for the owner.
 
 Every other write tool belongs to the active Learning Applier in person; the lists are also read by the owner and
 Ordubashy.
@@ -30,14 +39,15 @@ from datetime import datetime, timedelta
 import logging
 
 from qorqut_operations.application import OperationDescriptor
-from qorqut_operations.application.plans import PlanBuilder, apply_records, schema, timestamp, utc_clock
-from qorqut_operations.contracts import DomainError, InvocationOptions, new_id, plain
+from qorqut_operations.application.plans import PlanBuilder, apply_records, ref, schema, timestamp, utc_clock
+from qorqut_operations.contracts import (DomainError, FieldChange, InvocationOptions, PreparedChange, PreviewResource,
+                                         StructuredPreview, new_id, plain)
 
 from . import conversations, tools
 from .access import applier, filer, reader
 from .runs import EXTRACTION, REVIEW, TITLES, Runs
-from .schema import (APPROVED, CLUSTERS, LINKS, OBSERVATION_KINDS, OBSERVATIONS, PROPOSALS, PROPOSAL_STATES, REJECTED, RUNS,
-                     WAITING)
+from .schema import (APPROVED, CHECK_APPROVED, CHECK_REJECTED, CLUSTERS, LINKS, OBSERVATION_KINDS, OBSERVATIONS, PROPOSALS,
+                     PROPOSAL_STATES, REJECTED, RUNS, UNCHECKED, WAITING)
 
 LOG = logging.getLogger(__name__)
 
@@ -55,6 +65,17 @@ AGENTS_CLUSTER_DESCRIPTION = (
     'lessons from their own mistakes, tools that failed or misled them. Not sorted: each observation here stands on its own.')
 FILED_NOTE = ('Filed for the Learning Applier\'s review. It changes nothing by itself: the Learning Applier reads what was filed '
               'at its weekly review and proposes changes to instructions, skills and tools, which the owner approves.')
+CHECK_NOTE = ('Filed for the Learning Applier\'s review, and the owner now has a card to check the rule\'s wording: do not ask the '
+              'owner about it in chat, and follow the rule from now on. If the owner edits the wording, the owner\'s text replaces '
+              'yours; if the owner rejects the rule, it is removed from the queue and the owner\'s note comes to you. Filing changes '
+              'no instruction by itself: the Learning Applier reads what was filed at its weekly review and proposes changes, which '
+              'the owner approves.')
+# The owner's check of a rule an agent filed from the owner's words: an operation Signoff the filing creates itself.
+OWNER_RULE = 'owner_complaint'
+RULE_CHECK = 'experience_rule_check'
+RULE_CHECK_TITLE = 'Approve proposed learning'
+RULE_RESOURCE = 'experience_rule'
+RULE_TEXT = {'type': 'string', 'minLength': 1, 'maxLength': 2000, 'pattern': r'\S'}
 EXPLANATION_LIMIT = 8000
 RECENT = timedelta(days=30)
 
@@ -118,7 +139,9 @@ DESCRIPTIONS = {
         'Read it before filing observations, to file under an existing cluster where one states the same problem.'),
     'experience_cluster_get': (
         'One cluster with its observations, newest first: each observation\'s id, kind, subject, text, evidence and the delta '
-        'proposals that address it. Pages with cursor.'),
+        'proposals that address it. A rule an agent filed from the owner\'s words also has owner_check: approved (the owner '
+        'checked the wording on a card and approved it; the text is the owner\'s if the owner edited it), unchecked (the owner '
+        'has not answered the card) or rejected (the owner rejected it after a delta proposal had named it). Pages with cursor.'),
     'experience_observations_submit': (
         'Learning Applier only, in a running experience extraction. File observations: issues, complaints and problems seen in '
         'the period, one each. An observation says what went wrong, to whom or by whom, in plain words, for example "Ordubashy '
@@ -143,7 +166,12 @@ DESCRIPTIONS = {
         'failed, misled or needed a workaround), tool_pattern (the same manual steps again and again) or other. subject is '
         'who or what it is about: an agent\'s name, a tool, or "all agents". evidence is optional, up to twelve {ref, quote}: '
         'where it was seen (ref: a Task id, a Signoff id or the link to a message) and the exact words. Each point is filed '
-        'once.'),
+        'once. A rule from the owner (owner_complaint) also puts a card before the owner to check its wording: do not ask the '
+        'owner about it in chat as well, and follow the rule from then on.'),
+    RULE_CHECK: (
+        'Not an agent tool. The owner\'s check of a rule an agent filed from the owner\'s words: created by '
+        'experience_observation_file itself and always held for the owner. Approving marks the rule approved by the owner, '
+        'with the owner\'s wording if the owner edited it; rejecting removes it from the queue.'),
     'agentic_delta_proposal_submit': (
         'Learning Applier only, in a running review and application. File one agentic layer delta proposal: a solution '
         'proposal for the owner to approve or reject. title; problem (what goes wrong, from the observations); change (what to '
@@ -240,6 +268,14 @@ class Experience:
               {'proposal_id': IDENTITY, 'title': TITLE, 'problem': PROBLEM, 'change': CHANGE, 'observation_ids': IDS,
                'cluster_ids': IDS, 'note': {'type': 'string', 'minLength': 1, 'maxLength': 1000}}, ('proposal_id',),
               self.revise_prepare, self.revise_apply)
+        # The owner's check of a rule: a held operation whose one editable field is the rule's text. It is offered to no
+        # agent (``composition.policy.HOST_STAGED_OPERATIONS``); only the filing stages it, in its own transaction.
+        self.runtime.registry.register(OperationDescriptor(
+            RULE_CHECK, schema({**GLOBAL, 'observation_id': IDENTITY, 'text': RULE_TEXT}, ('observation_id', 'text')),
+            description=DESCRIPTIONS[RULE_CHECK], effect_kind='records', supports_signoff=True, scope_kinds=frozenset({'global'}),
+            global_capability='read_global_context', resolve_namespace=lambda ctx, args: 'global', exposure=agent,
+            prepare=self.check_prepare, apply=self.check_apply, validate_targets=self.check_targets,
+            editable_fields=('text',), revise=self.check_revise, rejection_note_optional=True))
         read('agentic_delta_proposals_list', {'state': {'enum': list(PROPOSAL_STATES)}, 'limit': LIMIT, 'cursor': CURSOR}, (),
              self.proposals_list, shared)
         read('agentic_delta_proposal_get', {'proposal_id': IDENTITY}, ('proposal_id',), self.proposal_get, shared)
@@ -408,10 +444,14 @@ class Experience:
             f"AND p.created_at>=?) ORDER BY p.number", (row['id'], row['cluster_id'], row['created_at']))]
         name = uow.connection.execute('SELECT display_name FROM principals WHERE id=?', (row['created_by'],)).fetchone()
         # ``run_id`` is null for what an agent filed itself (``experience_observation_file``); ``filed_by`` names that agent.
-        return {'id': row['id'], 'cluster_id': row['cluster_id'], 'kind': row['kind'], 'subject': row['subject'],
+        view = {'id': row['id'], 'cluster_id': row['cluster_id'], 'kind': row['kind'], 'subject': row['subject'],
                 'text': row['text'], 'evidence': row['evidence_json'], 'occurred_at': row['occurred_at'],
                 'filed_at': row['created_at'], 'filed_by': (name['display_name'] if name else None) or row['created_by'],
                 'run_id': row['run_id'], 'delta_proposals': addressed}
+        if row.get('owner_check'):
+            # The owner's check of a rule an agent filed from the owner's words, and the card it was asked on.
+            view.update(owner_check=row['owner_check'], checked_at=row['checked_at'], check_signoff_id=row['check_signoff_id'])
+        return view
 
     def cluster_get(self, ctx, args, options, uow):
         reader(self.app, ctx, uow)
@@ -515,15 +555,136 @@ class Experience:
         builder.record(OBSERVATIONS, identity, None, {
             'id': identity, 'run_id': None, 'cluster_id': cluster, 'kind': args['kind'], 'subject': subject, 'text': text,
             'evidence_json': args.get('evidence', []), 'occurred_at': args.get('occurred_at'),
-            'created_by': ctx.principal_id, 'created_at': builder.at}, label=subject)
+            'created_by': ctx.principal_id, 'created_at': builder.at,
+            'owner_check': UNCHECKED if args['kind'] == OWNER_RULE else None}, label=subject)
         return builder.build()
 
     def file_apply(self, ctx, plan, uow):
         ctx = filer(self.app, ctx, uow)
         rows = apply_records(ctx, plan, uow)
         row = next(row for change, row in zip(plan.changes, rows) if change.resource.resource_type == OBSERVATIONS)
-        return {'filed': {'id': row['id'], 'kind': row['kind'], 'subject': row['subject'], 'filed_at': row['created_at']},
-                'note': FILED_NOTE}
+        filed = {'id': row['id'], 'kind': row['kind'], 'subject': row['subject'], 'filed_at': row['created_at']}
+        if row['kind'] != OWNER_RULE:
+            return {'filed': filed, 'note': FILED_NOTE}
+        signoff = self.check_request(ctx, row, uow)
+        uow.repository(OBSERVATIONS).update(row['id'], {'check_signoff_id': signoff})
+        return {'filed': filed, 'owner_check': {'state': UNCHECKED, 'signoff_id': signoff}, 'note': CHECK_NOTE}
+
+    # ----- the owner's check of a rule ------------------------------------------------------------------------------------
+
+    def check_request(self, ctx, observation, uow):
+        """Stage the owner's card for a rule just filed, in the filing's transaction, as the filing agent's own proposal of
+        ``experience_rule_check`` with the engine's own authorization, policy binding and target checks. Returns the
+        Signoff's id. A delegated worker's binding is left out: the card's proposer is rebuilt without one at approval, as
+        every proposal's is, and the operation changes only the rule the agent itself just filed."""
+        ctx = replace(ctx, delegation_binding_id=None, delegation_assignment_id=None, delegation_generation=None)
+        descriptor = self.app.registry.get(RULE_CHECK)
+        arguments = self.app.registry.bind_arguments(RULE_CHECK, {
+            'scope': 'global', 'observation_id': observation['id'], 'text': observation['text']})
+        plan = descriptor.prepare(ctx, arguments, InvocationOptions(), uow)
+        decisions = self.app._decisions(ctx, descriptor, plan.expected_targets, plan.changes, uow, namespace=plan.target_namespace)
+        if not any(decision.mode == 'signoff' for decision in decisions.values()):
+            raise DomainError('operation_unavailable', 'The owner\'s check of a rule is not held for the owner by the current '
+                                                       'policy, so the rule was not filed')
+        plan = replace(plan, policy_binding=self.app._binding(ctx, decisions), review_project_id=None,
+                       review_scope=self.app._review_scope(ctx, plan), encoding_version=2, proposer_agent_id=ctx.agent_id,
+                       initiated_by_principal_id=ctx.initiated_by_principal_id)
+        self.app.check_targets(ctx, plan, uow)
+        descriptor.validate_targets(ctx, plan, uow)
+        return self.app.signoffs.stage(ctx, descriptor, plan, InvocationOptions(), uow).signoff['id']
+
+    @staticmethod
+    def checked_rule(uow, identity, principal_id):
+        """The rule a card checks: an owner rule this agent filed itself, still waiting for the owner's check."""
+        row = uow.repository(OBSERVATIONS).get(identity)
+        if row is None or row['run_id'] is not None or row['kind'] != OWNER_RULE or row['created_by'] != principal_id:
+            raise DomainError('not_found', 'No rule of yours filed for the owner\'s check has this id')
+        if row['owner_check'] != UNCHECKED:
+            raise DomainError('invalid_transition', f'The owner already checked this rule ({row["owner_check"]})')
+        return row
+
+    def check_prepare(self, ctx, args, options, uow):
+        ctx = filer(self.app, ctx, uow)
+        row = self.checked_rule(uow, args['observation_id'], ctx.principal_id)
+        if row['check_signoff_id'] is not None:
+            raise DomainError('invalid_transition', 'The owner was already asked to check this rule; filing it asks once')
+        return self.check_plan(ctx, row, args['text'].strip(), uow)
+
+    def check_revise(self, ctx, original, changes, uow):
+        """The owner's edit of the rule's text on a waiting card: the same check with the owner's wording."""
+        ctx = filer(self.app, ctx, uow)
+        text = changes['text'].strip() if isinstance(changes.get('text'), str) else ''
+        if not text or len(text) > 2000:
+            raise DomainError('validation_error', 'The rule is 1 to 2000 characters of text')
+        row = self.checked_rule(uow, plain(original.arguments)['observation_id'], ctx.principal_id)
+        return self.check_plan(ctx, row, text, uow)
+
+    def check_plan(self, ctx, row, text, uow):
+        name = uow.connection.execute('SELECT display_name FROM principals WHERE id=?', (row['created_by'],)).fetchone()
+        builder = PlanBuilder(ctx, RULE_CHECK, {'scope': 'global', 'observation_id': row['id'], 'text': text}, RULE_CHECK_TITLE,
+                              clock=self.clock, namespace='global', affected_scope={'kind': 'global'})
+        resource = builder.expect(ref(OBSERVATIONS, row['id'], None, tables=builder.tables), row)
+        builder.changes.append(PreparedChange('record', resource, 'update', {'text': text, 'owner_check': CHECK_APPROVED}))
+        # What the owner reads: the rule as filed (the one editable field), whom it applies to, and who filed it.
+        label = PreviewResource(RULE_RESOURCE, row['id'], 'Rule')
+        builder.resources.append(label)
+        builder.previews.append(StructuredPreview(label, (
+            FieldChange('text', None, text), FieldChange('applies_to', None, row['subject']),
+            FieldChange('filed_by', None, (name['display_name'] if name else None) or row['created_by']))))
+        builder.effects.append('After approval, the rule is marked approved by the owner in the Learning Applier\'s queue, with '
+                               'this wording. No instruction, skill or tool changes until the weekly review.')
+        return builder.build()
+
+    def check_targets(self, ctx, plan, uow):
+        """Approval rechecks that the rule is still there, still the proposer's, and still waiting for the check."""
+        args = plain(plan.arguments)
+        self.checked_rule(uow, args['observation_id'], plan.principal_id)
+        changes = [change for change in plan.changes if change.resource.resource_type == OBSERVATIONS]
+        if len(plan.changes) != 1 or len(changes) != 1 or plain(changes[0].values) != {'text': args['text'], 'owner_check': CHECK_APPROVED}:
+            raise DomainError('invalid_plan', 'Prepared rule check is invalid')
+
+    def check_apply(self, ctx, plan, uow):
+        self.check_targets(ctx, plan, uow)
+        args = plain(plan.arguments)
+        row = uow.repository(OBSERVATIONS).update(args['observation_id'], {
+            'text': args['text'], 'owner_check': CHECK_APPROVED, 'checked_at': timestamp(self.clock)})
+        return {'rule': {'id': row['id'], 'owner_check': row['owner_check'], 'text': row['text']}}
+
+    def rule_check_updated(self, before, after, uow):
+        """A card follows the owner: an edit's new card becomes the rule's card, and a rejection deletes the rule, or marks
+        it rejected where a delta proposal already names it. An approval is the operation's own apply."""
+        rows = uow.connection.execute(f'SELECT id, owner_check FROM {OBSERVATIONS} WHERE check_signoff_id=?', (after['id'],)).fetchall()
+        for row in rows:
+            if after.get('superseded_by_id') and not before.get('superseded_by_id'):
+                uow.repository(OBSERVATIONS).update(row['id'], {'check_signoff_id': after['superseded_by_id']})
+            elif after.get('state') == 'rejected' and row['owner_check'] == UNCHECKED:
+                self.reject_rule(uow, row['id'])
+
+    def reject_rule(self, uow, identity):
+        named = uow.connection.execute(f"SELECT 1 FROM {LINKS} WHERE target_type='observation' AND target_id=? LIMIT 1",
+                                       (identity,)).fetchone()
+        if named:
+            uow.repository(OBSERVATIONS).update(identity, {'owner_check': CHECK_REJECTED, 'checked_at': timestamp(self.clock)})
+        else:
+            uow.repository(OBSERVATIONS).delete(identity)
+
+    def settle_checks(self, uow):
+        """Follow every edit and rejection the Signoff observer missed. Returns the ids of the rules it rejected."""
+        for _ in range(20):                           # an edit's card may itself have been edited; each pass is one step
+            moved = uow.connection.execute(
+                f"SELECT o.id, s.superseded_by_id FROM {OBSERVATIONS} o JOIN signoffs s ON s.id=o.check_signoff_id "
+                f"WHERE o.owner_check='{UNCHECKED}' AND s.superseded_by_id IS NOT NULL AND s.operation_name=?",
+                (RULE_CHECK,)).fetchall()
+            if not moved:
+                break
+            for row in moved:
+                uow.repository(OBSERVATIONS).update(row['id'], {'check_signoff_id': row['superseded_by_id']})
+        rows = uow.connection.execute(
+            f"SELECT o.id FROM {OBSERVATIONS} o JOIN signoffs s ON s.id=o.check_signoff_id "
+            f"WHERE o.owner_check='{UNCHECKED}' AND s.state='rejected' AND s.operation_name=?", (RULE_CHECK,)).fetchall()
+        for row in rows:
+            self.reject_rule(uow, row['id'])
+        return [row['id'] for row in rows]
 
     # ----- delta proposals ------------------------------------------------------------------------------------------------
 
@@ -700,7 +861,14 @@ class Experience:
     def signoff_updated(self, before, after, uow):
         """Called inside the transaction of every Signoff status update (``SignoffDomains.observe``). A proposal follows the
         owner's choice on its approval request. It never raises: a decision the owner made is never refused because of this
-        record, and ``settle`` makes up for a miss."""
+        record, and ``settle`` makes up for a miss. A rule's card is followed the same way (``rule_check_updated``, made up
+        for by ``settle_checks``)."""
+        if after.get('operation_name') == RULE_CHECK:
+            try:
+                self.rule_check_updated(before, after, uow)
+            except Exception:  # noqa: BLE001 - see above
+                LOG.warning('A rule did not follow the decision on its card %s', after.get('id'), exc_info=True)
+            return
         if (after.get('category') != 'input_request' or after.get('state') != 'answered'
                 or not str(after.get('request_key') or '').startswith(REQUEST_PREFIX)):
             return
@@ -796,4 +964,4 @@ class Experience:
         return {'proposal': self.proposal_view(uow, row, detail=True)}
 
 
-__all__ = ['Experience', 'INTERN', 'REQUEST_PREFIX']
+__all__ = ['Experience', 'INTERN', 'REQUEST_PREFIX', 'RULE_CHECK']

@@ -28,7 +28,7 @@ function tagPickerMount(host, {project = null, labels = [], onChange = null, dis
   let value = tagNormalize(labels), generation = 0, timer = null;
   host.classList.add('tag-picker');
   host.innerHTML = `<div class="tag-picker-chips" aria-label="${esc(label)}"></div>
-    <input class="inp tag-picker-input" type="text" maxlength="${TAG_MAX_LENGTH}" autocomplete="off" spellcheck="false" aria-label="Add a tag" placeholder="Add a tag"${disabled ? ' disabled' : ''}>
+    <input class="ef-control tag-picker-input" type="text" maxlength="${TAG_MAX_LENGTH}" autocomplete="off" spellcheck="false" aria-label="Add a tag" placeholder="Add a tag"${disabled ? ' disabled' : ''}>
     <div class="tag-picker-menu" role="listbox" hidden></div><p class="tag-picker-error ferr" role="alert" hidden></p>`;
   const chips = host.querySelector('.tag-picker-chips'), input = host.querySelector('input'), menu = host.querySelector('.tag-picker-menu'), error = host.querySelector('.tag-picker-error');
   const emit = () => onChange?.(value.slice());

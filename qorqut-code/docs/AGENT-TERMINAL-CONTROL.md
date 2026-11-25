@@ -108,7 +108,7 @@ turn state does not invalidate it.
 
 ## Terminals mode
 
-When the installation runs its agents in terminals (Settings > Agents > "How agents run" >
+When the installation runs its agents in terminals (Settings > Model/Provider > "How agents run" >
 "Terminals (legacy)", Claude Code agents only), the same six tools and the same
 authorization, selectors and batches apply. Only the effect differs, and a plan or
 command prepared in one mode never matches in the other.

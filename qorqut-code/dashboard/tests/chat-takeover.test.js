@@ -122,7 +122,7 @@ test('project details and Chat threads open and close independently', {skip: !av
   } finally {await browser.close();}
 });
 
-test('a Project opens on its timeline, and the thread button shows and hides its thread in the Chat area', {skip: !available}, async () => {
+test('a Project opens on its Folder tab, and the thread button shows and hides its thread in the Chat area', {skip: !available}, async () => {
   const browser = await chromium.launch({headless: true, executablePath: executable});
   try {
     const {page, errors} = await fixture(browser);
@@ -149,15 +149,19 @@ test('a Project opens on its timeline, and the thread button shows and hides its
       window.record=rwRecordFromItem({source:{type:'project',id:'demo',project_id:'demo',label:'Demo'},can_thread:true});
     });
     await page.evaluate(()=>workspace.open(record,{root:true}));
-    // The reader opens on the timeline; its tabs are the timeline and the Project page (a folder), and the thread is not a tab.
+    // A Project opens on its Folder tab; its tabs are the timeline, the folder and Automation, and the thread is not a tab.
+    await page.locator('.rw-project-name').waitFor();
+    assert.equal(await page.locator('.rw-record').getAttribute('data-tab'),'dashboard');
+    assert.deepEqual(await page.evaluate(()=>reads),[]);
+    assert.deepEqual(await page.evaluate(()=>[...document.querySelectorAll('.rw-tabs [data-rw-tab]')].map(tab=>[tab.dataset.rwTab,tab.querySelector('svg')?.dataset.icon,tab.getAttribute('aria-selected')])),
+      [['timeline','timeline','false'],['dashboard','folder','true'],['automation',undefined,'false']]);
+    await page.click('.rw-tab[data-rw-tab="timeline"]');
     await page.locator('.rw-timeline .agent-timeline-row').first().waitFor();
     assert.equal(await page.locator('.rw-record').getAttribute('data-tab'),'timeline');
     assert.deepEqual(await page.evaluate(()=>reads),[{type:'project',id:'demo',project_id:'demo'}]);
     assert.match(await page.locator('.rw-timeline').textContent(),/Ship the demo\./);
     assert.equal(await page.locator('.rw-timeline .agent-timeline-meta').textContent(),'Goal');assert.equal(await page.locator('.rw-timeline [data-status]').textContent(),'1 entry');
     assert.equal(/holds now/i.test(await page.locator('.rw-record').textContent()),false);
-    assert.deepEqual(await page.evaluate(()=>[...document.querySelectorAll('.rw-tabs [data-rw-tab]')].map(tab=>[tab.dataset.rwTab,tab.querySelector('svg')?.dataset.icon,tab.getAttribute('aria-selected')])),
-      [['timeline','timeline','true'],['dashboard','folder','false']]);
     assert.equal(await page.locator('.rw-dashboard').isVisible(),false);
     // The thread button is a toggle: it shows the thread on the left and takes it away again.
     const thread=page.locator('.rw-open-thread');

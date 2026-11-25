@@ -8,7 +8,8 @@ The transforms are kept in the order their changes are released. This command
 derives every state between them from this build's own composition, with the
 later transforms taken out, so a store at any state of the chain is recognised
 and walked to the build's target. The chain is empty while the stores in use
-match the build's target; its only state is then ``base``.
+match the build's target; its only state is then ``base``. It holds ``rule_checks`` (the owner's check of a rule an agent
+filed).
 
 Run ``python -m qorqut.migration.upgrade COMMAND --instance-root ROOT`` with the
 target component selection and optional --extensions-config.
@@ -47,6 +48,7 @@ from qorqut_operations.storage.sqlfunctions import install_sql_functions
 
 from qorqut.composition.assembly import HostComposition, host_contributions
 from qorqut.extensions import NO_EXTENSIONS
+from qorqut.migration import rule_checks
 from qorqut.service.changes import ChangeFeed
 from qorqut.service.instance_arguments import add_instance_arguments, instance_paths_from_arguments
 from qorqut.service.ownership import InstanceOwnership
@@ -54,7 +56,7 @@ from qorqut.service.ownership import InstanceOwnership
 # Release order, oldest first. A new schema transform is appended here; it provides NAME, OBJECTS (what it adds),
 # strip(contribution), forward(connection, objects), backward(connection) and held_rows(connection). One that changes
 # the definition of an existing object also names it in CHANGED.
-TRANSFORMS = ()
+TRANSFORMS = (rule_checks,)
 BASE = 'base'
 STATES = (BASE, *(transform.NAME for transform in TRANSFORMS))
 

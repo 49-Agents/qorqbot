@@ -789,6 +789,82 @@ class InterruptTests(DriverCase):
         session.close()
 
 
+class AccountLabelTests(DriverCase):
+    """A failed run is labelled ``usage_limit`` or ``sign_in`` from what the CLI reports. The first record is what Claude Code
+    2.1.329 really wrote with no sign-in (run in an empty configuration folder); the usage-limit ones have the fields the CLI's own
+    schema names and that past agent transcripts hold (``error: rate_limit``, ``apiErrorParams.rate_limit_info``)."""
+
+    def failed_run(self, session, recorder, assistant=None, events=(), result="Not logged in \u00b7 Please run /login", **extra):
+        message_uuid, seen = str(uuid.uuid4()), len(recorder.of("turn_finished"))
+        with session._lock:
+            session._inflight[message_uuid] = "started"
+        for event in events:
+            session._on_message(event)
+        if assistant is not None:
+            session._on_message({"type": "assistant", "message": {"model": "<synthetic>", "role": "assistant",
+                                                                     "content": [{"type": "text", "text": result}]},
+                                 "parent_tool_use_id": None, "is_api_error_message": True, **assistant})
+        session._on_message({"type": "result", "subtype": "success", "is_error": True, "result": result, "terminal_reason": "api_error",
+                             "api_error_status": None, "user_message_uuids": [message_uuid], "session_id": session.session_id, **extra})
+        return recorder.wait("turn_finished", count=seen + 1)
+
+    def test_not_signed_in_is_a_sign_in_problem(self):
+        session, recorder = self.make()
+        session.start()
+        finished = self.failed_run(session, recorder, {"error": "authentication_failed"})
+        self.assertEqual((finished["status"], finished["error_kind"]), ("error", "sign_in"))
+        self.assertNotIn("resets_at", finished)
+        session.close()
+
+    def test_a_usage_limit_carries_the_reset_time_from_the_clients_own_record(self):
+        session, recorder = self.make()
+        session.start()
+        info = {"status": "rejected", "resetsAt": 1795910400, "rateLimitType": "seven_day", "isUsingOverage": False}
+        finished = self.failed_run(session, recorder, {"error": "rate_limit", "api_error": "usage_limit_reached", "api_error_status": 429,
+                                                 "api_error_params": {"rate_limit_info": info}},
+                             result="You've hit your weekly limit \u00b7 resets Nov 28, 7pm (America/New_York)", api_error_status=429)
+        self.assertEqual((finished["error_kind"], finished["resets_at"]), ("usage_limit", "2026-11-29T00:00:00Z"))
+        self.assertEqual(finished["resets_text"], "Nov 28, 7pm (America/New_York)")
+        session.close()
+
+    def test_the_rate_limit_event_gives_the_time_when_the_message_has_none(self):
+        session, recorder = self.make()
+        session.start()
+        event = {"type": "rate_limit_event", "rate_limit_info": {"status": "rejected", "resetsAt": 1795910400, "rateLimitType": "five_hour"}}
+        finished = self.failed_run(session, recorder, {"error": "rate_limit", "api_error": "usage_limit_reached"}, events=[event],
+                             result="You've hit your session limit")
+        self.assertEqual((finished["error_kind"], finished["resets_at"]), ("usage_limit", "2026-11-29T00:00:00Z"))
+        self.assertNotIn("resets_text", finished)
+        session.close()
+
+    def test_a_busy_server_and_a_plain_rate_limit_are_not_labelled(self):
+        session, recorder = self.make()
+        session.start()
+        busy = self.failed_run(session, recorder, {"error": "server_error", "api_error": "connection_failed"}, result="API Error: Connection lost")
+        self.assertIn("error_kind", busy)
+        self.assertIsNone(busy["error_kind"])
+        plain = self.failed_run(session, recorder, {"error": "rate_limit", "api_error_status": 429}, result="API Error: 429 rate limited")
+        self.assertIsNone(plain["error_kind"])
+        session.close()
+
+    def test_without_any_code_only_the_clients_known_sentence_counts_and_only_at_its_start(self):
+        session, recorder = self.make()
+        session.start()
+        limited = self.failed_run(session, recorder, None, result="You've hit your session limit \u00b7 resets 3pm (Europe/Berlin)")
+        self.assertEqual(limited["error_kind"], "usage_limit")
+        other = self.failed_run(session, recorder, None, result="The task failed because You've hit your session limit in the test")
+        self.assertIsNone(other["error_kind"])
+        session.close()
+
+    def test_a_label_does_not_leak_into_the_next_failure(self):
+        session, recorder = self.make()
+        session.start()
+        self.failed_run(session, recorder, {"error": "authentication_failed"})
+        again = self.failed_run(session, recorder, None, result="max turns")
+        self.assertIsNone(again["error_kind"])
+        session.close()
+
+
 class PermissionTests(DriverCase):
     def test_allow_round_trip(self):
         session, recorder = self.make()

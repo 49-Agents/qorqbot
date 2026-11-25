@@ -93,7 +93,56 @@ class AgentClientsTest(unittest.TestCase):
         self.assertNotIn("detail", view["codex"])               # the CLI's own text is never passed on
         self.assertNotIn(["auth", "status", "--json"], self.calls)
         self.assertNotIn(["auth", "status"], self.calls)
-        self.assertEqual((view["claude"]["source"], view["claude"]["sign_in"]), ("system", {"state": "idle", "reason": None}))
+        self.assertEqual((view["claude"]["source"], view["claude"]["sign_in"]["state"], view["claude"]["sign_in"]["reason"]), ("system", "idle", None))
+
+    def test_the_row_carries_the_limit_the_last_switch_and_the_ways_to_sign_in(self):
+        from qorqut import account_state
+        account_state.reset_for_tests(); self.addCleanup(account_state.reset_for_tests)
+        self.cli("claude"); self.cli("codex"); self.stored_sign_in()
+        account_state.observe_turn("claude", "usage_limit", "2999-01-01T00:00:00Z", "Jan 1", "2026-11-24T10:00:00Z", "error")
+        view = self.view({("--version",): (0, "2.1.318 (Claude Code)\n"), ("login", "status"): (0, "Logged in using ChatGPT\n")})
+        self.assertEqual(view["claude"]["limit"], {"reached": True, "resets_at": "2999-01-01T00:00:00Z", "resets_text": "Jan 1"})
+        self.assertEqual(view["codex"]["limit"], {"reached": False, "resets_at": None, "resets_text": None})
+        self.assertEqual((view["claude"]["switched"], view["codex"]["switched"]), (None, None))
+        self.assertEqual(view["claude"]["sign_in_methods"], {"available": ["browser"], "default": "browser"})
+        self.assertEqual(view["codex"]["sign_in_methods"]["available"], ["browser", "device_code"])
+        self.assertEqual(view["claude"]["sign_in"]["page_url"], None)
+        self.assertEqual(account_state.clients_view(lambda: 1 / 0)["claude"]["limit"]["reached"], True)      # Chat reuses this read
+
+    def test_the_agents_never_see_the_page_or_the_code(self):
+        view = {"claude": {"sign_in": {"state": "connecting", "page_url": "https://claude.com/x?state=s", "user_code": "AB-1"}, "x": 1},
+                "codex": None}
+        shown = owner_settings.for_agents(view)
+        self.assertEqual((shown["claude"]["sign_in"]["page_url"], shown["claude"]["sign_in"]["user_code"], shown["claude"]["x"]), (None, None, 1))
+        self.assertEqual(view["claude"]["sign_in"]["user_code"], "AB-1")
+
+    def test_switch_needs_a_signed_in_product_and_connect_on_a_signed_in_one_is_the_same_sign_in(self):
+        from qorqut import agent_cli_sign_in
+        from qorqut.errors import DomainError
+        env = {"PATH": str(self.bin), "HOME": str(self.bin)}
+        with mock.patch("qorqut.connectors.SYSTEM_PATH", ()), mock.patch.object(agent_cli_sign_in, "start_sign_in") as start:
+            with self.assertRaises(DomainError) as refused:
+                owner_settings.agent_clients_action("claude", "switch", env, run=self.fake_run({}))
+            self.assertIn("Sign in first", refused.exception.message)
+            start.assert_not_called()
+            self.cli("claude"); self.stored_sign_in()
+            owner_settings.agent_clients_action("claude", "switch", env, run=self.fake_run({("--version",): (0, "2.1.318 (Claude Code)\n")}))
+            owner_settings.agent_clients_action("claude", "connect", env, run=self.fake_run({("--version",): (0, "2.1.318 (Claude Code)\n")}))
+            owner_settings.agent_clients_action("codex", "connect", env, method="device_code", run=self.fake_run({}))
+        self.assertEqual([call.kwargs for call in start.call_args_list],
+                         [{"environ": env}, {"environ": env}, {"environ": env, "method": "device_code"}])
+
+    def test_submit_code_reaches_the_sign_in_and_its_refusals_are_plain_validation_errors(self):
+        from qorqut import agent_cli_sign_in
+        from qorqut.errors import DomainError
+        env = {"PATH": str(self.bin), "HOME": str(self.bin)}
+        with mock.patch("qorqut.connectors.SYSTEM_PATH", ()), mock.patch.object(agent_cli_sign_in, "submit_code") as submit:
+            owner_settings.agent_clients_action("claude", "submit_code", env, run=self.fake_run({}), code="abc#def")
+            submit.assert_called_once_with("claude", "abc#def")
+            submit.side_effect = agent_cli_sign_in.SignInError("No sign-in is waiting. Start one first.")
+            with self.assertRaises(DomainError) as refused:
+                owner_settings.agent_clients_action("claude", "submit_code", env, run=self.fake_run({}), code="abc")
+        self.assertEqual((refused.exception.code, refused.exception.message), ("validation_error", "No sign-in is waiting. Start one first."))
 
     def test_missing_and_signed_out(self):
         self.cli("codex")

@@ -668,6 +668,8 @@ const reminderNotifications = (() => {
   let inflight = null, timer;
   async function poll() {
     if (inflight) return inflight;
+    // A hidden tab keeps polling only while reminders are on for desktop notifications; the return to the tab polls at once.
+    if (tabHiddenFor('reminders')) { clearTimeout(timer); timer = setTimeout(poll, 30000); return; }
     inflight = (async () => {
       try {
         for (const reminder of await remindersOwnerDue()) {
@@ -692,7 +694,7 @@ const reminderNotifications = (() => {
 })();
 if (typeof embeddedAgentPane === 'undefined' || !embeddedAgentPane) {
   reminderNotifications.start();
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) void reminderNotifications.start(); });
+  onTabBack(() => void reminderNotifications.start(), {focus: false});
 }
 
 // The Reminders button: the owner's upcoming reminders with creation and per-reminder controls.

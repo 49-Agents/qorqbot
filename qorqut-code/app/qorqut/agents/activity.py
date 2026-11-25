@@ -205,7 +205,9 @@ class AgentActivity:
     def worker_text(item):
         return [item.get(name, '').strip() for name in ('summary', 'blocked_reason')]
 
-    def validate_work_item(self, ctx, item, uow, builder=None, *, worker=False):
+    def validate_work_item(self, ctx, item, uow, builder=None, *, worker=False, asked=None):
+        """``asked`` is one declaration's answers by (project, operation), kept for its own loop over items in one unit
+        (no write happens between them), so items sharing a project ask each question once."""
         if worker:
             if not item.get('task_id') and not any(self.worker_text(item)):
                 raise DomainError('validation_error', 'Current work needs a Task reference or a short description')
@@ -215,9 +217,9 @@ class AgentActivity:
             raise DomainError('validation_error', 'Current work requires a short description')
         elif any(len(item.get(name, '')) > LEGACY_TEXT_LIMIT for name in ('summary', 'blocked_reason')):
             raise DomainError('validation_error', f'Session work text is limited to {LEGACY_TEXT_LIMIT} characters')
-        self.allowed(ctx, item['project_id'], 'agents_activity_list', uow)
+        self.allowed(ctx, item['project_id'], 'agents_activity_list', uow, cache=asked)
         if item.get('task_id'):
-            self.allowed(ctx, item['project_id'], 'tasks_get', uow)
+            self.allowed(ctx, item['project_id'], 'tasks_get', uow, cache=asked)
             task = uow.repository('tasks', project_id=item['project_id']).get(item['task_id'], required=True)
             if builder:
                 from qorqut_operations.application.plans import ref
@@ -440,16 +442,16 @@ class AgentActivity:
             namespace=task_namespace(ctx,args), affected_scope={'kind':'agent','agent_id':ctx.principal_id})
         if ('items' in args) == ('patch' in args):
             raise DomainError('validation_error', 'Provide exactly one of items or patch')
-        touched_before = []
+        touched_before, asked = [], {}
         if 'patch' in args:
             current = row['items_json']
             items, touched_before, touched_after = self.patched_items(current, args['patch'])
             for item in [*touched_before, *touched_after]:
-                self.validate_work_item(ctx, item, uow, builder)
+                self.validate_work_item(ctx, item, uow, builder, asked=asked)
         else:
             items = plain(args['items'])
             for item in items:
-                self.validate_work_item(ctx, item, uow, builder)
+                self.validate_work_item(ctx, item, uow, builder, asked=asked)
         seen = set()
         for item in items:
             if item.get('task_id'):
@@ -491,14 +493,15 @@ class AgentActivity:
         current = uow.repository('agent_activity').get(key, required=True)
         if current['revision'] != plan.arguments['expected_work_revision']:
             raise DomainError('revision_conflict', 'Read your current work revision before replacing it')
+        asked = {}
         if 'patch' in plan.arguments:
             _, touched_before, touched_after = self.patched_items(
                 current['items_json'], plan.arguments['patch'])
             for item in [*touched_before, *touched_after]:
-                self.validate_work_item(ctx, item, uow)
+                self.validate_work_item(ctx, item, uow, asked=asked)
         else:
             for item in plan.arguments['items']:
-                self.validate_work_item(ctx, item, uow)
+                self.validate_work_item(ctx, item, uow, asked=asked)
         apply_records(ctx,plan,uow)
         self.mark_reviewed(ctx.principal_id, plan.arguments['session_id'], uow)
         row = uow.repository('agent_activity').get({'agent_id':ctx.principal_id,'session_id':plan.arguments['session_id']})

@@ -85,6 +85,59 @@ def full_id(revision) -> bool:
     return isinstance(revision, str) and OBJECT_ID.fullmatch(revision) is not None
 
 
+_GLOBAL_CONFIGS = ("/etc/gitconfig",)
+
+
+def _stat_key(path, follow=False):
+    try:
+        found = os.stat(path) if follow else os.lstat(path)
+    except FileNotFoundError:
+        return None
+    return (found.st_dev, found.st_ino, found.st_mode, found.st_uid, found.st_size, found.st_mtime_ns)
+
+
+def _read_small(path):
+    """The bytes of a small file, ``None`` when absent; ``OSError`` for anything else."""
+    try:
+        return Path(path).read_bytes()
+    except FileNotFoundError:
+        return None
+
+
+def published_ref_signature(root) -> tuple | None:
+    """What Git reads to answer "the top level of ``root`` and the commit ``PUBLIC_REF`` names", without starting Git.
+
+    Equal signatures mean Git would answer the same, so a caller may keep an earlier answer. ``None`` means the layout is
+    one this cannot vouch for cheaply (a ``.git`` file or linked worktree, reftable refs, a symbolic branch ref, a
+    configuration ``include``, an unreadable file); the caller then asks Git every time. Ref files are replaced by Git,
+    never edited in place, so a ref update always changes the inode or the content seen here."""
+    root = Path(root)
+    dot_git = root / ".git"
+    try:
+        top, directory = os.lstat(root), os.lstat(dot_git)
+        if not stat.S_ISDIR(directory.st_mode) or os.path.lexists(dot_git / "commondir") \
+                or os.path.lexists(dot_git / "reftable"):
+            return None
+        branch = _read_small(dot_git / PUBLIC_REF)
+        if branch is not None and branch.startswith(b"ref:"):
+            return None
+        home = os.environ.get("HOME", "")
+        xdg = os.environ.get("XDG_CONFIG_HOME") or (os.path.join(home, ".config") if home else "")
+        configs = [dot_git / "config", dot_git / "config.worktree", *_GLOBAL_CONFIGS]
+        configs += [os.path.join(home, ".gitconfig")] if home else []
+        configs += [os.path.join(xdg, "git", "config")] if xdg else []
+        texts = tuple(_read_small(path) for path in configs)
+        if any(text is not None and b"include" in text.lower() for text in texts):
+            return None
+        executable = shutil.which("git")
+        return ((top.st_dev, top.st_ino, top.st_mode, top.st_uid),
+                (directory.st_dev, directory.st_ino, directory.st_mode, directory.st_uid),
+                _stat_key(dot_git / "HEAD"), branch, _stat_key(dot_git / "packed-refs"), texts,
+                executable, _stat_key(executable, follow=True) if executable else None)
+    except OSError:
+        return None
+
+
 class Git:
     def __init__(self, root: Path):
         self.root = root
