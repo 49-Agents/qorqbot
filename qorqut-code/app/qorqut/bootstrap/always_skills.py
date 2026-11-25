@@ -5,6 +5,8 @@ context. It returns current skill text on lifecycle events, on a changed digest
 and when the composer is recovering a delivery the session missed (``force``),
 and one short operational intake reminder for each UserPromptSubmit. Existing
 skill receipts do not suppress that reminder. No separate prompt hook is installed.
+``extra`` names more skills to load with them (the first-conversation skill); they
+are left out of the digest, so they are sent with the always-loaded skills and not again.
 """
 from __future__ import annotations
 
@@ -31,11 +33,12 @@ def _no_symlink(path: Path) -> bool:
     return not (path.is_symlink() or any(parent.is_symlink() for parent in path.parents))
 
 
-def render(workspace: Path, runtime: str, limit=None) -> str:
+def render(workspace: Path, runtime: str, limit=None, extra=()) -> str:
     registration_path = workspace / '.qorqut/registration.json'
     policy = agentic_policy(registration_path)
+    more = {'extra': extra} if extra else {}
     return policy.render_skills(policy.from_prepared(registration_path), workspace, runtime,
-                                limit=policy.SKILL_BUDGET if limit is None else limit)
+                                limit=policy.SKILL_BUDGET if limit is None else limit, **more)
 
 
 def _receipt_path(workspace: Path, session_id: str) -> Path:
@@ -56,7 +59,7 @@ def _write_private(path: Path, value: dict) -> None:
         raise
 
 
-def handle(hook: dict, registration_path: Path, runtime: str, *, force: bool = False) -> dict:
+def handle(hook: dict, registration_path: Path, runtime: str, *, force: bool = False, extra=()) -> dict:
     event = hook.get("hook_event_name")
     if event not in {"SessionStart", "UserPromptSubmit"} or runtime not in {"claude-code", "codex"}:
         return {}
@@ -86,6 +89,11 @@ def handle(hook: dict, registration_path: Path, runtime: str, *, force: bool = F
             "event": hook.get("source", "startup") if event == "SessionStart" else "prompt"})
     except OSError:
         pass  # Delivery still proceeds; the next prompt re-injects.
+    if extra:
+        try:
+            context = render(workspace, runtime, extra=extra)
+        except TypeError:
+            pass  # The helper copy prepared in an agent's folder can be older than the host and not know `extra`.
     return {"hookSpecificOutput": {"hookEventName": event, "additionalContext": '\n\n'.join(filter(None, [reminder, context]))}}
 
 

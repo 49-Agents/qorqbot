@@ -17,8 +17,8 @@ REPLACED, and nothing else:
   is sent ``/role`` by the host), and a prompt a hook blocked writes nothing at all. ``Hooks`` below does exactly those two things,
   from the real host's record, ``HOOK_DELAY`` after the fake CLI took up a message that was not blocked (marker after the owner
   row, as the hooks do); ``block_role`` makes the hooks refuse the ``/role`` prompt.
-* The database: an in-memory SQLite with the real native Chat schema plus the one owner table (as ``test_managed_session_binding``),
-  behind a lock; principal, protected-control and writer-admission checks are stubbed (they are the service's, not this layer's).
+* The database: an in-memory SQLite with the real native Chat schema plus the owner table and an empty
+  ``agent_profiles`` (as ``test_managed_session_binding``), behind a lock; principal, protected-control and writer-admission checks are stubbed (they are the service's, not this layer's).
 * The transcript archive: the indexer is a no-op (no transcript exists), so Chat has no conversation entries here.
 """
 import isolated_cli_environment  # before any Qorqbot import: tests never touch the real user's CLI files
@@ -72,6 +72,8 @@ class Database:
             self.connection.execute(statement)
         self.connection.execute("CREATE TABLE native_session_owners(agent_id TEXT PRIMARY KEY, consumer_id TEXT NOT NULL, "
                                 "binding_json TEXT NOT NULL, generation INTEGER NOT NULL, desired_state TEXT NOT NULL DEFAULT 'running')")
+        # Read by the opener's offered check; no row means an ordinary agent, which is always offered.
+        self.connection.execute("CREATE TABLE agent_profiles(agent_id TEXT PRIMARY KEY, profile_json TEXT NOT NULL)")
 
     @contextmanager
     def read(self):

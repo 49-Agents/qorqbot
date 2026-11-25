@@ -21,7 +21,7 @@ input request: it records the answer and executes nothing, so read the decision 
 then perform exactly that work yourself. Use the existing prepared approval for a
 service-managed protected action. Never replace a required decision with a chat reply.
 
-A question Signoff is the item's open question: the owner sees it in the item's "what holds now" and answers it in
+A question Signoff is the item's open question: the owner sees it on the item's timeline and answers it in
 the sign-off queue, so never file it on the timeline as well. Link it to the item with `source`, and offer the likely
 answers as choices; the owner can always write something else. Only the coordinator writes timelines: once the owner
 answers, the coordinator is told as for any Signoff, reads the answer with `signoffs_get` and decides what it means: the
@@ -122,8 +122,7 @@ Only the final decision is the response record. One response event covers the
 whole form. It grants no authority to execute a prepared action.
 
 Discover the installed `signoffs_input_create` schema before using this variant.
-Older deployments may only support the unversioned form. Existing draft reviews
-and single-question Signoffs continue to work unchanged.
+Existing draft reviews and single-question Signoffs continue to work unchanged.
 
 ## Editable draft review
 

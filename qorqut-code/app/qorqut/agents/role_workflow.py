@@ -1,5 +1,7 @@
 """Core-owned role work procedure shared by both prepared agent clients."""
 
+import re
+
 from qorqut.agentic.text import bundled
 
 from qorqut_agentic.behavior.sources import seed_bytes
@@ -13,6 +15,19 @@ from qorqut.catalog.packages import content_hash, files_digest
 SKILL_NAME = "role"
 SKILL_DIRECTORIES = (".claude/skills/role", ".agents/skills/role")
 INSTRUCTIONS = bundled("host", "app/qorqut/agentic/assets/role-workflow.md")
+# The procedure is one text for every agent. A paragraph that opens by addressing every agent but Ordubashy is not his.
+NOT_FOR_ORDUBASHY = re.compile(r"(?:For agents|Agents) other than Ordubashy\b")
+
+
+def for_ordubashy(text: str) -> str:
+    """The procedure as Ordubashy receives it: without the paragraphs addressed to the other agents."""
+    parts = re.split(r"(\n{2,})", text)
+    kept = []
+    for index in range(0, len(parts), 2):
+        if NOT_FOR_ORDUBASHY.match(parts[index]):
+            continue
+        kept.append(parts[index] + (parts[index + 1] if index + 1 < len(parts) else ""))
+    return "".join(kept)
 
 
 def skill_files(*, agentic_view=None):

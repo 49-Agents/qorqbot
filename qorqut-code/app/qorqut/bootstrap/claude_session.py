@@ -26,6 +26,8 @@ LIFECYCLE_EVENTS = frozenset({"startup", "resume", "clear", "compact", "fork"})
 CLAUDE_HOOK_LIMIT = 9_500
 STARTUP_CONTEXT = ".qorqut/startup-context.md"
 STARTUP_SKILLS = ".qorqut/startup-skills.md"
+# Loaded with the always-loaded skills while the owner is new (the FIRST CONVERSATION and FIRST MESSAGE lines).
+FIRST_CONVERSATION_SKILLS = ("qorqut-role-get-set-up",)
 # A prompt's short operational reminder stays in the hook output; anything longer is the always-loaded skill text.
 INLINE_SKILLS_LIMIT = 1_000
 INSTRUCTIONS_CHANGED = (f"Your managed instructions changed after this session loaded them. Read {STARTUP_INSTRUCTIONS} "
@@ -168,7 +170,8 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
     skills = ''
     if registration.get('operational_intake_enabled'):
         from .always_skills import handle as skills_hook
-        skills = skills_hook(hook, registration_path, runtime, force=recovering).get('hookSpecificOutput', {}).get('additionalContext', '')
+        extra = FIRST_CONVERSATION_SKILLS if first else ()
+        skills = skills_hook(hook, registration_path, runtime, force=recovering, extra=extra).get('hookSpecificOutput', {}).get('additionalContext', '')
     if event == "UserPromptSubmit" and last_id == config_id and not response.get("refresh_required") and not recovering:
         prompt_context = '\n\n'.join(filter(None, (first, skills, reminder)))
         if len(prompt_context) > BOOTSTRAP_BUDGET:

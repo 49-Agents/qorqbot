@@ -1,6 +1,6 @@
 schema_version: 1
 id: learning-applier
-version: 1.27.0
+version: 1.28.0
 scope_kinds:
 - ecosystem
 brief: roles/imported-roles/native/roles/learning-applier/BRIEF.md
@@ -18,10 +18,12 @@ skills:
   path: operations/imported-role-skills/native/skills/action-recording/SKILL.md
 - id: browser-control
   path: operations/imported-role-skills/native/skills/ordubashy-browser-control/SKILL.md
-- id: owner-reminders
-  path: operations/imported-role-skills/native/skills/owner-reminders/SKILL.md
+- id: reminders
+  path: operations/imported-role-skills/native/skills/reminders/SKILL.md
 - id: personal-record
   path: operations/imported-role-skills/native/skills/personal-record/SKILL.md
+- id: environment
+  path: operations/imported-role-skills/native/skills/environment/SKILL.md
 default_tool_policy:
   actions_config_get: allow
   actions_get: allow
