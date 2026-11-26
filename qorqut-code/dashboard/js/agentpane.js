@@ -140,8 +140,8 @@ function agentPaneViews(scope, roleId, base = [], browser = false, agentId = nul
 // The agent workspace app's compact header keeps Viewbox beside Focus; an embedded page has no header to arrange.
 function agpadPaneApp(p) { return !!document.body?.classList?.contains("agent-workspace-app"); }
 // The header shows one Browser entry for Ordubashy's Browser and Desktop modes.
-// For any agent with the Focus workspace, Browser, Desktop and Viewbox are details of its Focus: the Focus strip opens them, so they have no header entries.
-const AGPAD_FOCUS_SURFACES = new Set(["browser", "desktop", "viewbox"]);
+// For any agent with the Focus workspace, Browser, Desktop, Calendar and Viewbox are details of its Focus: the Focus strip opens them, so they have no header entries.
+const AGPAD_FOCUS_SURFACES = new Set(["browser", "desktop", "calendar", "viewbox"]);
 function agpadFocusSurfaces(p) { return !!p.agentId && p.views.includes("focus"); }
 function agpadHeadViews(p) {
   const views = (agpadFocusSurfaces(p) ? p.views.filter(view => !AGPAD_FOCUS_SURFACES.has(view))
@@ -546,7 +546,7 @@ function agpadSurfaceRequest(p, kind, leaveChecked) {
 }
 
 // The expanded item's title beside its pill Close. Each mode is opened and closed from the persistent launcher row.
-const AGPAD_SURFACE_TITLE = {browser: "Browser", desktop: "Desktop", viewbox: "Viewbox"};
+const AGPAD_SURFACE_TITLE = {browser: "Browser", desktop: "Desktop", calendar: "Calendar", viewbox: "Viewbox"};
 async function agpadSurfaceOpen(p, kind) {
   return agpadSurfaceTransition(p, () => agpadSurfaceOpenNow(p, kind));
 }
@@ -581,6 +581,14 @@ async function agpadSurfaceOpenNow(p, kind) {
   if (kind === "desktop") agfocusDesktopMount(p, surface.ctx);
   else if (kind === "browser" && typeof agbrowserMount === "function") agbrowserMount(p, false, surface.ctx);
   else if (kind === "viewbox" && typeof agviewboxMount === "function") agviewboxMount(p, surface.ctx);
+  else if (kind === "calendar" && typeof calendarMount === "function") {
+    // The Calendar page, mounted natively like its old tab; its disposer stops its polling and listeners when the surface goes.
+    const page = document.createElement("div");
+    page.className = "agent-calendar-host";
+    body.classList.add("agfocus-calendar-body");
+    body.replaceChildren(page);
+    surface.cleanups.push(calendarMount(page, {embedded: true, isCurrent: surface.ctx.current}));
+  }
   agpadSurfacePaint(p);
   agpadAnimateContent(body);
   if (!switching) $("[data-surface-close]", host)?.focus({preventScroll: true});

@@ -331,17 +331,17 @@ function agviewboxBack(p, toList = false) {
 }
 
 // ------------------------------------------------------------ Focus surfaces strip
-// One row: Notes, Browser and Desktop stay fixed, then a quiet divider and the scrolling attention queue.
+// One row: Notes, Browser, Desktop and Calendar stay fixed, then a quiet divider and the scrolling attention queue.
 // Notes (the Journal's feather) returns to the owner's notes: it closes whatever is open on the board and puts the caret there.
-const AGVB_SURFACES = [['browser', 'Browser'], ['desktop', 'Desktop']];
+const AGVB_SURFACES = [['browser', 'Browser'], ['desktop', 'Desktop'], ['calendar', 'Calendar']];
 const agvbSurfaceIcon = name => (typeof T_VIEW_ICON === 'object' && T_VIEW_ICON[name]) || '';
 
 function agviewboxSurfacesMount(p, host) {
   if (!host || !p.agentId) return null;
   const strip = { agentId: p.agentId, dead: false, discovery: 'checking', surfaces: null, active: { kind: null, id: null } };
   host.classList.add('agfocus-queues');
-  host.setAttribute('aria-label', 'Notes, Browser, Desktop and attention queue');
-  host.innerHTML = `<div class="attention-stack agfocus-surfaces"><div class="agfocus-fixed" role="group" aria-label="Notes, Browser and Desktop"><button type="button" class="attention-chip agfocus-surface-chip" data-focus-notes aria-label="Notes" title="Notes">${agvbSurfaceIcon('notes')}<span class="attention-label">Notes</span></button>${AGVB_SURFACES.map(([view, label]) =>
+  host.setAttribute('aria-label', 'Notes, Browser, Desktop, Calendar and attention queue');
+  host.innerHTML = `<div class="attention-stack agfocus-surfaces"><div class="agfocus-fixed" role="group" aria-label="Notes, Browser, Desktop and Calendar"><button type="button" class="attention-chip agfocus-surface-chip" data-focus-notes aria-label="Notes" title="Notes">${agvbSurfaceIcon('notes')}<span class="attention-label">Notes</span></button>${AGVB_SURFACES.map(([view, label]) =>
     `<button type="button" class="attention-chip agfocus-surface-chip" data-focus-surface="${view}" aria-disabled="true">${agvbSurfaceIcon(view)}<span class="attention-label">${label}</span></button>`).join('')}</div>
     <span class="agfocus-divider" aria-hidden="true"></span>
     <div class="agfocus-surface-board focus-signoff-queue" role="group" aria-label="Attention queue" hidden></div></div>`;
@@ -350,6 +350,9 @@ function agviewboxSurfacesMount(p, host) {
   // within the scope discovery covers; Desktop is also limited to Ordubashy. Pending, failed and empty read differently.
   // Browser is also enabled by the agent's built-in browser (p.liveBrowser), which needs no configured viewer.
   const launcher = view => {
+    // Calendar needs no browser discovery: it is offered wherever the pane has the Calendar view (Ordubashy).
+    if (view === 'calendar') return (p.views || []).includes('calendar') && (typeof agentPaneViewAllowed !== 'function' || agentPaneViewAllowed(p.workspaceRole, 'calendar'))
+      ? [true, 'Calendar'] : [false, 'Calendar unavailable: only Ordubashy has the calendar'];
     const name = view === 'browser' ? 'Browser' : 'Desktop', found = strip.surfaces;
     if (p.workspaceScope !== 'global') return [false, `${name} unavailable: not offered for this agent here`];
     if (strip.discovery === 'checking') return [false, `${name}: checking this agent’s configuration`];

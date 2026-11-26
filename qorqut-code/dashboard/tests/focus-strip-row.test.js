@@ -1,5 +1,5 @@
 'use strict';
-// Ordubashy's Focus top area is one row: Notes, Browser, Desktop, a thin divider, then the scrolling attention queue.
+// Ordubashy's Focus top area is one row: Notes, Browser, Desktop, Calendar, a thin divider, then the scrolling attention queue.
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -20,7 +20,7 @@ browserTest('the Focus strip is one row with the queue after a divider that show
     await page.addScriptTag({path: path.join(root, 'js/agent-viewbox.js')});
     const result = await page.evaluate(() => {
       const host = document.getElementById('queue');
-      const strip = agviewboxSurfacesMount({agentId: 'a', workspaceScope: 'project'}, host);
+      const strip = agviewboxSurfacesMount({agentId: 'a', workspaceScope: 'project', workspaceRole: 'ordubashy', views: ['focus', 'calendar']}, host);
       const stack = host.querySelector('.agfocus-surfaces'), queue = strip.signoffHost, divider = host.querySelector('.agfocus-divider');
       const shown = el => getComputedStyle(el).display !== 'none';
       const out = {
@@ -28,6 +28,7 @@ browserTest('the Focus strip is one row with the queue after a divider that show
         queueIsHost: queue.parentElement === stack && queue.previousElementSibling === divider,
         newButton: !!host.querySelector('[data-side-chat-new]'), oldQueue: !!host.querySelector('.agfocus-side-chat-queue,.agfocus-attention-row'),
         fixed: [...host.querySelectorAll('.agfocus-fixed > button')].map(b => b.textContent.trim()),
+        calendarOn: host.querySelector('[data-focus-surface="calendar"]').getAttribute('aria-disabled') !== 'true',
         dividerWhenEmpty: shown(divider),
       };
       queue.innerHTML = Array.from({length: 30}, () => '<button type="button" class="focus-signoff-chip"><svg viewBox="0 0 24 24"><path d="M3 5h18v14H3z"/></svg></button>').join('');
@@ -39,7 +40,8 @@ browserTest('the Focus strip is one row with the queue after a divider that show
     assert.deepEqual(result.stackChildren, ['agfocus-fixed', 'agfocus-divider', 'agfocus-surface-board']);
     assert.equal(result.queueIsHost, true);
     assert.equal(result.newButton, false); assert.equal(result.oldQueue, false);
-    assert.deepEqual(result.fixed, ['Notes', 'Browser', 'Desktop']);
+    assert.deepEqual(result.fixed, ['Notes', 'Browser', 'Desktop', 'Calendar']);
+    assert.equal(result.calendarOn, true, 'Calendar opens without any browser discovery');
     assert.equal(result.dividerWhenEmpty, false);
     assert.equal(result.dividerWhenFilled, true);
     assert.equal(result.sameRow, true);

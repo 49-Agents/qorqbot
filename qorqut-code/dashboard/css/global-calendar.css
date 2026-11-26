@@ -179,3 +179,5 @@
 @media(max-width:600px) { .calendar-meta-row { grid-template-columns: 1fr; gap: 2px; } }
 .calendar-detail a { text-decoration: underline; text-underline-offset: 2px; }
 .calendar-personal-status [data-calendar-status-retry] { justify-self: start; min-height: 28px; padding: 0 12px; }
+/* Calendar opened from the Focus row: the page fits the surface itself, so the surface never scrolls. */
+.agfocus-surface-body.agfocus-calendar-body { overflow:hidden; }

@@ -328,7 +328,8 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
       </main></div></section>`;
     const page = $('.calendar-page',host);
     const sizePage = () => {
-      page.classList.toggle('calendar-narrow',host.clientWidth <= 880);
+      // The mini month stays down to the width where the grid goes to one day; a drag never widens it past the grid's 380px.
+      page.classList.toggle('calendar-narrow',host.clientWidth <= 600);
       page.classList.toggle('calendar-compact',host.clientWidth <= 600);
     };
     sizePage();
@@ -471,7 +472,7 @@ const CALENDAR_RAIL = {key: 'qorqbot.calendarRail', base: 208, min: 180, max: 48
 function calendarRailSplit(page) {
   const layout = $('.calendar-layout',page), handle = $('.calendar-rail-split',page);
   if (!layout || !handle) return;
-  const clamp = w => Math.round(Math.min(CALENDAR_RAIL.max,Math.max(CALENDAR_RAIL.min,w)));
+  const clamp = w => Math.round(Math.max(CALENDAR_RAIL.min,Math.min(CALENDAR_RAIL.max,(layout.clientWidth || Infinity) - 380,w)));
   const apply = w => { layout.style.setProperty('--calendar-rail',w+'px'); handle.setAttribute('aria-valuenow',String(w)); return w; };
   const keep = w => { try { localStorage.setItem(CALENDAR_RAIL.key,String(w)); } catch (_) { /* memory only */ } };
   let saved = CALENDAR_RAIL.base;
