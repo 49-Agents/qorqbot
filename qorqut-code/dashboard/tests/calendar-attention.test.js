@@ -51,7 +51,7 @@ function strip(options = {}) {
   const rows = [row('past', -90), row('upcoming', -40), row('hidden', 20), row('ended', -300, -1)];
   const context = {Date, Promise, Map, Set, URLSearchParams, AbortController, JSON, esc:value => String(value ?? '').replace(/"/g,'&quot;'), coreData:x => x,
     accessLost:() => false, document:{addEventListener(){}, hidden:false}, window:{addEventListener(){}}, T_VIEW_ICON:{calendar:'<svg></svg>'},
-    api:async () => ({items:[]}), calendarChanges, remindersOwnerDue:async () => [], remVerifiedOwner:async () => 'owner', remAttempts:new Map(),
+    api:async () => ({items:[]}), calendarChanges, remindersOwnerDue:async () => options.reminders || [], remVerifiedOwner:async () => 'owner', remAttempts:new Map(),
     setTimeout:() => 0, clearTimeout(){}, toast:text => toasts.push(text), calendarQueueLoad:async () => ({items:rows,calendars:[{id:'cal'}],errors:options.errors || []}),
     calendarOpen:(item, calendars, refresh, clicked, origin, opts) => { opened.push({item, calendars, origin, opts}); },
     notify:note => notes.push(note), calendarToastLine:event => `Starts soon · ${event.id}`,
@@ -145,4 +145,13 @@ test('the strip opens events as a card and a pop-up appears once for each event 
   // The card's own completion discards the chip the same way.
   const again = s.opened[0].opts.onDone();
   assert.ok(again instanceof Promise || again === undefined);
+});
+
+test('calendar chips sit at the right end of the row, after due reminders and Signoffs, even when they started earlier', async () => {
+  const s = strip({reminders:[{reminder_id:'r1', text:'Call back', due_at:new Date().toISOString()}]});
+  s.context.queue.mountSignoffs(s.host);
+  await tick(); await tick(); await tick();
+  const order = [...s.host.innerHTML.matchAll(/data-(reminder|calendar|signoff)-key=/g)].map(match => match[1]);
+  assert.ok(order.includes('reminder'), s.host.innerHTML);
+  assert.deepEqual(order, ['reminder', 'calendar', 'calendar']);
 });
