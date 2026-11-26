@@ -662,27 +662,10 @@ function mountChatView(host, options = {}) {
   // also puts the caret in the line (see hoverFocus below).
   const hoverDevice = typeof matchMedia === 'function' && matchMedia('(hover: hover) and (pointer: fine)').matches;
   let pointerOver = false;
-  // While the composer folds or unfolds, the height it gives up is held as empty space above it, so the feed above never
-  // changes size. The space is set every frame from the composer's own height as its transition runs.
-  let holdHeight = 0, holdFrame = 0;
-  function holdSpace(until) {
-    cancelAnimationFrame(holdFrame);
-    const step = () => {
-      if (disposed) return;
-      form.style.marginTop = Math.max(0, holdHeight - form.offsetHeight) + 'px';
-      if (performance.now() < until) holdFrame = requestAnimationFrame(step);
-      else if (!form.classList.contains('gchat-composer-tucked')) { form.style.marginTop = ''; holdHeight = 0; }
-    };
-    step();
-  }
   function tuck() {
     if (disposed) return;
     const open = !hoverDevice || pointerOver || form.contains(document.activeElement) || !!mic?.busy;
-    if (form.classList.contains('gchat-composer-tucked') !== open) return;
-    if (!open && !holdHeight) holdHeight = form.offsetHeight;
-    form.classList.toggle('gchat-composer-tucked', !open);
-    if (open) resizeComposer();
-    holdSpace(performance.now() + 320);
+    if (form.classList.contains('gchat-composer-tucked') === open) { form.classList.toggle('gchat-composer-tucked', !open); if (open) resizeComposer(); }
   }
   if (hoverDevice) {
     // Entering either part, or leaving one for the other, keeps the line out; leaving both (or the window) tucks it.
