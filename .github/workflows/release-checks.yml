@@ -62,7 +62,7 @@ jobs:
           # The built-in WhatsApp connector's helper is GPL-3.0-only: build and test it in the pinned Go container, then
           # rebuild it with no network from its corresponding-source archive and require the same bytes.
           whatsapp="$RELEASE_WORK/whatsapp"
-          python "$RELEASE_WORK/source/qorqut-code/extensions/whatsapp/tools/build.py" --work "$whatsapp"
+          python -B "$RELEASE_WORK/source/qorqut-code/extensions/whatsapp/tools/build.py" --work "$whatsapp"
           source_trees=("$whatsapp"/qorqut-whatsapp-*-linux-x86_64-source)
           source_image=$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["build"]["go_image"])' "${source_trees[0]}/SOURCE-MANIFEST.json")
           mkdir -p "$whatsapp/source-rebuild"

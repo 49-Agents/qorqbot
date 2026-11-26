@@ -16,6 +16,10 @@ import shutil
 import subprocess
 import sys
 
+# This script runs from inside a verified source export; a bytecode cache written beside its modules would change that
+# export's snapshot and the release build would refuse it.
+sys.dont_write_bytecode = True
+
 IMAGE = 'golang@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61'
 GO_VERSION = 'go1.27.2'
 TARGETS = {'linux-x86_64': 'linux_x86_64', 'macos-arm64': 'macosx_13_0_arm64'}
@@ -35,6 +39,8 @@ def native_mac_environment(native):
     if subprocess.check_output(['go', 'env', 'GOVERSION'], env=environment, text=True).strip() != GO_VERSION:
         raise SystemExit('Install Go 1.27.2 for this reproducible helper build')
     environment['CC'] = subprocess.check_output(['xcrun', '--find', 'clang'], text=True).strip()
+    # The toolchain's own clang finds no system headers by itself; the SDK path gives it them.
+    environment['SDKROOT'] = subprocess.check_output(['xcrun', '--sdk', 'macosx', '--show-sdk-path'], text=True).strip()
     # Go uses -O2 -g only while these are unset; keep them, as the Linux build has them.
     for name in ('CGO_CFLAGS', 'CGO_LDFLAGS'):
         environment[name] = environment.get(name, '-O2 -g') + ' -mmacosx-version-min=13.0'

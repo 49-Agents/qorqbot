@@ -121,7 +121,7 @@ jobs:
             sign=(--sign-identity "$SIGN_IDENTITY")
           fi
           # The built-in WhatsApp connector's helper, compiled and tested natively; signed in its wheel when notarizing.
-          python "$RELEASE_WORK/source/qorqut-code/extensions/whatsapp/tools/build.py" --target macos-arm64 --work "$RELEASE_WORK/whatsapp" "${sign[@]}"
+          python -B "$RELEASE_WORK/source/qorqut-code/extensions/whatsapp/tools/build.py" --target macos-arm64 --work "$RELEASE_WORK/whatsapp" "${sign[@]}"
           whatsapp_wheels=("$RELEASE_WORK/whatsapp/dist"/qorqut_whatsapp-*.whl)
           test "${#whatsapp_wheels[@]}" -eq 1
           python qorqut-code/tools/distribution/runtime_source.py project --source "$RELEASE_WORK/source" --output "$RELEASE_WORK/runtime-source" --report "$RELEASE_WORK/projection.json"
