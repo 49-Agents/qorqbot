@@ -72,9 +72,18 @@ def image_mime(data):
     return None
 
 
+def is_pdf(data):
+    """A PDF by its own header (``%PDF-`` within the first KiB, as readers accept), never by its name."""
+    return b"%PDF-" in data[:1024]
+
+
 def sniff(name, data):
-    """The preview kind a file's first bytes allow: its named kind when it is text, else ``binary``."""
-    return "image" if image_mime(data) else kind_for(name) if decode(data[:SNIFF_BYTES], truncated=True) is not None else "binary"
+    """The preview kind a file's first bytes allow: an image or PDF by signature, its named kind when it is text, else ``binary``."""
+    if image_mime(data):
+        return "image"
+    if is_pdf(data):
+        return "pdf"
+    return kind_for(name) if decode(data[:SNIFF_BYTES], truncated=True) is not None else "binary"
 
 
 def link_target(href, base_dir):

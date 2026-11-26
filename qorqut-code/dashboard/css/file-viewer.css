@@ -121,3 +121,4 @@ button { font: inherit; }
 }
 
 .fv-image { display: block; max-width: 100%; max-height: calc(100dvh - 110px); width: auto; height: auto; object-fit: contain; margin: 0 auto; }
+.fv-pdf { display: block; width: 100%; height: calc(100dvh - 110px); min-height: 360px; border: 0; }

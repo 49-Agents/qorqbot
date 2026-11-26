@@ -94,7 +94,8 @@ class ServiceBoundary:
 
     # The standalone owner viewers the Viewbox shows in a same-origin frame. Owner APIs, downloads and every other path
     # stay unframeable, and there is no prefix rule for either viewer.
-    SAME_ORIGIN_FRAMED = frozenset({FILE_VIEWER_PATH, "/tables/view"})
+    # The PDF route is framed by the dashboard's own pages so the browser's PDF viewer can show a file in place.
+    SAME_ORIGIN_FRAMED = frozenset({FILE_VIEWER_PATH, "/tables/view", "/api/root/files/pdf"})
 
     def framed(self, path):
         """The allowed frame origin of a path an extension declared framable, else None."""
@@ -118,8 +119,8 @@ class ServiceBoundary:
                 if frame_origin:
                     framing = [(b"content-security-policy", b"frame-ancestors " + frame_origin.encode("ascii"))]
                 elif path in self.SAME_ORIGIN_FRAMED:
-                    # Only the standalone file/table viewers may sit in a same-origin frame. Owner APIs, downloads and
-                    # every other path stay unframeable; there is no prefix rule.
+                    # Only the standalone file/table viewers and the PDF route may sit in a same-origin frame. Other owner
+                    # APIs, downloads and every other path stay unframeable; there is no prefix rule.
                     framing = [(b"x-frame-options", b"SAMEORIGIN"), (b"content-security-policy", b"frame-ancestors 'self'")]
                 else:
                     framing = [(b"x-frame-options", b"DENY"), (b"content-security-policy", b"frame-ancestors 'none'")]

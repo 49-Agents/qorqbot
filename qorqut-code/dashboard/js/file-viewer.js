@@ -275,7 +275,7 @@ function renderTools() {
 
 function textShown() {
   const payload = state.payload;
-  if (!payload || ["binary", "image"].includes(payload.kind)) return false;
+  if (!payload || ["binary", "image", "pdf"].includes(payload.kind)) return false;
   if (payload.kind === "text") return true;
   return state.mode === "source" || (payload.kind === "markdown" && payload.html == null);
 }
@@ -292,7 +292,9 @@ function renderBody() {
     return;
   }
   let node;
-  if (payload.kind === "image") {
+  // A PDF opens in the browser's own viewer (scrolling, zoom, search), served inline only for a file whose header says PDF.
+  if (payload.kind === "pdf") node = h("iframe", {class: "fv-pdf", src: state.meta.urls.pdf, title: state.meta.name});
+  else if (payload.kind === "image") {
     node = h("img", {class: "fv-image", src: state.meta.urls.image, alt: state.meta.name,
       onerror: () => parts.body.replaceChildren(h("p", {class: "fv-error", role: "alert"}, "This image could not be displayed."), downloadButton(state.meta.urls.download))});
   }
@@ -301,7 +303,7 @@ function renderBody() {
   else if (payload.kind === "csv") node = csvNode(payload);
   else node = frameNode(payload);
   // Inside the dashboard Viewbox the rendered HTML preview takes the whole pane instead of a fixed viewport fraction.
-  root.classList.toggle("fv-fill", node.classList.contains("fv-frame") && window.self !== window.top);
+  root.classList.toggle("fv-fill", (node.classList.contains("fv-frame") || node.classList.contains("fv-pdf")) && window.self !== window.top);
   parts.body.replaceChildren(node);
 }
 
@@ -400,7 +402,7 @@ async function main() {
   root.replaceChildren(parts.head, parts.notices, parts.tools, parts.panel, parts.body);
   renderHead(); renderNotices(); renderTools(); renderBody();
   if (meta.managed && meta.managed.history_available && !isVersion()) loadHistory(null).catch(() => {});
-  if (meta.binary || meta.preview_kind === "image") { state.payload = { kind: meta.preview_kind === "image" ? "image" : "binary", size: meta.size, preview_bytes: 0, truncated: false }; renderNotices(); renderTools(); renderBody(); return; }
+  if (meta.binary || meta.preview_kind === "image") { state.payload = { kind: ["image", "pdf"].includes(meta.preview_kind) ? meta.preview_kind : "binary", size: meta.size, preview_bytes: 0, truncated: false }; renderNotices(); renderTools(); renderBody(); return; }
   try { state.payload = await call("content", search); }
   catch (error) { showError(error, main); return; }
   if (state.payload.truncated && state.payload.kind === "html") state.mode = "source";

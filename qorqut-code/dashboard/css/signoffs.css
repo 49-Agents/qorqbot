@@ -459,6 +459,9 @@
 .sg-attachment-body > :last-child { margin-bottom:0; }
 .sg-attachment-text { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; font:12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .sg-attachment-image { display:block; max-width:100%; height:auto; }
+/* A PDF in the browser's own viewer: a tall page window with the viewer's own scrolling, zoom and search. */
+.sg-attachment-body.sg-attachment-body-pdf { max-height:none; overflow:hidden; padding:0; }
+.sg-attachment-pdf { display:block; width:100%; height:min(78vh, 900px); min-height:360px; border:0; background:var(--bg); }
 .sg-attachment-table { max-width:100%; overflow-x:auto; margin:0 0 6px; }
 .sg-attachment-table table { border-collapse:collapse; font-size:12px; }
 .sg-attachment-table th, .sg-attachment-table td { padding:3px 10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; overflow-wrap:anywhere; }
