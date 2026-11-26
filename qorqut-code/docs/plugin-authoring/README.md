@@ -1,5 +1,8 @@
 # Author Qorqut procedure plugins
 
+This page covers today's `plugin.yaml` packages. How a whole extension is to look, its plugin part included, is in
+[EXTENSION-CONTRACT.md](../EXTENSION-CONTRACT.md).
+
 Copy [basic](../../app/templates/plugins/basic) into a task worktree. (The creative-channel scaffold belongs to
 the optional content extension and is shipped there as `templates/creative-channel`.)
 It is a native Qorqut plugin, not a Codex plugin manifest; there is no scaffolding

@@ -1,5 +1,8 @@
 # Optional extensions
 
+This page describes how extensions are loaded today. How every extension is to look and behave, and what is still to
+build for that, is in [EXTENSION-CONTRACT.md](EXTENSION-CONTRACT.md).
+
 The core host starts and serves with no extension. Google Calendar is bundled without an account. WhatsApp is built into every
 download and stays dormant until the owner asks Ordubashy to set it up (or uses Settings > Connections); Fastmail and
 Telegram are separate optional installations. Paper and content creation remain outside the publication repository.
