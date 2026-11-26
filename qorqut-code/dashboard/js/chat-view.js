@@ -658,18 +658,61 @@ function mountChatView(host, options = {}) {
   if (mic) cleanups.push(() => mic.dispose());
 
   // On a device with a mouse the text line is tucked away until the pointer is over the chat (its feed or its composer).
-  // It stays out while the line has focus or the microphone is recording or turning words into text.
+  // It stays out while the line has focus or the microphone is recording or turning words into text. Pointing at the chat
+  // also puts the caret in the line (see hoverFocus below).
   const hoverDevice = typeof matchMedia === 'function' && matchMedia('(hover: hover) and (pointer: fine)').matches;
   let pointerOver = false;
+  // While the composer folds or unfolds, the height it gives up is held as empty space above it, so the feed above never
+  // changes size. The space is set every frame from the composer's own height as its transition runs.
+  let holdHeight = 0, holdFrame = 0;
+  function holdSpace(until) {
+    cancelAnimationFrame(holdFrame);
+    const step = () => {
+      if (disposed) return;
+      form.style.marginTop = Math.max(0, holdHeight - form.offsetHeight) + 'px';
+      if (performance.now() < until) holdFrame = requestAnimationFrame(step);
+      else if (!form.classList.contains('gchat-composer-tucked')) { form.style.marginTop = ''; holdHeight = 0; }
+    };
+    step();
+  }
   function tuck() {
     if (disposed) return;
     const open = !hoverDevice || pointerOver || form.contains(document.activeElement) || !!mic?.busy;
-    if (form.classList.contains('gchat-composer-tucked') === open) { form.classList.toggle('gchat-composer-tucked', !open); if (open) resizeComposer(); }
+    if (form.classList.contains('gchat-composer-tucked') !== open) return;
+    if (!open && !holdHeight) holdHeight = form.offsetHeight;
+    form.classList.toggle('gchat-composer-tucked', !open);
+    if (open) resizeComposer();
+    holdSpace(performance.now() + 320);
   }
   if (hoverDevice) {
     // Entering either part, or leaving one for the other, keeps the line out; leaving both (or the window) tucks it.
     const inside = node => node instanceof Node && (host.contains(node) || form.contains(node));
-    const track = event => { const over = event.type === 'pointerenter' || inside(event.relatedTarget); if (over !== pointerOver) { pointerOver = over; tuck(); } };
+    // Pointing at the chat puts the caret in its input, so typing can start at once. It never takes the caret from another
+    // text field or editor, or from a text selection. A caret the pointer put there, with nothing typed, leaves with the pointer.
+    let hoverFocused = false;
+    const typingElsewhere = () => {
+      const active = document.activeElement;
+      if (active && active !== document.body && active !== input && (active.isContentEditable || active.matches?.('input, textarea, select'))) return true;
+      const selection = typeof getSelection === 'function' ? getSelection() : null;
+      return !!selection && !selection.isCollapsed && String(selection).trim() !== '';
+    };
+    const hoverFocus = () => {
+      if (disposed || form.hidden || input.disabled || document.activeElement === input || typingElsewhere()) return;
+      input.focus({preventScroll: true});
+      hoverFocused = document.activeElement === input;
+    };
+    const hoverLeave = () => {
+      if (hoverFocused && document.activeElement === input && !input.value.trim() && !mic?.busy) input.blur();
+      hoverFocused = false;
+    };
+    listen(input, 'input', () => { hoverFocused = false; });
+    const track = event => {
+      const over = event.type === 'pointerenter' || inside(event.relatedTarget);
+      if (over === pointerOver) return;
+      pointerOver = over;
+      if (over) hoverFocus(); else hoverLeave();
+      tuck();
+    };
     for (const target of new Set([host, form])) { listen(target, 'pointerenter', track); listen(target, 'pointerleave', track); }
     listen(form, 'focusin', tuck); listen(form, 'focusout', () => setTimeout(tuck));
   }

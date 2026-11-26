@@ -1,6 +1,6 @@
 'use strict';
 // Sending while recording stops, transcribes and sends; the microphone spins while the words become text; the text line is
-// tucked away until the pointer is over the chat; the stop square is 1.6 times its old size.
+// tucked away until the pointer is over the chat, which also puts the caret in it; the stop square is 1.6 times its old size.
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -87,13 +87,47 @@ browserTest('the text line and buttons are tucked away until the pointer is over
   await page.mouse.move(100, 100);
   await page.waitForTimeout(400);
   assert.deepEqual(await state(), [false, 36]);
-  await page.focus('.gchat-composer textarea');
+  assert.equal(await page.evaluate(() => document.activeElement?.matches('.gchat-composer textarea')), true, 'pointing at the chat puts the caret in its input');
   await page.mouse.move(100, 700);
   await page.waitForTimeout(400);
-  assert.deepEqual(await state(), [false, 36], 'focused, it stays');
+  assert.deepEqual(await state(), [true, 0], 'nothing typed: the caret leaves with the pointer');
+  await page.mouse.move(100, 100);
+  await page.keyboard.type('hello');
+  await page.mouse.move(100, 700);
+  await page.waitForTimeout(400);
+  assert.deepEqual(await state(), [false, 36], 'with typed text, it keeps the caret and stays open');
   await page.evaluate(() => document.activeElement.blur());
   await page.waitForTimeout(400);
   assert.deepEqual(await state(), [true, 0]);
+});
+
+browserTest('the feed keeps its size in every frame while the input folds and unfolds, the freed height becoming space above it', async page => {
+  // Records the feed's height in every frame for a while, started after the move so it reads after the chat sets the space.
+  const watch = () => page.evaluate(() => new Promise(resolve => {
+    const feed = document.querySelector('.gchat-scroll'), seen = [], end = performance.now() + 450;
+    const step = () => { seen.push(Math.round(feed.getBoundingClientRect().height)); performance.now() < end ? requestAnimationFrame(step) : resolve(seen); };
+    requestAnimationFrame(step);
+  }));
+  await page.mouse.move(100, 100);
+  await page.waitForTimeout(400);
+  const open = await page.$eval('.gchat-scroll', el => Math.round(el.getBoundingClientRect().height));
+  await page.mouse.move(100, 700);
+  const fold = await watch();
+  assert.equal(await page.$eval('.gchat-composer', form => form.classList.contains('gchat-composer-tucked')), true);
+  assert.ok(fold.every(h => Math.abs(h - open) <= 1), `feed ${open}px open, while folding: ${fold.join(' ')}`);
+  assert.ok(await page.$eval('.gchat-composer', form => parseFloat(getComputedStyle(form).marginTop)) > 30, 'the freed height is space above the input');
+  await page.mouse.move(100, 100);
+  const unfold = await watch();
+  assert.ok(unfold.every(h => Math.abs(h - open) <= 1), `while unfolding: ${unfold.join(' ')}`);
+  assert.equal(await page.$eval('.gchat-composer', form => form.style.marginTop), '', 'open again, no space is left behind');
+});
+
+browserTest('pointing at the chat never takes the caret from another text field', async page => {
+  await page.mouse.move(100, 700);
+  await page.evaluate(() => { const other = document.createElement('textarea'); other.id = 'other'; document.querySelector('#away').append(other); other.focus(); });
+  await page.mouse.move(100, 100);
+  await page.waitForTimeout(200);
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'other');
 });
 
 browserTest('the stop square is 1.6 times its old 16px', async page => {
