@@ -18,13 +18,15 @@ from typing import Any, Mapping
 
 from jsonschema import Draft202012Validator, FormatChecker
 
-from qorqut.catalog.packages import Catalog, content_hash, declared_plugin_tools, files_digest, relative_path, visible_plugin_tools
+from qorqut.catalog.packages import (Catalog, content_hash, declared_plugin_tools, files_digest, relative_path,
+                                     visible_plugin_tools)
 from qorqut_operations.contracts import ArtifactRef, DomainError, InvocationContext, Principal, canonical_hash, new_id, plain, utc_now
 from qorqut_operations.project_lifecycle import active_project_ids
 from qorqut_operations.policy import AgentPolicyBasis
 from qorqut_operations.storage.database import unit_memo
 from qorqut_operations.storage.structured import parse_yaml
 from qorqut.composition.files import lock_paths
+from qorqut.extension_package import package_id as extension_package_id
 from qorqut.composition.locations import agent_workspace, project_code, project_root
 from qorqut.inbox.defaults import legacy_inbox_skill
 from qorqut.instance_paths import InstancePaths
@@ -231,6 +233,8 @@ class AgentConfigResolver:
         self.native_connections = dict(native_connections or {})
         # Installed explicitly after opening and verifying the managed layer.
         self.agentic_view = None
+        # The installed extensions (``qorqut.extension_registry``), set by runtime composition; None composes none.
+        self.extensions = None
         self._cache: OrderedDict[str, EffectiveAgentConfig] = OrderedDict()
         self._lock = RLock()
         self._profiles: OrderedDict[tuple[str, str], AgentProfile] = OrderedDict()
@@ -444,6 +448,10 @@ class AgentConfigResolver:
                 if artifact is None:
                     raise DomainError("missing_artifact", f"Missing pinned {kind}: {ref['id']}@{ref['version']}")
                 artifacts.append(dict(artifact))
+            extensions = getattr(self, "extensions", None)
+            # The extensions in effect for the agent, each with its version and package revision.
+            in_effect = (extensions.in_effect(profile.agent_id, connection=connection, role=profile.data["role"]["id"])
+                         if extensions is not None else ())
 
         selected_docs, signatures = {}, []
         if "read_global_context" not in profile.scope.global_capabilities:
@@ -476,6 +484,7 @@ class AgentConfigResolver:
                 "projects": projects, "owners": owner_names,
                 "sources": [(key, doc["id"], doc["revision"], doc["content_hash"], doc["availability"]) for key, doc in sorted(selected_docs.items())],
                 "artifacts": [(item["kind"], item["artifact_id"], item["version"], item["digest"]) for item in artifacts],
+                **({"extensions": [list(item) for item in in_effect]} if in_effect else {}),
                 "operations": [(item.name, item.version, [(alias, self.registry.required_plugin_for(alias)) for alias in item.aliases],
                                 item.plugin_requirement) for item in self.registry.installed()]})
             return fingerprint, canonical_hash({"fingerprint": fingerprint, "signatures": signatures})
@@ -489,7 +498,7 @@ class AgentConfigResolver:
             try:
                 inputs = (agentic_revision, principal.id, row["profile_json"], row["workspace"], target, tuple(tuple(item.items()) for item in projects), tuple(owner_names),
                           tuple((item["kind"], item["artifact_id"], item["version"], item["digest"]) for item in artifacts),
-                          tuple(signatures))
+                          tuple(signatures), in_effect)
                 hash(inputs)
             except TypeError:
                 inputs = None
@@ -498,7 +507,7 @@ class AgentConfigResolver:
                 "documents": selected_docs, "owner_name": ", ".join(owner_names) or "Owner",
                 "agentic_catalog_revision": agentic_revision,
                 "registration": dict(registration) if registration else None, "fingerprint": fingerprint,
-                "cache_key": cache_key}
+                "cache_key": cache_key, "extensions": in_effect}
 
     def resolve_agent_config(self, principal: Principal, *, project_id: str | None = None,
                              session_registration: Mapping | str | None = None,
@@ -659,8 +668,9 @@ class AgentConfigResolver:
 
         return view.consistent(read)
 
-    def managed_skills(self, profile, *, selection):
-        """Current instruction bodies with the immutable native names and grants."""
+    def managed_skills(self, profile, *, selection, in_effect=()):
+        """Current instruction bodies with the immutable native names and grants. ``in_effect`` is what
+        ``ExtensionRegistry.in_effect`` gave for the agent in the read that composed its configuration."""
         view = self.require_agentic_view()
         if isinstance(profile, Mapping):
             profile = AgentProfile(profile)
@@ -696,9 +706,43 @@ class AgentConfigResolver:
                         "digest": package.digest, "generated_path": ".claude/skills/" + skill["name"] + "/SKILL.md",
                         "expected_discoverability": "project_skill_after_preparation"})
                     bodies[skill["name"]] = content
+            for item, content in self._extension_skills(view, selection, in_effect, taken=bodies):
+                metadata.append(item)
+                bodies[item["name"]] = content
             return metadata, bodies
 
         return view.consistent(read)
+
+    def _extension_skills(self, view, selection, in_effect, *, taken):
+        """``(metadata, files)`` of each skill of the extensions ``in_effect``, named ``qorqut-plugin-<entry id>``, under
+        the file rules of a package skill. The Learning Applier reads every extension's package but gets these only for
+        an extension in effect for him. A skill that breaks the rules, or takes a name already in ``taken``, takes its
+        extension out of effect (``ExtensionRegistry.refuse``) and asks for the composition to be retried."""
+        extensions = getattr(self, "extensions", None)
+        if extensions is None:
+            return []
+        found, names = [], set(taken)
+        for ext_id, version, revision in in_effect:
+            package = extension_package_id(ext_id)
+            if not revision or package not in (selection.get("package_ids") or ()):
+                continue
+            skills, problem = view.extension_skills(package, selection=selection)
+            problem = problem or next((f"another skill is already named {name}" for name, *_ in skills if name in names), None)
+            if problem:
+                # Only a later edit of the layer copy, or a skill of the same name made later, gets here (the checker
+                # refuses such a folder, and the start judges the copy). The extension alone is taken out, for every
+                # agent, and the configuration is composed again without it.
+                extensions.refuse(ext_id, f"A skill of its plugin part in the agentic layer cannot be used: {problem}")
+                raise DomainError("agentic_revision_conflict", "An extension was taken out of effect during composition",
+                                  retryable=True)
+            for name, frontmatter, entry, content in skills:
+                names.add(name)
+                found.append(({"id": entry["entry_id"], "name": name, "description": frontmatter["description"],
+                               "materialization_hash": files_digest(content), "owner": {"kind": "extension", "id": ext_id},
+                               "version": version, "digest": revision,
+                               "generated_path": ".claude/skills/" + name + "/SKILL.md",
+                               "expected_discoverability": "project_skill_after_preparation"}, content))
+        return found
 
     def code_workspace(self, project) -> str | None:
         """The project's folder when it holds a code folder, else ``None``."""
@@ -734,8 +778,10 @@ class AgentConfigResolver:
         view = self.require_agentic_view()
         from .preferences import load_preferences
         sources["user-preferences/preferences"] = load_preferences(view)
-        selection = view.selection(profile, project_id=snapshot["project"]["id"] if snapshot["project"] else None)
-        skills, _ = self.managed_skills(profile, selection=selection)
+        in_effect = snapshot["extensions"]
+        selection = view.selection(profile, project_id=snapshot["project"]["id"] if snapshot["project"] else None,
+                                   in_effect=in_effect)
+        skills, _ = self.managed_skills(profile, selection=selection, in_effect=in_effect)
         native_guidance_digest = self.native_guidance_digest(profile.to_dict())
         config_id = "sha256:" + canonical_hash({"fingerprint": snapshot["fingerprint"],
                                                "native_guidance_digest": native_guidance_digest})
@@ -760,6 +806,7 @@ class AgentConfigResolver:
             "effective_config_id": config_id, "configuration_revision": config_id, "context_refresh_required": False,
             "agentic_catalog_revision": snapshot["agentic_catalog_revision"], "agentic_selection": selection,
             "inbox_session_note": session_note,
+            **({"extensions_in_effect": [list(item) for item in in_effect]} if in_effect else {}),
             "native_guidance_digest": native_guidance_digest,
             "mandatory_context": mandatory, "skills": skills, "tools": tools,
             "preparation": {}, "delivery": None})

@@ -73,6 +73,8 @@ class Runtime:
     signoff_domains: object = None  # the retained domains the Signoff ports resolve
     agentic_layer: object = None
     agentic_view: object = None
+    extension_registry: object = None  # the installed extensions (``qorqut.extension_registry``); recorded at start
+    extension_restarts: object = None  # restarts the sessions whose extensions in effect changed
     agentic_inbox_bridge: object = None
     overseer_retention: object = None
     overseer: object = None
@@ -247,6 +249,17 @@ class Runtime:
                 with self.database.transaction(operation="browser.turn.recover") as uow:
                     self.browser_turns.recover(uow)
 
+        def sync_extensions():
+            # Record the installed extensions and copy their plugin parts, once the instance is owned and writable.
+            if self.extension_registry is not None:
+                self.extension_registry.sync(self.database, self.agentic_layer)
+
+        def start_chat(chat):
+            chat.start()
+            # The sessions whose extensions changed at this start can be restarted now that the opener can open them.
+            if self.extension_restarts is not None:
+                self.extension_restarts.release()
+
         def thread_running(attribute):
             return lambda service: bool(getattr(service, attribute, None) and getattr(service, attribute).is_alive())
 
@@ -257,7 +270,7 @@ class Runtime:
             return ServiceStep(declaration.name, declaration.service, lambda: (declaration.start or (lambda x: x.start()))(declaration.service),
                                declaration.stop or stop_with_timeout, None, declaration.timeout, True, "writer", declaration.running)
         steps = (
-            step("native_chat", self.native_chat, lambda x: x.start(), stopping.void(lambda x, timeout: x.stop_observer(timeout=timeout)),
+            step("native_chat", self.native_chat, start_chat, stopping.void(lambda x, timeout: x.stop_observer(timeout=timeout)),
                  "no native chat", required=True, running=lambda x: worker_alive(x.backend)),
             # Advisory inbox notices to running native sessions; independent of any Chat view. It only sends through the
             # native input arbiter and never starts, resumes or stops an agent.
@@ -308,7 +321,7 @@ class Runtime:
             self.lifetime_state = LifetimeState(ownership=self.ownership, running=self.running)
         return ServiceLifetime(
             self.database, self.application.writer_admission, prepare_target,
-            (prepare_browser_turns, lambda: self.application.file_executor.recover_pending(self.application)),
+            (prepare_browser_turns, lambda: self.application.file_executor.recover_pending(self.application), sync_extensions),
             steps, stop_order, self.lifetime_state)
 
     def start(self):
@@ -381,6 +394,10 @@ def build_runtime(workspace, *, paths, database=None, worker_profiles=None,
     selection = installed_selection() if extensions is None else extensions
     if not isinstance(selection, ExtensionSet):
         raise DomainError("invalid_configuration", "Extensions are the owner's startup selection")
+    from qorqut import extension_registry
+    # Extensions that follow the contract are found next to today's selection; an id selected both ways is refused.
+    found = extension_registry.discover(paths, selected=selection.ids, app_version=extension_registry.app_version(),
+                                        platform=extension_registry.current_platform())
     from qorqut.agentic.installation import open_installation
     agentic_layer, agentic_view = open_installation(paths, selection.ids)
     if database is None:
@@ -391,21 +408,23 @@ def build_runtime(workspace, *, paths, database=None, worker_profiles=None,
             raise DomainError("invalid_configuration", "The database is not the selected instance database")
         database = database.open_existing()
         require_selected_storage(database.assembly, selection)
+    installed = extension_registry.ExtensionRegistry(found, changes=require_change_feed(database.assembly.change_publisher))
     return compose_runtime(workspace, paths=paths, database=database, selection=selection, agentic_layer=agentic_layer,
                            agentic_view=agentic_view, registry=builtin_registry(selection), worker_profiles=worker_profiles,
                            job_consequence_verifier=job_consequence_verifier,
                            global_capabilities_provider=global_capabilities_provider, job_programs=job_programs,
-                           register_domains=register_domains, context=context)
+                           register_domains=register_domains, context=context, extension_registry=installed)
 
 
 def compose_runtime(workspace, *, paths, database, selection, agentic_layer, agentic_view, registry, worker_profiles=None,
                     job_consequence_verifier=None, global_capabilities_provider=human_global_capabilities,
-                    job_programs, register_domains=None, context=None):
+                    job_programs, register_domains=None, context=None, extension_registry=None):
     """The inert common composition body of ``build_runtime``: everything after the explicit inputs are validated and the
     store is opened. ``registry`` is the still open operation registry the host then registers every handler on; the
     ordinary runtime passes the strict target registry. ``database`` is whatever store the caller opened for its own
     exact composition (``build_runtime`` validates it against the selected target). Nothing here starts a service,
-    takes ownership or admits a mutation."""
+    takes ownership or admits a mutation. ``extension_registry`` is the installed extensions found at this start; their
+    records are written by ``Runtime.start``."""
     root, workspace = paths.operations, Path(workspace).resolve()
     from qorqut.dashboard_preferences import apply_operational_timezone
     apply_operational_timezone(paths.runtime)      # the owner's saved timezone, before anything reads the clock
@@ -419,6 +438,11 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     resolver = AgentConfigResolver(database, paths, registry, catalog=catalog, native_connections=selection.native_connections,
         plugin_handlers={**core_validators, **selection.package_validators})
     resolver.agentic_view = agentic_view
+    resolver.extensions = extension_registry
+    if agentic_view is not None:
+        agentic_view.extensions = extension_registry
+        if extension_registry is not None:
+            extension_registry.view = agentic_view
     from qorqut.agentic.access import AgenticAccess
     AgenticAccess(resolver, agentic_view).register(registry)
     if global_capabilities_provider is human_global_capabilities:
@@ -479,7 +503,7 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     from qorqut.browser.turns import BrowserTurnQueue
     runtime = Runtime(database, root, workspace, registry, resolver, policy, application,
                    agents, catalog, publisher, domains, file_applier, signoffs, inbox=inbox, management=management,
-                   agentic_layer=agentic_layer, agentic_view=agentic_view,
+                   agentic_layer=agentic_layer, agentic_view=agentic_view, extension_registry=extension_registry,
                    programs=job_programs, authority=authority, signoff_domains=signoff_domains,
                    delegation=delegation, delegation_operations=delegation_operations, paths=paths, locks=locks,
                    browser_turns=BrowserTurnQueue(delegation=delegation),
@@ -516,6 +540,13 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     from qorqut.managed_runtime.manager import ManagedRuntime
     runtime.managed_runtime = ManagedRuntime(runtime)
     runtime.native_chat = NativeChat.build(runtime, managed=runtime.managed_runtime)
+    if extension_registry is not None:
+        # A switch, or a status change into or out of ``ready``, restarts the open sessions whose extensions in effect changed.
+        # Changes recorded while the service starts are held until Chat has started (``Runtime.lifetime``).
+        from qorqut.native_chat.extension_restart import ExtensionRestarts
+        runtime.extension_restarts = ExtensionRestarts(runtime.native_chat, extension_registry, held=True)
+        from qorqut.extension_operations import register as register_extension_operations
+        register_extension_operations(registry, extension_registry, runtime.extension_restarts)
     # The terminal backend is installed later by service composition and read late (``runtime.terminal_control.backend``), so it
     # is not needed here. The switch reads everything late too; the service recovers an interrupted one once all of it exists.
     from qorqut.native_chat.runtime_switch import RuntimeSwitch

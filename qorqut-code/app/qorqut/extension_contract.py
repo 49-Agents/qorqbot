@@ -2,7 +2,9 @@
 
 The rules are those of ``docs/EXTENSION-CONTRACT.md``: section 5 (the folder), 6 (the manifest), 7 (the plugin part), 8
 (hooks and nudges), 9 (record types) and the rule numbers of section 12. This piece reads files only. It never loads
-extension code, so the rules that need the loaded code or the built bundle (``NOT_CHECKED``) are not checked here.
+extension code, so the rules that need the loaded code or the built bundle (``NOT_CHECKED``) are not checked here. A
+folder that passes every other rule is also built into its agentic-layer package (``qorqut.extension_package``) and
+loaded by the layer's own catalog loader, in memory.
 
 ``load_manifest`` stops at the first problem with one ``ContractError``; ``check_folder`` returns every finding as one
 plain sentence; ``check_folders`` adds the findings that need more than one folder. Run as
@@ -12,17 +14,31 @@ plain sentence; ``check_folders`` adds the findings that need more than one fold
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
-from pathlib import Path
+from datetime import timedelta
+from functools import cache, wraps
+import os
+from pathlib import Path, PurePosixPath
+import posixpath
 import re
 import sys
+from types import SimpleNamespace
 from typing import Any
 
+from qorqut.catalog.packages import artifact_file, skill_file_problem, skill_metadata_problem
+from qorqut.catalog.sources import load_sources
 from qorqut.extensions import EXTENSION_ID, FACTORY, SOURCE_KEY
+from qorqut_agentic.authoring import read_snapshot
+from qorqut_agentic.errors import AgenticError
+from qorqut_agentic.files import OverlaySource
+from qorqut_agentic.layout import import_dir
 from qorqut_agentic.schemas import WORKFLOW_SCHEMA, schema_issues
-from qorqut_agentic.catalog import workflow_semantic_issues
+from qorqut_agentic.catalog import load_catalog, workflow_semantic_issues
 from qorqut_agentic.util import load_yaml, split_frontmatter
+from qorqut_operations.contracts import OPERATION_NAME
+from qorqut_operations.errors import DomainError
+from qorqut_operations.global_agents import SUPPORTED_GLOBAL_ROLES
 from qorqut_operations.tasks.models import FIELD_TYPES, NAME as FIELD_NAME, RESERVED_FIELD_NAMES
 from qorqut_operations.tasks.types import TYPES
 
@@ -33,18 +49,25 @@ VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 _COMPARISON = r"(?:>=|<=|==|!=|>|<)[0-9]+\.[0-9]+\.[0-9]+"
 SPECIFIER = re.compile(rf"^{_COMPARISON}(?:,{_COMPARISON})*$")
 EVERY = re.compile(r"^([0-9]+)([mhd])$")
+UNIT_SECONDS = {"m": 60, "h": 3600, "d": 86400}
 DELIVERIES = ("built-in", "downloadable")
 PLATFORMS = ("linux", "mac", "windows")
 SETUP_KINDS = ("none", "key", "sign-in", "pairing")
 HOOK_POINTS = ("start", "owner_message", "after_tool", "stop", "timed")
 HOOK_KEYS = frozenset({"id", "at", "text", "tools", "every", "if_used", "unless_used"})
+CONDITION_POINTS = ("after_tool", "stop")  # Only these points have a turn whose tool calls a condition can look at.
 RECORD_KEYS = frozenset({"id", "based_on", "label", "plural", "fields"})
 RECORD_FIELD_KEYS = frozenset({"id", "label", "type", "values"})
 RECORD_BASES = tuple(name for name in TYPES if name != "email")  # contract section 15: not on `email`
 MANIFEST_KEYS = frozenset({"contract", "id", "name", "summary", "version", "delivery", "platforms", "requires", "code",
                            "setup", "agents"})
-CHECKED = "1, 2, 3, 4, 6, 7, the README and plugin-part layout, and the workflow files"
+CHECKED = ("1, 2, 3, 4, 6, 7, the README and plugin-part layout, the hook text files, the workflow files, the skill "
+           "files, symbolic links, skill names taken by packages that ship with Qorqbot and that the plugin part loads "
+           "in the agentic layer")
 NOT_CHECKED = "5, 8, 9, 10, 11, 12, 13"
+APP = Path(__file__).resolve().parents[1]
+
+Reader = Callable[[str], "bytes | None"]
 
 
 class ContractError(Exception):
@@ -81,13 +104,36 @@ def _text(value: Any) -> bool:
 
 
 def _names(value: Any, form: re.Pattern, *, nonempty: bool) -> bool:
-    """A list of strings of one form (roles are checked as ``extensions.py`` does, with ``-`` read as ``_``)."""
+    """A list of strings of one form."""
     return (isinstance(value, list) and (bool(value) or not nonempty)
             and all(isinstance(item, str) and form.fullmatch(item) for item in value))
 
 
-def _role(value: Any) -> bool:
-    return isinstance(value, str) and SOURCE_KEY.fullmatch(value.replace("-", "_")) is not None
+def _role_findings(where: str, roles: list) -> list[str]:
+    """The role names of ``roles`` that are not role ids Qorqbot has, compared exactly."""
+    known = ", ".join(sorted(SUPPORTED_GLOBAL_ROLES))
+    return [f"{where} names {role!r}, which is not a role Qorqbot has ({known})." for role in roles
+            if role not in SUPPORTED_GLOBAL_ROLES]
+
+
+def _strings(value: Any, *, nonempty: bool) -> bool:
+    return isinstance(value, list) and (bool(value) or not nonempty) and all(isinstance(item, str) for item in value)
+
+
+def skill_name(folder: str) -> str:
+    """The managed skill name a skill folder of an extension gets (the resolver writes the same name inline)."""
+    return f"qorqut-plugin-{folder}"
+
+
+@cache
+def shipped_skill_names() -> frozenset[str]:
+    """The managed skill names of the packages that ship with Qorqbot in the older per-agent format, read from the app's
+    ``package-sources.json`` and named as ``qorqut.catalog.packages`` names them (``qorqut-<kind>-<skill id>``)."""
+    names = set()
+    for kind, root, manifest in load_sources(APP.parents[1], config_path=APP / "package-sources.json").values():
+        data = load_yaml((root / manifest).read_text(encoding="utf-8"))
+        names.update(f"qorqut-{kind}-{entry['id']}" for entry in data.get("skills", ()))
+    return frozenset(names)
 
 
 def _read(path: Path) -> tuple[Any, str | None]:
@@ -204,15 +250,18 @@ def _manifest_findings(data: Any, folder: Path) -> list[str]:
         allowed = agents.get("allowed")
         if "allowed" not in agents:
             found.append("`agents` is missing `allowed`.")
-        elif not (isinstance(allowed, list) and allowed and all(_role(role) for role in allowed)):
+        elif not _strings(allowed, nonempty=True):
             found.append("`agents.allowed` must be a non-empty list of role names.")
+        else:
+            found.extend(_role_findings("`agents.allowed`", allowed))
         if "on_after_setup" in agents:
             later = agents["on_after_setup"]
-            if not (isinstance(later, list) and all(_role(role) for role in later)):
+            if not _strings(later, nonempty=False):
                 found.append("`agents.on_after_setup` must be a list of role names.")
-            elif isinstance(allowed, list):
+            else:
+                found.extend(_role_findings("`agents.on_after_setup`", later))
                 for role in later:
-                    if role not in allowed:
+                    if isinstance(allowed, list) and role in SUPPORTED_GLOBAL_ROLES and role not in allowed:
                         found.append(f"`agents.on_after_setup` names {role!r}, which is not in `agents.allowed`.")
     return found
 
@@ -275,15 +324,63 @@ def _code_findings(folder: Path, ext_id: str) -> list[str]:
     return found
 
 
-def _skill_findings(plugin: Path, ext_id: str) -> list[str]:
-    skills = plugin / "skills"
-    if not skills.is_dir():
-        return []
+def _files(top: Path) -> list[Path]:
+    """The files under ``top``, without following or listing symbolic links (``_link_findings`` reports those)."""
     found = []
-    for folder in sorted(path for path in skills.iterdir() if path.is_dir()):
+    for directory, dirs, names in os.walk(top):
+        dirs[:] = sorted(name for name in dirs if not Path(directory, name).is_symlink())
+        found.extend(Path(directory, name) for name in sorted(names) if not Path(directory, name).is_symlink())
+    return found
+
+
+def _link_findings(folder: Path) -> list[str]:
+    found = []
+    for directory, dirs, names in os.walk(folder):
+        dirs.sort()
+        for name in sorted([*dirs, *names]):
+            path = Path(directory, name)
+            if path.is_symlink():
+                found.append(f"{path.relative_to(folder).as_posix()} is a symbolic link, which an extension folder "
+                             "may not hold.")
+    return found
+
+
+def _skill_folders(plugin: Path) -> list[Path]:
+    skills = plugin / "skills"
+    if not skills.is_dir() or skills.is_symlink():
+        return []
+    return sorted(path for path in skills.iterdir() if path.is_dir() and not path.is_symlink())
+
+
+def _skill_file_findings(plugin: Path, folder: Path) -> list[str]:
+    """The rules Qorqbot applies to the files of a managed skill (``qorqut.catalog.packages``): the file's size through
+    ``artifact_file``, its kind and content through ``skill_file_problem``, and no executable file, which that function
+    leaves to whoever reads the files from disk."""
+    root = plugin.resolve()
+    found = []
+    for path in _files(folder):
+        name = path.relative_to(plugin).as_posix()
+        if path.stat().st_mode & 0o111:
+            found.append(f"The skill file {name} is executable.")
+        try:
+            problem = skill_file_problem(name, artifact_file(root, name))
+        except DomainError as exc:
+            problem = exc.message
+        if problem:
+            found.append(f"The skill file {name} is refused: {problem}.")
+    return found
+
+
+def _skill_findings(plugin: Path, ext_id: str) -> list[str]:
+    found = []
+    for folder in _skill_folders(plugin):
         where = f"The skill {folder.name!r}"
         if folder.name != ext_id and not folder.name.startswith(ext_id + "-"):
             found.append(f"{where} must be named {ext_id!r}, or {ext_id!r} followed by '-' and more.")
+        if skill_name(folder.name) in shipped_skill_names():
+            found.append(f"{where} gives the managed skill name {skill_name(folder.name)!r}, which a package that "
+                         "ships with Qorqbot already uses.")
+        found.extend(_skill_file_findings(plugin, folder))
         path = folder / "SKILL.md"
         if not path.is_file():
             found.append(f"{where} has no SKILL.md.")
@@ -296,119 +393,231 @@ def _skill_findings(plugin: Path, ext_id: str) -> list[str]:
         if problem or meta is None:
             found.append(f"{where} has no usable front matter in SKILL.md" + (f": {problem}." if problem else "."))
             continue
+        own = []
         if set(meta) != {"name", "description", "read_for"}:
-            found.append(f"{where} must have exactly the front matter lines name, description and read_for.")
-        if "name" in meta and meta["name"] != f"qorqut-plugin-{folder.name}":
-            found.append(f"{where} must be named 'qorqut-plugin-{folder.name}' in its front matter.")
+            own.append(f"{where} must have exactly the front matter lines name, description and read_for.")
+        if "name" in meta and meta["name"] != skill_name(folder.name):
+            own.append(f"{where} must be named {skill_name(folder.name)!r} in its front matter.")
         if "description" in meta and not _text(meta["description"]):
-            found.append(f"{where} has an empty description.")
-        if "read_for" in meta:
-            line = meta["read_for"]
-            # The same rule as qorqut.catalog.packages: one line of 1 to 160 characters (not importable as a helper).
-            if not isinstance(line, str) or "\n" in line.strip() or not 1 <= len(line.strip()) <= 160:
-                found.append(f"{where} must have read_for as one line of 1 to 160 characters.")
+            own.append(f"{where} has an empty description.")
+        found.extend(own)
+        # Then the front matter rules every managed skill is held to, where the rules above leave nothing to say.
+        problem = None if own else skill_metadata_problem(meta, skill_name(folder.name), path.relative_to(plugin))
+        if problem:
+            found.append(f"{where} is refused as a managed skill: {problem}.")
     return found
 
 
-def _list_file(path: Path, kind: str) -> tuple[list | None, list[str]]:
+def _folder_reader(plugin: Path) -> Reader:
+    """A reader over the plugin part of a folder: the bytes of a file inside it, or None."""
+    root = plugin.resolve()
+
+    def read(relative: str) -> bytes | None:
+        target = (root / relative).resolve()
+        if (target == root or root in target.parents) and target.is_file():
+            return target.read_bytes()
+        return None
+    return read
+
+
+def _never_raises(name: str):
+    """A public reader runs on a copy that can be edited, so whatever the bytes are and whatever ``read`` does, it gives
+    findings and never raises. The rules below handle every shape they know; this is the last guard."""
+    def decorate(function):
+        @wraps(function)
+        def reader(read: Reader, *, extension_id: str) -> tuple[list[dict], list[str]]:
+            try:
+                return function(read, extension_id=extension_id)
+            except Exception as exc:
+                return [], [f"{name} cannot be read: {exc.__class__.__name__}."]
+        return reader
+    return decorate
+
+
+def _list_file(read: Reader, name: str, kind: str) -> tuple[list | None, list[str]]:
     """The entries of an optional list file: ``(None, [])`` when it is absent."""
-    if not path.is_file():
+    try:
+        data = read(name)
+    except Exception as exc:  # The layer's reader refuses some paths and sizes by raising.
+        return None, [f"{name} cannot be read: {exc.__class__.__name__}."]
+    if data is None:
         return None, []
-    data, problem = _read(path)
-    if problem:
-        return None, [problem]
-    if not isinstance(data, list):
-        return None, [f"{path.name} must be a list of {kind}."]
-    return data, []
+    try:
+        value = load_yaml(data.decode("utf-8"))
+    except UnicodeDecodeError as exc:
+        return None, [f"{name} cannot be read: {exc.__class__.__name__}."]
+    except RecursionError:
+        return None, [f"{name} cannot be read as a list: it is nested too deeply."]
+    except ValueError as exc:
+        return None, [f"{name} is not valid YAML: {exc}"]
+    except Exception as exc:
+        return None, [f"{name} cannot be read as a list: {exc.__class__.__name__}."]
+    if not isinstance(value, list):
+        return None, [f"{name} must be a list of {kind}."]
+    return value, []
 
 
 def _tool_list(value: Any, *, nonempty: bool) -> bool:
-    return _names(value, SOURCE_KEY, nonempty=nonempty)
+    """Tool names are held to the rule the operation registry has for operation names and aliases."""
+    return _names(value, OPERATION_NAME, nonempty=nonempty)
 
 
-def _hook_findings(plugin: Path) -> list[str]:
-    entries, found = _list_file(plugin / "hooks.yaml", "entries")
+def _every_seconds(count: str, unit: str) -> int | None:
+    """The seconds of ``every``, or None when the number cannot be a length of time."""
+    try:
+        seconds = int(count) * UNIT_SECONDS[unit]
+        timedelta(seconds=seconds)
+    except (ValueError, OverflowError):
+        return None
+    return seconds
+
+
+@_never_raises("hooks.yaml")
+def read_hooks(read: Reader, *, extension_id: str) -> tuple[list[dict], list[str]]:
+    """The entries of an extension's ``hooks.yaml`` and every way the file breaks the contract (section 8).
+
+    ``read(path)`` gives the bytes of a file of the plugin part (``hooks.yaml``, ``instructions/x.md``), or None when there
+    is none: a folder on disk or the agentic layer's copy. Each entry is ``{"extension_id", "id", "at", "text",
+    "tools", "every_seconds", "if_used", "unless_used"}``, in file order, with ``text`` read as a string, the three tool
+    lists as lists (empty when not given) and ``every_seconds`` an int at ``timed``, else None. An entry with a finding,
+    and every entry of a repeated id, is left out. A file that is absent gives ``([], [])``.
+    """
+    items, found = _list_file(read, "hooks.yaml", "entries")
     seen: list[str] = []
-    for number, entry in enumerate(entries or (), 1):
+    entries: list[dict] = []
+    for number, entry in enumerate(items or (), 1):
         label = f"hooks.yaml entry {number}"
         if not isinstance(entry, dict):
             found.append(f"{label} must be a mapping.")
             continue
-        found.extend(_unknown(label, entry, HOOK_KEYS))
+        mine = _unknown(label, entry, HOOK_KEYS)
         if not _text(entry.get("id")):
-            found.append(f"{label} needs an `id`.")
+            mine.append(f"{label} needs an `id`.")
         else:
             seen.append(entry["id"])
             label = f"hooks.yaml entry {entry['id']!r}"
         at = entry.get("at")
         if at not in HOOK_POINTS:
-            found.append(f"{label} must have `at` as start, owner_message, after_tool, stop or timed.")
-        found.extend(_hook_text(plugin, entry, label))
+            mine.append(f"{label} must have `at` as start, owner_message, after_tool, stop or timed.")
+        text, problems = _hook_text(read, entry, label)
+        mine.extend(problems)
         if at == "after_tool" and "tools" not in entry:
-            found.append(f"{label} is at after_tool and needs `tools`.")
+            mine.append(f"{label} is at after_tool and needs `tools`.")
         if "tools" in entry:
             if at != "after_tool":
-                found.append(f"{label} has `tools`, which is allowed only at after_tool.")
+                mine.append(f"{label} has `tools`, which is allowed only at after_tool.")
             if not _tool_list(entry["tools"], nonempty=True):
-                found.append(f"{label} must have `tools` as a non-empty list of tool names.")
+                mine.append(f"{label} must have `tools` as a non-empty list of tool names.")
         if at == "timed" and "every" not in entry:
-            found.append(f"{label} is timed and needs `every`.")
+            mine.append(f"{label} is timed and needs `every`.")
+        every = None
         if "every" in entry:
             if at != "timed":
-                found.append(f"{label} has `every`, which is allowed only at timed.")
+                mine.append(f"{label} has `every`, which is allowed only at timed.")
             match = EVERY.fullmatch(entry["every"]) if isinstance(entry["every"], str) else None
-            if not match or int(match[1]) < 1:
-                found.append(f"{label} must have `every` as a whole number above zero and m, h or d, such as 7d.")
+            if not match or not match[1].strip("0"):
+                mine.append(f"{label} must have `every` as a whole number above zero and m, h or d, such as 7d.")
+            else:
+                every = _every_seconds(match[1], match[2])
+                if every is None:
+                    mine.append(f"{label} has an `every` too long to be a length of time.")
         for key in ("if_used", "unless_used"):
-            if key in entry and not _tool_list(entry[key], nonempty=False):
-                found.append(f"{label} must have `{key}` as a list of tool names.")
-    found.extend(f"hooks.yaml repeats the id {name!r}." for name, count in Counter(seen).items() if count > 1)
-    return found
+            if key in entry:
+                if at not in CONDITION_POINTS:
+                    mine.append(f"{label} has `{key}`, which is allowed only at after_tool and stop.")
+                if entry[key] == []:
+                    # Given empty, if_used would never apply and unless_used always would.
+                    mine.append(f"{label} has an empty `{key}`; name at least one tool, or leave `{key}` out.")
+                elif not _tool_list(entry[key], nonempty=False):
+                    mine.append(f"{label} must have `{key}` as a list of tool names.")
+        if _tool_list(entry.get("if_used"), nonempty=False) and _tool_list(entry.get("unless_used"), nonempty=False):
+            for tool in sorted(set(entry["if_used"]) & set(entry["unless_used"])):
+                mine.append(f"{label} names the tool {tool!r} in both `if_used` and `unless_used`.")
+        found.extend(mine)
+        if not mine:
+            entries.append({"extension_id": extension_id, "id": entry["id"], "at": at, "text": text,
+                            "tools": list(entry.get("tools", ())), "every_seconds": every,
+                            "if_used": list(entry.get("if_used", ())), "unless_used": list(entry.get("unless_used", ()))})
+    repeated = {name for name, count in Counter(seen).items() if count > 1}
+    found.extend(f"hooks.yaml repeats the id {name!r}." for name in sorted(repeated, key=seen.index))
+    return [entry for entry in entries if entry["id"] not in repeated], found
 
 
-def _hook_text(plugin: Path, entry: dict, label: str) -> list[str]:
+def _hook_text(read: Reader, entry: dict, label: str) -> tuple[str | None, list[str]]:
+    """The text an entry names, read through ``read``, or the findings about it."""
     text = entry.get("text")
     if "text" not in entry:
-        return [f"{label} needs `text`."]
+        return None, [f"{label} needs `text`."]
     if not _text(text):
-        return [f"{label} must have `text` as a path."]
-    if text.startswith(("/", "\\")) or Path(text).is_absolute():
-        return [f"{label} has an absolute `text` path."]
-    root = plugin.resolve()
-    target = (plugin / text).resolve()
-    if target != root and root not in target.parents:
-        return [f"{label} has a `text` path that leaves the plugin directory."]
-    if not target.is_file():
-        return [f"{label} names the text file {text!r}, which does not exist in the plugin directory."]
-    return []
+        return None, [f"{label} must have `text` as a path."]
+    if text.startswith(("/", "\\")) or PurePosixPath(text).is_absolute() or Path(text).is_absolute():
+        return None, [f"{label} has an absolute `text` path."]
+    relative = posixpath.normpath(text)
+    if relative == ".." or relative.startswith("../"):
+        return None, [f"{label} has a `text` path that leaves the plugin directory."]
+    if not relative.startswith("instructions/"):
+        # Contract section 7: an extension's texts are in instructions/ and reach an agent only through an entry.
+        return None, [f"{label} names the text file {text!r}, which is not in instructions/."]
+    try:
+        data = read(relative)
+    except Exception as exc:  # The layer's reader refuses some paths and sizes by raising.
+        return None, [f"{label} names the text file {text!r}, which cannot be read: {exc.__class__.__name__}."]
+    if data is None:
+        return None, [f"{label} names the text file {text!r}, which does not exist in the plugin directory."]
+    try:
+        content = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return None, [f"{label} names the text file {text!r}, which is not UTF-8."]
+    if not content.strip():
+        return None, [f"{label} names the text file {text!r}, which is empty."]
+    if content.lstrip().startswith("<"):
+        # Chat and the hooks read a message that begins with an opening tag as a system notice.
+        return None, [f"{label} names the text file {text!r}, which begins with '<'; a text may not begin with a tag."]
+    return content, []
 
 
-def _record_findings(plugin: Path) -> list[str]:
-    entries, found = _list_file(plugin / "records.yaml", "record types")
+@_never_raises("records.yaml")
+def read_record_types(read: Reader, *, extension_id: str) -> tuple[list[dict], list[str]]:
+    """The record types of an extension's ``records.yaml`` and every way the file breaks the contract (section 9).
+
+    ``read`` is as for ``read_hooks``. Each type is ``{"extension_id", "id", "based_on", "label", "plural", "fields"}``,
+    in file order, with ``fields`` a list in file order of ``{"id", "label", "type", "values"}`` (``values`` a list for an
+    enum, else None). A type with a finding, and every type of a repeated id, is left out. A file that is absent gives
+    ``([], [])``.
+    """
+    items, found = _list_file(read, "records.yaml", "record types")
     seen: list[str] = []
-    for number, entry in enumerate(entries or (), 1):
+    types: list[dict] = []
+    for number, entry in enumerate(items or (), 1):
         label = f"records.yaml entry {number}"
         if not isinstance(entry, dict):
             found.append(f"{label} must be a mapping.")
             continue
-        found.extend(_unknown(label, entry, RECORD_KEYS))
+        mine = _unknown(label, entry, RECORD_KEYS)
         if "id" not in entry:
-            found.append(f"{label} needs an `id`.")
+            mine.append(f"{label} needs an `id`.")
         elif not isinstance(entry["id"], str) or not SOURCE_KEY.fullmatch(entry["id"]):
-            found.append(f"{label} has an `id` that is not lowercase letters, digits and underscores.")
+            mine.append(f"{label} has an `id` that is not lowercase letters, digits and underscores.")
         else:
             seen.append(entry["id"])
             label = f"The record type {entry['id']!r}"
         if entry.get("based_on") not in RECORD_BASES:
-            found.append(f"{label} must be based_on one of {', '.join(RECORD_BASES)}.")
+            mine.append(f"{label} must be based_on one of {', '.join(RECORD_BASES)}.")
         for key in ("label", "plural"):
             if not _text(entry.get(key)):
-                found.append(f"{label} needs a non-empty `{key}`.")
+                mine.append(f"{label} needs a non-empty `{key}`.")
         if "fields" in entry:
-            found.extend(_record_field_findings(entry["fields"], label))
-    found.extend(f"records.yaml repeats the record type id {name!r}." for name, count in Counter(seen).items()
-                 if count > 1)
-    return found
+            mine.extend(_record_field_findings(entry["fields"], label))
+        found.extend(mine)
+        if not mine:
+            types.append({"extension_id": extension_id, "id": entry["id"], "based_on": entry["based_on"],
+                          "label": entry["label"], "plural": entry["plural"],
+                          "fields": [{"id": field["id"], "label": field["label"], "type": field["type"],
+                                      "values": list(field["values"]) if field["type"] == "enum" else None}
+                                     for field in entry.get("fields", ())]})
+    repeated = {name for name, count in Counter(seen).items() if count > 1}
+    found.extend(f"records.yaml repeats the record type id {name!r}." for name in sorted(repeated, key=seen.index))
+    return [item for item in types if item["id"] not in repeated], found
 
 
 def _record_field_findings(fields: Any, label: str) -> list[str]:
@@ -442,13 +651,18 @@ def _record_field_findings(fields: Any, label: str) -> list[str]:
     return found
 
 
-def _workflow_findings(plugin: Path) -> list[str]:
-    """Each file is read as the agentic layer reads one (``qorqut_agentic.catalog``), without its package context."""
+def _workflow_files(plugin: Path) -> list[Path]:
     root = plugin / "workflows"
-    if not root.is_dir():
-        return []
+    return _files(root) if root.is_dir() and not root.is_symlink() else []
+
+
+def _workflow_findings(plugin: Path, ext_id: str) -> list[str]:
+    """Each file is read as the agentic layer reads one (``qorqut_agentic.catalog``). A step may refer only to an entry
+    the generated package has: a skill (by folder name) or a workflow (by file name) of this extension."""
+    entries = {f"{ext_id}/{folder.name}" for folder in _skill_folders(plugin)}
+    entries |= {f"{ext_id}/{path.stem}" for path in _workflow_files(plugin) if path.suffix == ".yaml"}
     found = []
-    for path in sorted(item for item in root.rglob("*") if item.is_file()):
+    for path in _workflow_files(plugin):
         name = path.relative_to(plugin).as_posix()
         if path.suffix != ".yaml":
             found.append(f"The workflow file {name} must end in .yaml.")
@@ -460,7 +674,36 @@ def _workflow_findings(plugin: Path) -> list[str]:
         issues = schema_issues(data, WORKFLOW_SCHEMA)
         issues = issues or workflow_semantic_issues(data)
         found.extend(f"The workflow file {name} is not a valid workflow: {issue}." for issue in issues)
+        if issues:
+            continue
+        if data["id"] != path.stem:
+            found.append(f"The workflow file {name} has the id {data['id']!r}, which must equal its file name without "
+                         f".yaml, {path.stem!r}.")
+        for step in data["steps"]:
+            for key in ("instruction_ref", "verifier"):
+                if key in step and step[key] not in entries:
+                    found.append(f"The workflow file {name}, step {step['id']!r}, has `{key}` {step[key]!r}, which is "
+                                 f"not '{ext_id}/' followed by a skill folder or workflow file name of this extension.")
     return found
+
+
+def _package_findings(folder: Path) -> list[str]:
+    """The generated package, loaded by the agentic layer's catalog loader on an in-memory source holding only it."""
+    from qorqut import extension_package  # It imports this module.
+    try:
+        manifest = load_manifest(folder)
+        snap = extension_package.snapshot(folder, manifest)
+        if snap is None:
+            return []
+        files = read_snapshot(snap)
+    except ContractError as exc:
+        return [str(exc)]
+    except AgenticError as exc:
+        return [f"The plugin part cannot be made into an agentic-layer package: {exc.message}."]
+    directory = import_dir(extension_package.package_id(manifest.id))
+    empty = SimpleNamespace(prefix=None, legacy_nonempty=False, files={}, special={})
+    catalog = load_catalog(OverlaySource(empty, {f"{directory}/{path}": data for path, (data, _mode) in files.items()}))
+    return [f"The plugin part does not load in the agentic layer: {issue.message}." for issue in catalog.errors()]
 
 
 def _identity(folder: Path) -> str:
@@ -474,11 +717,15 @@ def _identity(folder: Path) -> str:
 
 
 def check_folder(folder: Path) -> list[str]:
-    """Every way ``folder`` breaks the rules this module checks, one sentence each. Empty means it passes."""
+    """Every way ``folder`` breaks the rules this module checks, one sentence each. Empty means it passes. The
+    agentic-layer load is checked only once every other rule passes."""
     folder = Path(folder).resolve()
     if not folder.is_dir():
         return [f"{folder} is not a folder."]
-    found: list[str] = []
+    found = _link_findings(folder)
+    if found:
+        # Nothing is read through a link: the findings about the links are the whole answer.
+        return found
     path = folder / MANIFEST
     if not path.is_file():
         found.append(f"{MANIFEST} is missing.")
@@ -494,18 +741,18 @@ def check_folder(folder: Path) -> list[str]:
     found.extend(_code_findings(folder, ext_id))
     if plugin.is_dir():
         found.extend(_skill_findings(plugin, ext_id))
-        found.extend(_hook_findings(plugin))
-        found.extend(_record_findings(plugin))
-        found.extend(_workflow_findings(plugin))
+        found.extend(read_hooks(_folder_reader(plugin), extension_id=ext_id)[1])
+        found.extend(read_record_types(_folder_reader(plugin), extension_id=ext_id)[1])
+        found.extend(_workflow_findings(plugin, ext_id))
+    if not found:
+        # Only for an otherwise clean folder, so the layer does not repeat what the rules above already say.
+        found.extend(_package_findings(folder))
     return found
 
 
-def _record_ids(folder: Path) -> set[str]:
-    path = folder / "plugin" / "records.yaml"
-    data, problem = _read(path) if path.is_file() else (None, None)
-    if problem or not isinstance(data, list):
-        return set()
-    return {item["id"] for item in data if isinstance(item, dict) and isinstance(item.get("id"), str)}
+def _record_ids(folder: Path, ext_id: str) -> set[str]:
+    types, _ = read_record_types(_folder_reader(folder / "plugin"), extension_id=ext_id)
+    return {item["id"] for item in types}
 
 
 def check_folders(folders: Iterable[Path]) -> dict[str, list[str]]:
@@ -514,8 +761,9 @@ def check_folders(folders: Iterable[Path]) -> dict[str, list[str]]:
     names = Counter(folder.name for folder in folders)
     keys = [folder.name if names[folder.name] == 1 else str(folder) for folder in folders]
     result = {key: check_folder(folder) for key, folder in zip(keys, folders)}
-    ids = {key: _identity(folder) for key, folder in zip(keys, folders)}
-    records = {key: _record_ids(folder) for key, folder in zip(keys, folders)}
+    linked = {key for key, folder in zip(keys, folders) if _link_findings(folder)}  # Read nothing through a link.
+    ids = {key: folder.name if key in linked else _identity(folder) for key, folder in zip(keys, folders)}
+    records = {key: set() if key in linked else _record_ids(folder, ids[key]) for key, folder in zip(keys, folders)}
     for key in keys:
         for other in keys:
             if other == key:

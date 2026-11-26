@@ -17,7 +17,10 @@ import posixpath
 from qorqut_agentic.errors import AgenticError
 from qorqut_operations.contracts import DomainError
 
+from qorqut import extension_package
+
 from qorqut.agents.roles import LEARNING_APPLIER_ROLE
+from qorqut.catalog.packages import extension_skill
 
 from .inventory import package_path
 from .support import MAX_FILE_BYTES, ImportFailure, decoded, digest, identifier, relative, read_yaml
@@ -53,7 +56,14 @@ def _bytes(resource):
     return body
 
 
+def _agent_id(profile):
+    return profile.get("agent_id") if isinstance(profile, dict) else getattr(profile, "agent_id", None)
+
+
 class HostAgenticView:
+    # The installed extensions (``qorqut.extension_registry``), set by runtime composition. Their packages are routed by it.
+    extensions = None
+
     def __init__(self, layer, inventory):
         self._layer = layer
         self._inventory = deepcopy(inventory)
@@ -178,14 +188,17 @@ class HostAgenticView:
         """The opened module supplied by installation; never reopened or rebound."""
         return self._layer
 
-    def selection(self, profile, *, project_id=None, work_type=None) -> dict:
+    def selection(self, profile, *, project_id=None, work_type=None, in_effect=None) -> dict:
         """Shared procedural catalog routing; never a native operational grant.
 
         The caller authorizes the project using the current registered profile.
         Native projection independently uses its validated role/plugin pins. The
         host-seeded Overseer package is eligible only to the current validated
-        role that serves Overseer; every other shared package keeps the general
-        routing rule.
+        role that serves Overseer. The package of an installed extension is
+        eligible only to an agent it is in effect for, and to the Learning
+        Applier, who reads every one; every other shared package keeps the
+        general routing rule. ``in_effect`` is what ``ExtensionRegistry.in_effect``
+        gave for the agent in the caller's read; without it the registry is read.
         """
         for key, value in (("project_id", project_id), ("work_type", work_type)):
             if value is not None and not isinstance(value, str):
@@ -194,6 +207,7 @@ class HostAgenticView:
         def read():
             report = self.layer.catalog.validate()
             role_id = _role_id(profile)
+            hidden = self.hidden_extension_packages(profile, in_effect=in_effect)
             candidates = []
             for package in report["packages"]:
                 package_id = package["id"]
@@ -202,12 +216,32 @@ class HostAgenticView:
                     continue
                 if package.get("area") == "overseer" and role_id != OVERSEER_ROLE:
                     continue
+                if package_id in hidden:
+                    continue
                 if not report["valid"] and not self.layer.catalog.validate(package_ids=[package_id])["valid"]:
                     continue
                 candidates.append(package_id)
             return {"package_ids": sorted(candidates), "project_id": project_id, "work_type": work_type}
 
         return self.consistent(read)
+
+    def hidden_extension_packages(self, profile, *, in_effect=None) -> frozenset:
+        """The extension packages outside this agent's selection: those of extensions not in effect for it (``in_effect``,
+        else read). The Learning Applier keeps every installed extension's package, to read."""
+        extensions = self.extensions
+        if extensions is None:
+            return frozenset()
+        packages = extensions.package_ids()
+        if not packages:
+            return frozenset()
+        role_id = _role_id(profile)
+        if role_id == LEARNING_APPLIER_ROLE:
+            kept = {item.package_id for item in extensions.list() if not item.refused_findings}
+        else:
+            if in_effect is None:
+                in_effect = extensions.in_effect(_agent_id(profile), role=role_id)
+            kept = {extension_package.package_id(ext_id) for ext_id, _, revision in in_effect if revision}
+        return frozenset(packages - kept)
 
     @property
     def catalog_revision(self) -> str:
@@ -362,20 +396,46 @@ class HostAgenticView:
         if selection.get("package_ids") is None or package_id not in selection["package_ids"]:
             raise DomainError("agentic_skill_unavailable", "Native skill is outside the current selection")
 
+        return self.consistent(lambda: self._skill_entry_files(ref, entry["path"], selection))
+
+    def _skill_entry_files(self, ref, path, selection) -> dict[str, bytes]:
+        """The files of the skill entry ``ref`` at ``path`` in its package, by path below the skill's folder."""
+        package_id = ref.split("/", 1)[0]
+        current = self.layer.catalog.read_entry(ref, selection=selection)
+        described = current["entry"]
+        if described["kind"] != "skill" or described["path"] != path or not described["applicable"]:
+            raise DomainError("agentic_skill_unavailable", "Canonical skill moved or is no longer applicable")
+        root = posixpath.dirname(path)
+        prefix = root + "/" if root else ""
+        result = {}
+        for item in [path, *(resource["path"] for resource in current["resources"])]:
+            if not item.startswith(prefix):
+                _invalid("Skill resource escaped its canonical root")
+            resource = self.layer.catalog.read_resource(package_id, item, selection=selection, max_bytes=MAX_FILE_BYTES)
+            result[relative(item[len(prefix):])] = _bytes(resource)
+        return result
+
+    def extension_skills(self, package_id, *, selection) -> tuple[list, str | None]:
+        """``(skills, problem)`` for an installed extension's package in the selection: ``(name, front matter, entry,
+        files)`` of each skill entry, by entry id, judged by ``extension_skill``, or no skills and why one of them cannot
+        be used. The package has no native binding: what reaches an agent is decided by the extension registry."""
+        if selection.get("package_ids") is None or package_id not in selection["package_ids"]:
+            raise DomainError("agentic_skill_unavailable", "The extension's package is outside the current selection")
+
         def read():
-            current = self.layer.catalog.read_entry(ref, selection=selection)
-            described = current["entry"]
-            if described["kind"] != "skill" or described["path"] != entry["path"] or not described["applicable"]:
-                raise DomainError("agentic_skill_unavailable", "Canonical skill moved or is no longer applicable")
-            root = posixpath.dirname(entry["path"])
-            prefix = root + "/" if root else ""
-            paths = [entry["path"], *(item["path"] for item in current["resources"])]
-            result = {}
-            for path in paths:
-                if not path.startswith(prefix):
-                    _invalid("Skill resource escaped its canonical root")
-                resource = self.layer.catalog.read_resource(package_id, path, selection=selection, max_bytes=MAX_FILE_BYTES)
-                result[relative(path[len(prefix):])] = _bytes(resource)
-            return result
+            listed = self.layer.catalog.list(selection, kinds=["skill"], package_ids=[package_id], limit=1000)
+            skills = []
+            for item in sorted(listed["entries"], key=lambda entry: entry["entry_id"]):
+                try:
+                    files = self._skill_entry_files(item["ref"], item["path"], selection)
+                except DomainError as exc:
+                    if exc.code == "agentic_revision_conflict":
+                        raise
+                    return [], f"{exc.message}: {item['path']}"
+                name, frontmatter, problem = extension_skill(item, files)
+                if problem:
+                    return [], problem
+                skills.append((name, frontmatter, item, files))
+            return skills, None
 
         return self.consistent(read)

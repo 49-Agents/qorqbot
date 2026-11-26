@@ -21,6 +21,58 @@ from qorqut_operations.storage.database import unit_memo
 from qorqut_operations.storage.structured import parse_yaml
 
 
+
+# The files a managed skill may hold and the front matter it may have, for a package skill and an extension's skill alike.
+SKILL_FILE_SUFFIXES = frozenset({".md", ".txt", ".json", ".yaml", ".yml", ".csv", ".png", ".jpg", ".jpeg", ".webp"})
+SKILL_FRONTMATTER_KEYS = frozenset({"name", "description", "read_for", "user-invocable", "disable-model-invocation"})
+
+
+def skill_metadata_problem(metadata, name, path, *, also=()) -> str | None:
+    """Why a skill's front matter is refused, or None. ``name`` is the name it must have (``also``: older names accepted)."""
+    if not isinstance(metadata, dict) or set(metadata) - SKILL_FRONTMATTER_KEYS:
+        return f"Procedure-only skill has unsupported frontmatter: {path}"
+    if (metadata.get("name") not in {name, *also} or not isinstance(metadata.get("description"), str)
+            or not 1 <= len(metadata["description"]) <= 600):
+        return f"Skill metadata must name {name} and contain a bounded description"
+    if "read_for" in metadata:
+        # The kind of work the skill is for: the start instructions list it so the skill gets read before that work.
+        read_for = metadata["read_for"]
+        if not isinstance(read_for, str) or "\n" in read_for.strip() or not 1 <= len(read_for.strip()) <= 160:
+            return "Skill read_for must be one line of 1 to 160 characters"
+    for option in ("user-invocable", "disable-model-invocation"):
+        if option in metadata and not isinstance(metadata[option], bool):
+            return f"Skill option {option} must be boolean"
+    return None
+
+
+def skill_file_problem(path, data) -> str | None:
+    """Why one file of a skill is refused for its kind or content, or None. Symbolic links and executable files are
+    refused by whoever reads the files from disk."""
+    suffix = PurePosixPath(path).suffix.lower()
+    if suffix not in SKILL_FILE_SUFFIXES:
+        return f"Executable or unsupported skill file: {path}"
+    if suffix in {".md", ".txt"} and b"!`" in data:
+        return f"Executable skill substitutions are not supported: {path}"
+    return None
+
+
+def extension_skill(entry, files) -> tuple[str, dict | None, str | None]:
+    """``(name, front matter, problem)`` of a skill entry of an installed extension's package in the agentic layer, read
+    as ``files`` by path below the skill's folder: it is named ``qorqut-plugin-<entry id>`` and held to the rules of a
+    package skill. The extension registry judges a layer copy with it at start, the resolver each composition."""
+    name = "qorqut-plugin-" + entry["entry_id"]
+    text = files.get("SKILL.md", b"")
+    try:
+        match = re.match(r"\A---\r?\n(.*?)\r?\n---(?:\r?\n|$)", text.decode("utf-8"), re.S)
+        frontmatter = parse_yaml(match[1]) if match else None
+    except UnicodeDecodeError:
+        return name, None, f"Skill text is not UTF-8: {entry['path']}"
+    except DomainError as exc:
+        return name, None, f"{exc.message}: {entry['path']}"
+    problem = skill_metadata_problem(frontmatter, name, entry["path"]) or next(
+        filter(None, (skill_file_problem(path, data) for path, data in sorted(files.items()))), None)
+    return name, frontmatter, problem
+
 def content_hash(data: bytes) -> str:
     return "sha256:" + hashlib.sha256(data).hexdigest()
 
@@ -175,7 +227,6 @@ def load_package(source: Path, manifest_path: str, kind: str, registry: Any) -> 
 
     skills = []
     seen = set()
-    allowed_extensions = {".md", ".txt", ".json", ".yaml", ".yml", ".csv", ".png", ".jpg", ".jpeg", ".webp"}
     for entry in manifest["skills"]:
         if entry["id"] in seen:
             _error(f"Duplicate skill ID: {entry['id']}")
@@ -189,32 +240,22 @@ def load_package(source: Path, manifest_path: str, kind: str, registry: Any) -> 
             _error(f"Skill requires YAML frontmatter: {path}")
         metadata = parse_yaml(frontmatter[1])
         name = f"qorqut-{kind}-{entry['id']}"
-        if not isinstance(metadata, dict) or set(metadata) - {"name", "description", "read_for", "user-invocable", "disable-model-invocation"}:
-            _error(f"Procedure-only skill has unsupported frontmatter: {path}")
         # Published artifacts are immutable; a host rename does not rewrite their bytes or pins.
-        accepted_names = {name, f"bazarlyk-{kind}-{entry['id']}"}
-        if metadata.get("name") not in accepted_names or not isinstance(metadata.get("description"), str) or not 1 <= len(metadata["description"]) <= 600:
-            _error(f"Skill metadata must name {name} and contain a bounded description")
-        if "read_for" in metadata:
-            # The kind of work the skill is for: the start instructions list it so the skill gets read before that work.
-            read_for = metadata["read_for"]
-            if not isinstance(read_for, str) or "\n" in read_for.strip() or not 1 <= len(read_for.strip()) <= 160:
-                _error("Skill read_for must be one line of 1 to 160 characters")
-        for option in ("user-invocable", "disable-model-invocation"):
-            if option in metadata and not isinstance(metadata[option], bool):
-                _error(f"Skill option {option} must be boolean")
+        problem = skill_metadata_problem(metadata, name, path, also=(f"bazarlyk-{kind}-{entry['id']}",))
+        if problem:
+            _error(problem)
         subtree = root / PurePosixPath(path).parent
         for child in sorted(subtree.rglob("*")):
             if child.is_symlink():
                 _error(f"Skill contains a symlink: {child.relative_to(root)}")
             if not child.is_file():
                 continue
-            if child.suffix.lower() not in allowed_extensions or child.stat().st_mode & 0o111:
+            if child.suffix.lower() not in SKILL_FILE_SUFFIXES or child.stat().st_mode & 0o111:
                 _error(f"Executable or unsupported skill file: {child.relative_to(root)}")
             child_path = child.relative_to(root).as_posix()
-            data = read(child_path)
-            if child.suffix.lower() in {".md", ".txt"} and b"!`" in data:
-                _error(f"Executable skill substitutions are not supported: {child_path}")
+            problem = skill_file_problem(child_path, read(child_path))
+            if problem:
+                _error(problem)
         selected = {key: value for key, value in files.items() if key.startswith(str(PurePosixPath(path).parent) + "/")}
         skills.append({"id": entry["id"], "name": name, "description": metadata["description"],
                        "source_path": path, "subtree": str(PurePosixPath(path).parent),

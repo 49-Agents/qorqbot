@@ -1,7 +1,7 @@
 # Extension contract
 
-Draft 2, 26 November 2026. The owner was walked through draft 1 and agreed to the contract with the changes recorded in
-[section 15](#15-decisions-and-open-points).
+Draft 3, 26 November 2026. The owner was walked through draft 1 and agreed to the contract with the changes recorded in
+[section 15](#15-decisions-and-open-points). Draft 3 follows what the first build pieces settled.
 
 This page says how every Qorqbot extension must look and behave. It is the target. Parts marked **to build** do not exist
 yet; [section 13](#13-what-exists-and-what-is-to-build) lists them. Bringing today's extensions under this contract is
@@ -32,7 +32,8 @@ on the installation.
 
 - The owner decides for each extension which kind it is. There is no rule that decides it.
 - After a downloadable extension is installed it behaves exactly like a built-in one.
-- A restart happens only when code is added, replaced or taken out.
+- Qorqbot restarts only when code is added, replaced or taken out. Switching on or off restarts one agent's session,
+  not Qorqbot ([section 3](#3-the-life-of-an-extension)).
 
 ## 3. The life of an extension
 
@@ -41,17 +42,26 @@ An extension has one status for the whole installation, and is on or off for eac
 | Status | Meaning |
 | --- | --- |
 | `not_installed` | Downloadable and not on this installation |
-| `unsupported` | Cannot run on this computer |
+| `unsupported` | Cannot run on this computer or with this version of Qorqbot; the note says why |
 | `not_set_up` | Installed and dormant |
 | `setting_up` | The owner is connecting it |
 | `ready` | Set up, or needs no set-up |
-| `needs_attention` | Set-up failed or the connection broke; the note says why |
+| `needs_attention` | Set-up failed, the connection broke, or the folder breaks this contract; the note says why |
 
 **Dormant** means: no process started, no outside service contacted, no key read, no background work, and no tool shown
 to any agent. An installed extension is dormant until it is `ready` and switched on for at least one agent.
 
 **On for an agent** means that agent has the extension's tools, skills, instructions, hooks and nudges. **Off** means it
-has none of them. Tools change at once; text changes at the agent's next message.
+has none of them. An extension is on for an agent only while its status is `ready`, and only when the agent's role is in
+`agents.allowed`.
+
+- Until somebody switches it for an agent, an extension is on for every agent whose role is in `agents.on_after_setup`.
+  That includes an agent created later.
+- A switch made for one agent holds for that agent until it is switched again. A switch made before the extension is
+  `ready` is kept and takes effect when it is.
+- When an extension goes on or off for an agent, Qorqbot restarts that agent's session. The conversation continues, and
+  the agent is told in one line what changed. Qorqbot itself keeps running and no other agent is touched. An agent with
+  no open session gets the change when its session next opens.
 
 ## 4. Who may do what
 
@@ -103,7 +113,10 @@ extensions/<id>/
 - All extension folders live in one extensions repository, a folder each, each with its own version and release bundle.
   Extensions kept outside this publication repository use the same folder shape. Today the folders are in the main
   repository ([section 14](#14-where-todays-extensions-differ)).
-- Everything Qorqbot needs beyond these files (the agentic-layer package manifest, the per-agent package, the
+- On an installation Qorqbot looks for extension folders in two places: the built-in ones that come with the app, and
+  `extensions/<id>/` in the installation's folder for downloaded ones. A folder counts only when it holds an
+  `extension.yaml`. A folder in the wrong one of the two places for its `delivery` is refused.
+- Everything Qorqbot needs beyond these files (the agentic-layer package manifest, the per-agent selection, the
   Connections card, the download bundle) is generated from them. An author never writes those by hand.
 
 ## 6. The manifest
@@ -138,14 +151,14 @@ agents:
 | `summary` | Yes | One or two sentences: what it does for the owner |
 | `version` | Yes | Three numbers. Raised whenever any file of the extension changes |
 | `delivery` | Yes | `built-in` or `downloadable`. The owner's decision |
-| `platforms` | Yes | Any of `linux`, `mac`, `windows`. Elsewhere the status is `unsupported` |
-| `requires.qorqbot` | Yes | The app versions it works with: comparisons against a version, joined by commas (`>=1.7.0`, `>=1.7.0,<2.0.0`) |
+| `platforms` | Yes | Any of `linux`, `mac`, `windows`. Elsewhere the status is `unsupported`. Qorqbot on Windows runs its code inside Linux today, so there it counts as `linux` |
+| `requires.qorqbot` | Yes | The app versions it works with: comparisons against a version, joined by commas (`>=1.7.0`, `>=1.7.0,<2.0.0`). A build that carries no version number, such as a source checkout, does not compare |
 | `requires.extensions` | No | Ids of extensions that must be installed first |
 | `code.factory` | With a code part | The function that returns the extension's declaration |
 | `setup.kind` | Yes | See below |
 | `setup.fields` | With `key` | The values the owner types: `id`, `label`, and `secret: true` for a key |
-| `agents.allowed` | Yes | The roles the extension may be switched on for |
-| `agents.on_after_setup` | No | The roles it is switched on for when set-up finishes. Empty means nobody until asked |
+| `agents.allowed` | Yes | The roles the extension may be switched on for, by Qorqbot's role ids: `ordubashy`, `global-worker`, `learning-applier` |
+| `agents.on_after_setup` | No | The roles it is on for once it is `ready`, until somebody switches it. Empty means nobody until asked |
 
 Set-up kinds:
 
@@ -158,13 +171,14 @@ Set-up kinds:
 
 ## 7. The plugin part
 
-The plugin part is copied into the agentic layer as `plugins/<id>/` when the extension is installed. From then on that
-copy is what agents get.
+The plugin part is copied into the agentic layer as `plugins/<id>/` when the extension is installed, with a package
+manifest generated from its files. From then on that copy is what agents get. A copy that no longer passes the rules
+gives agents nothing of that extension, and the extension shows as `needs_attention` with the reason.
 
 **Skills**
 
 - One folder per skill with a `SKILL.md`. The skill id is the extension id, or the extension id followed by `-` and more
-  (`whatsapp`, `whatsapp-groups`).
+  (`whatsapp`, `whatsapp-groups`). It is not the id of a skill that ships with Qorqbot.
 - The front matter has exactly `name` (`qorqut-plugin-<skill id>`), `description` and `read_for`.
 - `read_for` is one line that names the kind of work and, in backticks, the tools the skill covers (`whatsapp_*` covers
   every tool with that start). Qorqbot already holds this line to 160 characters for every skill.
@@ -177,7 +191,8 @@ copy is what agents get.
 
 **Workflows**
 
-- The agentic layer's existing workflow format, one file per workflow.
+- The agentic layer's existing workflow format, one file per workflow. A workflow's id equals its file name, and it
+  refers only to instructions and checks of its own extension.
 - A workflow named `first-use` is offered to Ordubashy once, when the extension is first switched on. He runs it with his
   ordinary tools, for example to create a project and a table. What it creates belongs to the owner and stays when the
   extension is switched off or removed.
@@ -240,6 +255,9 @@ Conditions an entry may carry, checked by Qorqbot:
 | --- | --- |
 | `if_used: [tools]` | Only when the agent used one of these tools in this turn |
 | `unless_used: [tools]` | Only when the agent used none of these tools in this turn |
+
+A condition is given only at `after_tool` and `stop`, the two points that have a turn to look at. It names at least one
+tool, and one entry does not name the same tool in both.
 
 Rules:
 
@@ -340,8 +358,9 @@ One checker reads an extension folder and refuses it when a rule is broken. It r
 the installer.
 
 What exists of it today is `qorqut/extension_contract.py`. It reads files only and checks rules 1 to 4, 6 and 7, and the
-workflow files. Rules 5 and 8 to 13 need the loaded code or a built bundle and are to build. It is not yet run by CI,
-the bundle builder or the installer. To check a folder by hand:
+workflow files. Rules 5 and 8 to 13 need the loaded code or a built bundle and are to build. Qorqbot runs it at start on
+every extension folder it finds: a folder that breaks a rule is not loaded and shows in the list as `needs_attention`
+with the broken rule as its note. It is not yet run by CI or the bundle builder. To check a folder by hand:
 
 ```
 python -m qorqut.extension_contract <folder> [<folder> ...]
@@ -352,10 +371,12 @@ It prints one line for each broken rule. A complete example folder that passes i
 
 1. The folder name equals `id`, and the id has the allowed form.
 2. The manifest has every required field and no unknown one.
-3. `delivery`, `platforms`, `setup.kind` and `agents` hold allowed values.
-4. Every skill has its three front-matter lines, and its id starts with the extension id.
+3. `delivery`, `platforms`, `setup.kind` and `agents` hold allowed values; a role is one of Qorqbot's role ids.
+4. Every skill has its three front-matter lines, its id starts with the extension id and is not the id of a skill that
+   ships with Qorqbot, and its files pass the rules Qorqbot has for every skill.
 5. Every tool name starts with `<id>_`, and every tool is covered by one skill's `read_for`.
-6. Every `hooks.yaml` entry has a known point, an existing text file, and only known conditions.
+6. Every `hooks.yaml` entry has a known point, a text file under `instructions/` that exists and is not empty, and
+   only known conditions, given only where a condition is allowed ([section 8](#8-hooks-and-nudges)).
 7. Every record type has a known base type, known field types and a unique id.
 8. The factory loads and returns a declaration whose id equals the manifest id.
 9. A test shows the extension is dormant when selected: no key read, no process, no outside request.
@@ -363,6 +384,11 @@ It prints one line for each broken rule. A complete example folder that passes i
 11. No file of the default download names a downloadable extension.
 12. The version is higher than the last released one when any file changed.
 13. A bundle holds no `tests` folder.
+
+Beyond the numbered rules it checks that a workflow's id equals its file name and refers only to its own extension, that
+the plugin part loads as a package of the agentic layer, and that the folder holds no symbolic link. The code that reads
+`hooks.yaml` and `records.yaml` for the checker is the same code Qorqbot reads them with while running; whatever the
+files hold, it reports a problem and never fails.
 
 ## 13. What exists and what is to build
 
@@ -374,17 +400,20 @@ It prints one line for each broken rule. A complete example folder that passes i
 | Removing an extension | To build |
 | App update on an installation with a downloaded extension | To build; refused today |
 | The agentic layer's `plugins` area, with history | Exists |
-| On and off per agent | Exists for the per-agent package; Ordubashy may switch it for workers only |
+| Finding extension folders at start, with a status for each | Exists for folders that hold an `extension.yaml`; `not_installed` needs the index |
+| The plugin part copied into the agentic layer, kept in its history | Exists |
+| On and off per agent, with the session restart | Exists; switched by the owner. The tool for Ordubashy is to build |
+| The code part of an extension loaded from its folder | To build |
 | Skill discovery line and the skill-read gate | Exist |
 | Approved Learning Applier proposals being applied | To build; nothing is applied today |
-| The manifest and the generated files | The manifest is read and checked. The generated files are to build |
+| The manifest and the generated files | The manifest is read and checked. The agentic-layer package manifest is generated. The card and the bundle are to build |
 | The four `extensions_*` tools | To build |
 | The Connections card drawn from the manifest | To build; three extensions are written into the screen by hand |
 | One private folder per extension | To build; each extension picks its own files today |
 | Hooks and nudges list | To build; about thirty separately written points today |
 | Record types | To build; the four Task types are a fixed list in the backend and the dashboard |
 | The index of downloadable extensions | To build |
-| The checker | Exists in part ([section 12](#12-the-checker)); nothing runs it yet |
+| The checker | Exists in part ([section 12](#12-the-checker)); Qorqbot runs it at start |
 
 ## 14. Where today's extensions differ
 
@@ -427,6 +456,7 @@ All dates are 26 November 2026.
 13. No size limit is made up for this contract. Draft 1 had limits on the length of hook and nudge texts and of
     `summary`, and a shortest `every`; they are removed. Limits that Qorqbot already applies are named as such.
 14. Bringing today's extensions under the contract is a separate job.
+15. An agent created later, of a role the extension is on for by default, has the extension from its first session.
 
 **Written into the draft and shown to the owner, who did not object**
 
@@ -444,6 +474,11 @@ The owner's word changes any of these.
 7. The four tools are named `extensions_list`, `extensions_install` / `extensions_remove`, `extensions_setup` and
    `extensions_switch`.
 8. A downloadable bundle is trusted by a checksum taken from the index published with our release.
+9. Switching an extension on or off for an agent restarts that agent's session. The conversation continues and the
+   agent is told in one line what changed. Qorqbot keeps running.
+10. A folder that breaks the contract shows in the list as needing attention, with the reason. Nothing of it reaches an
+    agent.
+11. A switch made before the extension is ready is kept. The agent gets nothing of the extension until it is ready.
 
 **Not decided**
 
