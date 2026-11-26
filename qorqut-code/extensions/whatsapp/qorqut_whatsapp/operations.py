@@ -33,6 +33,9 @@ ARGUMENTS = schema({
     "chat_id": {"type": "string", "description": instruction_text('operations-exact-chat-id-from-whatsapp-read-never-a')},
     "text": {"type": "string", "description": instruction_text('operations-the-exact-message-at-most-16384-utf-8')},
 }, ("chat_id", "text"))
+# The one fixed refusal while sending is not set up (dormant, read-only or unfinished); it names no caller data.
+NOT_SET_UP = ("Personal WhatsApp sending is not set up. When the owner asks for it, run whatsapp_setup with action start; "
+              "the owner links the phone in Settings > Connections > WhatsApp.")
 _ACTIVE_ORDUBASHY = (
     "SELECT 1 FROM agent_profiles ap JOIN principals pr ON pr.id=ap.agent_id "
     "WHERE ap.agent_id=? AND ap.status='active' AND pr.active=1 AND pr.kind='agent' "
@@ -75,7 +78,7 @@ class WhatsAppSendOperations:
             raise DomainError("forbidden", "Personal WhatsApp sending is limited to the configured Global Ordubashy")
         settings = self.settings()
         if settings is None:
-            raise DomainError("operation_unavailable", "Managed personal WhatsApp sending is not installed")
+            raise DomainError("operation_unavailable", NOT_SET_UP)
         if ctx.principal_id != settings["agent_id"] or self.bound_agent(uow) != ctx.principal_id:
             raise DomainError("forbidden", "Personal WhatsApp sending is limited to the configured Global Ordubashy")
         return settings
@@ -94,10 +97,10 @@ class WhatsAppSendOperations:
     # -- preparation: reads the connector, sends nothing -----------------------------------------------------------------
 
     def _require_worker(self, uow):
-        """The trusted ``whatsapp.send`` program worker is registered by the explicit deployment step (never at startup).
-        Without it nothing can be proposed, queued or sent; the refusal is fixed and names no caller data."""
-        setup = DomainError("operation_unavailable", "Personal WhatsApp sending is not set up: the trusted program worker "
-                            "is not registered. The installer must run the documented worker registration step.")
+        """The trusted ``whatsapp.send`` program worker is registered when setup finishes (``setup.py``) or by the
+        documented maintenance step, never at startup. Without it nothing can be proposed, queued or sent; the refusal is
+        fixed and names no caller data."""
+        setup = DomainError("operation_unavailable", NOT_SET_UP)
         authority = getattr(self.programs, "authority", None)
         if authority is None:
             raise setup

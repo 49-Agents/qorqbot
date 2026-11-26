@@ -1,4 +1,4 @@
-# Optional WhatsApp licenses
+# WhatsApp licenses
 
 Copyright (c) 49 Agents LLC.
 
@@ -23,5 +23,5 @@ also be built and run independently of Qorqbot.
 The wheel contains both programs, so its metadata reports
 `Apache-2.0 AND GPL-3.0-only`. This describes the combined archive; it does not
 relicense the Python adapter or the core application under GPL. Complete matching
-helper source and build instructions accompany the optional download as described
+helper source and build instructions accompany each download as described
 in `SOURCE-AVAILABILITY.md`.

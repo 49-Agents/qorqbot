@@ -21,7 +21,10 @@ INSTALLATION = ("qorqut-code/app/qorqut/bootstrap/", "qorqut-code/app/qorqut/com
                 "qorqut-code/app/qorqut/source_snapshot.py", "qorqut-code/app/qorqut/extensions.py",
                 "qorqut-code/qorqut-operations/qorqut_operations/storage/",
                 "qorqut-code/qorqut-operations/qorqut_operations/contracts.py")
-CONNECTORS = ("extensions/", "services/", "qorqut-code/extensions/telegram/", "qorqut-code/extensions/whatsapp/")
+CONNECTORS = ("extensions/", "services/", "qorqut-code/extensions/telegram/")
+# Extensions built into every download: the distribution check builds them (the WhatsApp helper included) each time.
+BUNDLED = ("qorqut-code/extensions/google-calendar/", "qorqut-code/extensions/treg/", "qorqut-code/extensions/openrouter/",
+           "qorqut-code/extensions/whatsapp/")
 BACKEND = ("qorqut-code/app/", "qorqut-code/qorqut-operations/", "qorqut-code/qorqut-context/",
            "qorqut-agentic/", "dependencies/", "qorqut-code/tools/")
 
@@ -40,8 +43,7 @@ def select(paths, *, full=False):
             selected.update(backend=True, distribution=True, connectors=True)
         elif path.startswith(CONNECTORS):
             selected.update(backend=True, distribution=True, connectors=True)
-        elif path.startswith(("qorqut-code/extensions/google-calendar/", "qorqut-code/extensions/treg/",
-                              "qorqut-code/extensions/openrouter/")):
+        elif path.startswith(BUNDLED):
             selected.update(backend=True, distribution=True)
         elif path.startswith("qorqut-code/dashboard/"):
             selected["dashboard"] = True
@@ -79,8 +81,6 @@ def connector_selection(paths, *, full=False):
             continue
         if path.startswith("qorqut-code/extensions/telegram/"):
             names.add("telegram")
-        elif path.startswith("qorqut-code/extensions/whatsapp/"):
-            names.add("whatsapp")
         elif path.startswith(("extensions/qorqut-fastmail/", "services/email-engine/")):
             names.add("fastmail")
         else:

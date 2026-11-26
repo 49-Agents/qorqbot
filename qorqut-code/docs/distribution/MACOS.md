@@ -53,9 +53,10 @@ separately installed connectors or changed managed instructions are not yet
 supported. The updater closes any open agent sessions first; they start again when you next message the agent. With Terminals (legacy) it refuses while agent terminals run. Stop Qorqbot before removal. Removing the folder removes
 its data; user-installed external programs remain installed.
 
-Google Calendar is bundled inactive. Fastmail is a separate platform-neutral
-bundle; Telegram needs its Mac Pillow bundle. A Linux WhatsApp helper cannot run
-on Mac: build and qualify the Mac helper separately, including its GPL source.
+Google Calendar is bundled inactive. WhatsApp is built in with a helper for Apple
+silicon and stays dormant until the owner sets it up by asking Ordubashy or from
+Settings > Connections. Fastmail is a separate platform-neutral bundle; Telegram
+needs its Mac Pillow bundle.
 Use the matching source's connector setup guides and `extension-install` command.
 Users supply their accounts and provider setup.
 

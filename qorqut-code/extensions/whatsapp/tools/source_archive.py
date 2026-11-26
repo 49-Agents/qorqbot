@@ -66,8 +66,8 @@ With that image already installed, an isolated rebuild can use:
       golang@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61 \
       ./build.sh /build
 
-Distribute this matching source archive alongside the optional native executable
-with equivalent access. Preserve the GPL and all third-party notices. Qorqbot's
+Distribute this matching source archive alongside the downloads that carry the
+native executable, with equivalent access. Preserve the GPL and all third-party notices. Qorqbot's
 separate application license terms do not apply to this helper/source.
 """
 
@@ -122,7 +122,7 @@ def build_source_archive(source, native, output, image, *, target="linux-x86_64"
     build_script = BUILD_SCRIPT
     if target == 'macos-arm64':
         build_script = build_script.replace('set -eu', 'set -eu\n[ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = arm64 ] || { echo "Build on an Apple Silicon Mac" >&2; exit 1; }', 1)
-        build_script = build_script.replace('cd "$source_dir"', 'export GOOS=darwin GOARCH=arm64 MACOSX_DEPLOYMENT_TARGET=13.0\nexport CGO_CFLAGS="${CGO_CFLAGS:-} -mmacosx-version-min=13.0"\nexport CGO_LDFLAGS="${CGO_LDFLAGS:-} -mmacosx-version-min=13.0"\ncd "$source_dir"', 1)
+        build_script = build_script.replace('cd "$source_dir"', 'export GOOS=darwin GOARCH=arm64 MACOSX_DEPLOYMENT_TARGET=13.0\nexport CGO_CFLAGS="${CGO_CFLAGS:--O2 -g} -mmacosx-version-min=13.0"\nexport CGO_LDFLAGS="${CGO_LDFLAGS:--O2 -g} -mmacosx-version-min=13.0"\ncd "$source_dir"', 1)
         build_script = build_script.replace('sha256sum "$build_dir/whatsapp-personal"', 'python3 -c \'import hashlib,sys; print(hashlib.file_digest(open(sys.argv[1],"rb"),"sha256").hexdigest())\' "$build_dir/whatsapp-personal"')
     (tree / 'build.sh').write_text(build_script)
     (tree / 'build.sh').chmod(0o755)
@@ -137,7 +137,9 @@ def build_source_archive(source, native, output, image, *, target="linux-x86_64"
                   "metadata allow a network-free build; no account or service is needed. Docker/Linux cannot "
                   "cross-build this CGO helper for macOS.\n\n"
                   "SOURCE-MANIFEST.json records the exact helper and source hashes. "
-                  "Supply this source archive alongside the matching optional binary with equivalent access.\n")
+                  "Supply this source archive alongside the downloads that carry the matching binary, with equivalent access. "
+                  "A notarized Qorqbot download carries a copy signed for Apple; SOURCE-MANIFEST.json records the unsigned "
+                  "build output that this source rebuilds.\n")
     else:
         readme = readme.replace(old_image, image).replace('docker run --rm --network none', 'docker run --rm --platform linux/amd64 --network none')
     (tree / 'README-SOURCE.md').write_text(readme)

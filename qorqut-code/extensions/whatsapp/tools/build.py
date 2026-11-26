@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Build an optional connector wheel on its declared target, outside the source tree."""
+"""Build the qorqut-whatsapp wheel, with its compiled helper, and the helper's corresponding-source archive.
+
+Runs on the helper's own target, outside the source tree: Linux x86-64 in the pinned Go container, Apple silicon natively
+with Go 1.27.2 and the Xcode command-line tools. Both run the helper's tests before building it. With --sign-identity
+(Apple silicon only) the helper in the wheel is signed with the Developer ID certificate, a secure timestamp and the
+hardened runtime, as Apple's notary requires; the corresponding-source archive records the unsigned build output.
+"""
 import argparse
 import hashlib
 import json
@@ -13,6 +19,9 @@ import sys
 IMAGE = 'golang@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61'
 GO_VERSION = 'go1.27.2'
 TARGETS = {'linux-x86_64': 'linux_x86_64', 'macos-arm64': 'macosx_13_0_arm64'}
+# Notices under these directory names belong to module tests and development files, never compiled into the helper; the
+# runtime source audit refuses such directory names inside a wheel.
+UNSHIPPED_DIRS = {'test', 'tests', '__tests__', '__snapshots__', 'test-results', 'coverage', '.git', '.github', '.gitlab', '.circleci'}
 
 
 def native_mac_environment(native):
@@ -26,18 +35,38 @@ def native_mac_environment(native):
     if subprocess.check_output(['go', 'env', 'GOVERSION'], env=environment, text=True).strip() != GO_VERSION:
         raise SystemExit('Install Go 1.27.2 for this reproducible helper build')
     environment['CC'] = subprocess.check_output(['xcrun', '--find', 'clang'], text=True).strip()
+    # Go uses -O2 -g only while these are unset; keep them, as the Linux build has them.
     for name in ('CGO_CFLAGS', 'CGO_LDFLAGS'):
-        environment[name] = environment.get(name, '') + ' -mmacosx-version-min=13.0'
+        environment[name] = environment.get(name, '-O2 -g') + ' -mmacosx-version-min=13.0'
     return environment
+
+
+def sign_helper(path, identity):
+    """Sign the helper for Apple's notary and prove the signed program still starts (a refused signature is a kill)."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'tools/distribution'))
+    import payload_signing
+    if payload_signing.kind_of_file(path) != 'program':
+        raise SystemExit('The helper is not a Mach-O program')
+    payload_signing.sign_file(path, identity, 'program')
+    problems = payload_signing.problems_with(path, 'program')
+    if problems:
+        raise SystemExit('The signed helper would be refused: ' + '; '.join(problems))
+    started = subprocess.run([path], capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
+    if started.returncode < 0 or 'usage' not in started.stderr + started.stdout:
+        raise SystemExit(f'The signed helper does not start (exit {started.returncode})')
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--work', type=Path, required=True, help='Fresh private build directory')
     parser.add_argument('--target', choices=TARGETS, default='linux-x86_64')
+    parser.add_argument('--sign-identity', help='Developer ID Application certificate (name or SHA-1) for the helper; macos-arm64 only')
     args = parser.parse_args()
+    if args.sign_identity and args.target != 'macos-arm64':
+        parser.error('--sign-identity applies to macos-arm64')
     source = Path(__file__).resolve().parents[1]
-    work = args.work.absolute()
+    # Resolved: Go reports module directories under the cache path exactly as given (macOS /tmp is a link).
+    work = args.work.resolve()
     native = work / 'native'
     environment = native_mac_environment(native) if args.target == 'macos-arm64' else None
     work.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -49,7 +78,8 @@ def main():
             'sh', '-c', 'go mod verify && go test -race ./... && go build -trimpath -buildvcs=false -o /build/whatsapp-personal . && go list -m -json all > /build/modules.json && cp /usr/local/go/LICENSE /build/GO-LICENSE'], check=True)
         module_cache_prefix = '/build/modules'
     else:
-        for command in (['go', 'mod', 'verify'],
+        # The same steps, in the same order, as the Linux container command above.
+        for command in (['go', 'mod', 'verify'], ['go', 'test', '-race', './...'],
                         ['go', 'build', '-trimpath', '-buildvcs=false', '-o', str(native/'whatsapp-personal'), '.']):
             subprocess.run(command, cwd=source/'native', env=environment, check=True)
         with (native/'modules.json').open('w') as output:
@@ -64,11 +94,15 @@ def main():
     package = stage / 'qorqut_whatsapp'
     (package/'bin').mkdir(exist_ok=True)
     helper = native/'whatsapp-personal'
-    shutil.copy2(helper, package/'bin/whatsapp-personal')
+    shipped = package/'bin/whatsapp-personal'
+    shutil.copy2(helper, shipped)
+    if args.sign_identity:
+        sign_helper(shipped, args.sign_identity)
     notices = package/'third_party'
     notices.mkdir()
     for path in (native/'modules').rglob('*'):
-        if path.is_file() and path.name.split('.')[0] in {'LICENSE', 'COPYING', 'NOTICE'}:
+        if (path.is_file() and path.name.split('.')[0] in {'LICENSE', 'COPYING', 'NOTICE'}
+                and not set(path.relative_to(native/'modules').parts) & UNSHIPPED_DIRS):
             target = notices/path.relative_to(native/'modules')
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(path, target)
@@ -81,7 +115,10 @@ def main():
     (notices/'go-modules.json').write_text(json.dumps(public_modules, indent=2)+'\n')
     metadata = {'platform': TARGETS[args.target], 'go_version': GO_VERSION,
                 'go_image': IMAGE if environment is None else None,
-                'helper_sha256': hashlib.file_digest(helper.open('rb'), 'sha256').hexdigest()}
+                'helper_sha256': hashlib.file_digest(shipped.open('rb'), 'sha256').hexdigest()}
+    if args.sign_identity:
+        # The corresponding-source archive rebuilds this unsigned output; the signature is added after the build.
+        metadata['built_helper_sha256'] = hashlib.file_digest(helper.open('rb'), 'sha256').hexdigest()
     (package/'build.json').write_text(json.dumps(metadata, indent=2)+'\n')
     (stage/'setup.cfg').write_text('[bdist_wheel]\nplat_name = '+TARGETS[args.target]+'\n')
     subprocess.run([sys.executable, '-m', 'pip', 'wheel', '--no-deps', '--no-cache-dir', '--wheel-dir', str(work/'dist'), str(stage)], check=True)

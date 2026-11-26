@@ -1,6 +1,7 @@
 // Connections: the agent browser, the websites agents use as the owner, and Qorqbot's extensions (OpenRouter, treg, WhatsApp).
 // `connectorsModel` is pure (unit tested with `node --test dashboard/tests/*.test.js`); `connectorsPanel` renders the
-// panel shown in Settings. Extension status comes from /root/connectors (qorqut.connectors).
+// panel shown in Settings. Extension status comes from /root/connectors (qorqut.connectors); WhatsApp is linked through its
+// own owner route, /root/extensions/whatsapp/setup, and shows its code from /root/extensions/whatsapp/qr.
 const connectorsModel = (() => {
   const icon = path => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
   const ICONS = {
@@ -29,13 +30,24 @@ const connectorsModel = (() => {
   const STATUS = {
     connected: {label: 'Connected', tone: 'ok'}, unknown: {label: 'Unknown', tone: 'idle'},
     not_installed: {label: 'Not installed', tone: 'idle'}, not_set_up: {label: 'Not set up', tone: 'idle'},
-    not_paired: {label: 'Not linked', tone: 'warn'}, coming_soon: {label: 'Coming soon on Mac', tone: 'idle'},
+    linking: {label: 'Linking', tone: 'warn'}, finishing: {label: 'Finishing', tone: 'warn'},
+    failed: {label: 'Needs attention', tone: 'warn'}, unsupported: {label: 'Not available', tone: 'idle'},
   };
+  // What the WhatsApp card shows beside its code while linking.
+  const LINK_STEPS = ['On your phone, open WhatsApp.', 'Go to Settings, then Linked devices, then Link a device.', 'Point your phone at this code.'];
+  // The WhatsApp card reads its own route again every few seconds while the code is shown or the setup is finishing.
+  const polls = item => item.id === 'whatsapp' && ['linking', 'finishing'].includes(item.status);
   const status = item => STATUS[item.status] || STATUS.unknown;
   // What the card's main button does: 'connect' (sign in with the service; `key` then names a second button that opens the
   // card's key field), 'key' (open the card's key field) or 'none'.
   function action(item) {
-    if (item.status === 'coming_soon') return {kind: 'none'};
+    if (item.id === 'whatsapp') {
+      if (item.status === 'not_set_up') return {kind: 'wa-link', label: 'Link phone'};
+      if (item.status === 'failed') return {kind: 'wa-link', label: 'Try again'};
+      if (item.status === 'linking') return {kind: 'wa-cancel', label: 'Cancel', quiet: true};
+      if (item.status === 'connected' && item.send_ready === false) return {kind: 'wa-link', label: 'Finish setup', quiet: true};
+      return {kind: 'none'};
+    }
     if (item.id === 'openrouter') {
       if (item.status === 'connected') return {kind: 'key', label: 'Change key', quiet: true};
       return item.status === 'not_set_up' ? {kind: 'connect', label: 'Connect', key: 'Paste a key'} : {kind: 'none'};
@@ -50,20 +62,24 @@ const connectorsModel = (() => {
   function note(item) {
     const text = noteText(item);
     if (!text) return null;
-    return {text, tone: ['not_installed', 'coming_soon'].includes(item.status) ? 'info' : 'warn'};
+    return {text, tone: ['not_installed', 'unsupported', 'finishing'].includes(item.status) ? 'info' : 'warn'};
   }
   function noteText(item) {
     if (item.id === 'openrouter' && item.status === 'not_installed') return 'Comes with the OpenRouter extension, which isn’t part of this Qorqbot yet.';
     if (item.id === 'openrouter' && item.status === 'not_set_up') return 'Connect your OpenRouter account to turn on voice input.';
     if (item.id === 'treg' && item.status === 'not_installed') return 'Comes with the treg extension, which isn’t part of this Qorqbot yet.';
     if (item.id === 'treg' && item.status === 'not_set_up') return 'Add your treg key to turn it on.';
-    if (item.id === 'whatsapp' && item.status === 'coming_soon') return 'The WhatsApp extension is available for Windows (WSL) and Linux. A Mac version is in progress.';
-    if (item.id === 'whatsapp' && item.status === 'not_installed') return 'Comes with the WhatsApp extension, which isn’t installed in this Qorqbot yet.';
-    if (item.id === 'whatsapp' && item.status === 'not_set_up') return 'The WhatsApp extension is installed. Link your phone to finish.';
-    if (item.id === 'whatsapp' && item.status === 'not_paired') return 'Link your phone: in WhatsApp open Settings, Linked devices, Link a device.';
+    if (item.id === 'whatsapp') {
+      if (item.status === 'not_installed') return 'Comes with the WhatsApp extension, which isn’t part of this Qorqbot.';
+      if (item.status === 'unsupported') return 'WhatsApp can’t be linked on this computer yet.';
+      if (item.status === 'not_set_up') return 'Link your phone to turn it on, or ask Ordubashy in Chat to set it up.';
+      if (item.status === 'finishing') return item.note || 'Your phone is linked. Qorqbot is finishing the setup by itself.';
+      if (item.status === 'failed') return item.note || 'Linking didn’t finish. Try again.';
+      if (item.status === 'connected' && item.send_ready === false) return item.note || 'Reading works. Sending through your approval isn’t set up yet.';
+    }
     return null;
   }
-  return {COPY, ICONS, STATUS, status, action, note};
+  return {COPY, ICONS, STATUS, LINK_STEPS, status, action, note, polls};
 })();
 if (typeof module !== 'undefined') module.exports = connectorsModel;
 
@@ -88,13 +104,23 @@ const connectorsPanel = (() => {
         <button type="button" class="quiet" data-cx-key-cancel>Cancel</button></div>
       <p class="cx-note" data-cx-key-error hidden></p></form>`;
   }
+  // While WhatsApp is linking: the code (read again as it changes) and the three steps on the phone. `version` makes each
+  // read of the code a new address, so a rotated code is fetched instead of a stale one.
+  function linkBlock(item, version) {
+    if (item.id !== 'whatsapp' || item.status !== 'linking') return '';
+    const code = item.qr
+      ? `<img class="cx-wa-code" data-cx-wa-code src="/api/root/extensions/whatsapp/qr?v=${version}" alt="WhatsApp link code" width="192" height="192">`
+      : '<p class="cx-wa-wait" data-cx-wa-code>Preparing the code…</p>';
+    return `<div class="cx-wa-link" data-cx-wa-link>${code}
+      <ol>${connectorsModel.LINK_STEPS.map(step => `<li>${esc(step)}</li>`).join('')}</ol></div>`;
+  }
   // The card's main button, and beside a 'connect' button the quiet one that opens the key field.
   function buttons(item, action) {
     if (action.kind === 'none') return '';
     const one = (kind, label, quiet) => `<button type="button" class="${quiet ? 'quiet' : ''}" data-cx-action="${esc(kind)}" data-cx-id="${esc(item.id)}">${esc(label)}</button>`;
     return one(action.kind, action.label, action.quiet) + (action.key ? one('key', action.key, true) : '');
   }
-  function card(item) {
+  function card(item, version = 0) {
     const copy = connectorsModel.COPY[item.id] || {name: item.id, does: ''};
     const status = connectorsModel.status(item), action = connectorsModel.action(item), note = connectorsModel.note(item);
     const button = buttons(item, action);
@@ -105,6 +131,7 @@ const connectorsPanel = (() => {
         ${button}</div>
       <p class="cx-does">${esc(copy.does)}</p>
       ${note ? `<p class="cx-note" data-tone="${note.tone}">${esc(note.text)}</p>` : ''}
+      ${linkBlock(item, version)}
       ${keyForm(item, action)}
       <details class="cx-more"><summary>Why it helps and what it can see</summary>
         <p><b>Why:</b> ${esc(copy.why || '')}</p><p><b>Privacy:</b> ${esc(copy.privacy || '')}</p>
@@ -112,7 +139,7 @@ const connectorsPanel = (() => {
     </article>`;
   }
   // Settings shows each extension as one compact row; the cards above share the same model.
-  function row(item) {
+  function row(item, version = 0) {
     const copy = connectorsModel.COPY[item.id] || {name: item.id, does: ''};
     const status = connectorsModel.status(item), action = connectorsModel.action(item), note = connectorsModel.note(item);
     const button = buttons(item, action);
@@ -124,6 +151,7 @@ const connectorsPanel = (() => {
         <div class="cx-row-title"><h3>${esc(copy.name)}</h3><span class="cx-status" data-tone="${status.tone}">${esc(status.label)}</span></div>
         <p class="cx-row-does">${esc(copy.does)}</p>
         ${note ? `<p class="cx-note" data-tone="${note.tone}">${esc(note.text)}</p>` : ''}
+        ${linkBlock(item, version)}
         ${keyForm(item, action)}
         <details class="cx-more"><summary>What it can see</summary>
           <p><b>Why:</b> ${esc(copy.why || '')}</p><p><b>Privacy:</b> ${esc(copy.privacy || '')}</p>
@@ -158,7 +186,7 @@ const connectorsPanel = (() => {
       </section>`;
     container.appendChild(root);
     let view = null, browserView = null, browserTimer = 0, browserChecks = 0;
-    let accountsView = null, accountsTimer = 0;
+    let accountsView = null, accountsTimer = 0, waTimer = 0, waVersion = 0;
     const SIGN_IN_STATUS = {true: ['Session saved', 'ok'], false: ['No session', 'warn'], null: ['Status unavailable while the browser is off', '']};
     function paintAccounts() {
       const section = root.querySelector('[data-cx-accounts]'), rows = accountsView?.sites;
@@ -236,11 +264,40 @@ const connectorsPanel = (() => {
       // A repaint must not close a key field the owner is typing in.
       const open = root.querySelector('[data-cx-key]:not([hidden])');
       const typed = open && {id: open.dataset.cxKey, value: open.elements.key.value, focused: document.activeElement === open.elements.key};
-      root.querySelector('[data-cx-list]').innerHTML = view.connectors.map(options.rows ? row : card).join('');
+      root.querySelector('[data-cx-list]').innerHTML = view.connectors.map(item => (options.rows ? row : card)(item, waVersion)).join('');
       const again = typed && root.querySelector(`[data-cx-key="${typed.id}"]`);
       if (again) { again.hidden = false; again.elements.key.value = typed.value; if (typed.focused) again.elements.key.focus(); }
       options.onChange?.(view);
       root.dispatchEvent(new CustomEvent('connectors-painted', {bubbles: true}));
+      watchWhatsApp();
+    }
+    // WhatsApp's own setup state replaces the card's entry: {state, note, qr, send_ready} from its route.
+    function setWhatsApp(setup) {
+      const item = view?.connectors.find(entry => entry.id === 'whatsapp');
+      if (!item) return;
+      const same = item.status === 'linking' && setup.state === 'linking' && !!item.qr === !!setup.qr;
+      Object.assign(item, {status: setup.state, note: setup.note, qr: setup.qr, send_ready: setup.send_ready});
+      waVersion += 1;
+      // A new code while linking swaps the image only, so the card does not flicker every few seconds.
+      const image = same && root.querySelector('img[data-cx-wa-code]');
+      if (image) { image.src = `/api/root/extensions/whatsapp/qr?v=${waVersion}`; watchWhatsApp(); }
+      else paint();
+    }
+    // Reads the setup route every few seconds, only while the card shows the code or is finishing and the page is visible.
+    function watchWhatsApp() {
+      clearTimeout(waTimer);
+      const item = view?.connectors.find(entry => entry.id === 'whatsapp');
+      if (!item || !connectorsModel.polls(item) || !live() || document.visibilityState !== 'visible') return;
+      waTimer = setTimeout(async () => {
+        if (!live() || document.visibilityState !== 'visible') return;
+        try { setWhatsApp(coreData(await api('/root/extensions/whatsapp/setup'))); }
+        catch (failure) { if (live()) { error(failure.message || 'WhatsApp could not be checked.'); watchWhatsApp(); } }
+      }, item.qr === undefined ? 0 : 3000);   // the connectors list carries no code; read it at once
+    }
+    async function whatsapp(button, change) {
+      button.disabled = true;
+      try { setWhatsApp(coreData(await post('/root/extensions/whatsapp/setup', {action: change}))); error(''); }
+      catch (failure) { if (live()) { error(failure.message || 'WhatsApp could not be linked.'); button.disabled = false; } }
     }
     async function load() {
       if (!live()) return;
@@ -265,6 +322,8 @@ const connectorsPanel = (() => {
       if (!button) return;
       const item = view?.connectors.find(entry => entry.id === button.dataset.cxId);
       if (!item) return;
+      if (button.dataset.cxAction === 'wa-link') { await whatsapp(button, 'link'); return; }
+      if (button.dataset.cxAction === 'wa-cancel') { await whatsapp(button, 'cancel'); return; }
       if (button.dataset.cxAction === 'key') {
         const form = root.querySelector(`[data-cx-key="${item.id}"]`);
         form.hidden = !form.hidden;
@@ -298,13 +357,13 @@ const connectorsPanel = (() => {
       event.preventDefault();
       await saveKey(form, form.elements.key.value.trim());
     });
-    // An extension can be set up outside this page (WhatsApp is linked from a terminal), so returning here reads again.
+    // An extension can be set up outside this page (Ordubashy links WhatsApp from Chat), so returning here reads again.
     const focus = () => { if (live() && document.visibilityState === 'visible') load(); };
     window.addEventListener('focus', focus);
     document.addEventListener('visibilitychange', focus);
     const watch = new MutationObserver(() => {
       if (live()) return;
-      clearTimeout(browserTimer); clearTimeout(accountsTimer); watch.disconnect();
+      clearTimeout(browserTimer); clearTimeout(accountsTimer); clearTimeout(waTimer); watch.disconnect();
       window.removeEventListener('focus', focus); document.removeEventListener('visibilitychange', focus);
     });
     watch.observe(container.ownerDocument.body, {childList: true, subtree: true});

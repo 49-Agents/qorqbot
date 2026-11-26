@@ -47,8 +47,11 @@ Tell the owner plainly, once, and only for tools they asked about:
   Global Settings with `environment_set`.
 - **OpenRouter** (voice input) has its own step after this one. Do not offer it
   here.
-- **Telegram, WhatsApp and Fastmail** are optional parts of the installation
-  itself and cannot be added from a conversation. Record the request as open.
+- **WhatsApp**: run `whatsapp_setup` with `start`, then ask the owner to scan
+  the code in Settings > Connections > WhatsApp with their phone. The code is
+  never shown in Chat. Sending always needs their approval in a Signoff.
+- **Telegram and Fastmail** are optional parts of the installation itself and
+  cannot be added from a conversation. Record the request as open.
 
 ## Completing
 

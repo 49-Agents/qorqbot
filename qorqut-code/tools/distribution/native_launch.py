@@ -732,8 +732,15 @@ def initialize(root, env):
         return record
     if instance.exists() and any(instance.iterdir()):
         raise RuntimeError('The instance folder is not empty and has no successful initialization receipt; nothing was replaced')
+    selection = []
+    if shipped_whatsapp(runtime):
+        # A new installation selects the bundled WhatsApp connector from the start, so its guidance is imported with
+        # everything else (``select_whatsapp`` adopts it for an installation initialized without it).
+        initial = root / '.run/initial-extensions.json'
+        save_json(initial, {'extensions': [{'factory': WHATSAPP_FACTORY, 'config': {}}]})
+        selection = ['--extensions-config', initial]
     run([runtime / 'venv/bin/python', '-I', '-B', '-m', 'qorqut.bootstrap.initialize',
-         '--prepared-root', runtime, '--instance-root', instance], env=env, cwd=root)
+         '--prepared-root', runtime, '--instance-root', instance, *selection], env=env, cwd=root)
     (instance / 'config/operational-timezone').write_text(env['QORQUT_TIMEZONE'] + '\n')
     # A new installation keeps Claude Code and Codex in folders of its own from its first start (``client_homes``).
     (root / OWN_CLIENT_HOMES).write_text('1\n')
@@ -753,6 +760,7 @@ def ensure_context_repository(root, env, record):
 
 TREG_FACTORY = 'qorqut_treg.extension:create'
 OPENROUTER_FACTORY = 'qorqut_openrouter.extension:create'
+WHATSAPP_FACTORY = 'qorqut_whatsapp.extension:create'
 
 
 def select_bundled(root, name, factory):
@@ -781,6 +789,49 @@ def select_openrouter(root):
     the OpenRouter card and the Chat microphone only; it contacts nothing and stays idle until the owner connects their own
     OpenRouter account in the dashboard."""
     return select_bundled(root, 'openrouter', OPENROUTER_FACTORY)
+
+
+def shipped_whatsapp(runtime):
+    """The receipt row of the WhatsApp wheel this runtime carries, or None: a runtime with no helper for its platform has
+    none, and its installations start without WhatsApp."""
+    receipt = runtime / 'PREPARATION-RECEIPT.json'
+    if not receipt.exists():
+        return None
+    data = read_json(receipt)
+    if not (data.get('selection') or {}).get('whatsapp'):
+        return None
+    return next((row for row in data.get('wheels') or () if row.get('name') == 'qorqut-whatsapp'), None)
+
+
+def select_whatsapp(root, env):
+    """The WhatsApp connector ships in the runtime and belongs to every installation, new or updated, once. It stays
+    dormant: nothing starts its helper or contacts WhatsApp until the owner asks Ordubashy to set it up.
+
+    A new installation selected it when it was initialized. One initialized without it has no WhatsApp guidance in its
+    instructions, so selecting the factory alone would stop it from starting: the offline extension installer adopts
+    the guidance, then selects it, as an optional connector bundle would. An existing entry is left alone. A refusal
+    changes nothing and Qorqbot starts without WhatsApp; an interrupted adoption is resumed at the next start."""
+    runtime, config = root / 'runtime', root / 'instance/config'
+    row = shipped_whatsapp(runtime)
+    if row is None or any(item.get('factory') == WHATSAPP_FACTORY for item in read_json(config / 'extensions.json')['extensions']):
+        return False
+    journal = config / 'extension-install.json'
+    state = read_json(journal) if journal.exists() else {'phase': 'complete'}
+    if state.get('phase') != 'complete' and ((state.get('request') or {}).get('entry') or {}).get('factory') != WHATSAPP_FACTORY:
+        return False  # another connector's installation is unfinished; the service start reports it
+    command = [runtime / 'venv/bin/python', '-I', '-B', '-m', 'qorqut.bootstrap.extension_install', '--prepared-root', runtime,
+               '--instance-root', root / 'instance', '--factory', WHATSAPP_FACTORY, '--bundle-sha256', row['sha256']]
+    if state.get('phase') != 'complete':
+        command.append('--resume')
+    print('Adding WhatsApp to this installation…', flush=True)
+    done = subprocess.run(list(map(str, command)), env=env, cwd=root, capture_output=True, text=True)
+    if done.returncode == 0:
+        return True
+    reason = (done.stderr or done.stdout).strip().splitlines()[-1:] or ['no details']
+    if journal.exists() and read_json(journal).get('phase') != 'complete':
+        raise RuntimeError('Adding WhatsApp was interrupted; start Qorqbot again to finish it. ' + reason[0])
+    print('WhatsApp was not added to this installation; Qorqbot starts without it. ' + reason[0], flush=True)
+    return False
 
 
 def identity(pid):
@@ -887,6 +938,7 @@ def main(argv=None):
         record = initialize(root, env)
         select_treg(root)
         select_openrouter(root)
+        select_whatsapp(root, env)
         # First launch installs the agents' browser tool; later launches find it in place.
         try:
             _, browser_problem = ensure_agent_browser(root)

@@ -57,7 +57,9 @@ Agents' web browsing works as in the Linux guide: the package ships the
 the app runs. If Settings says that Chrome cannot start here, install Google Chrome
 inside Ubuntu. The Windows browser displays the dashboard; it does not
 replace the agent's Linux automation browser. Accounts are user-managed.
-Fastmail, Telegram and WhatsApp use the same separate Linux connector bundles.
+WhatsApp is built in, as in the Linux download, and stays dormant until set up by
+asking Ordubashy or from Settings > Connections. Fastmail and Telegram use the same
+separate Linux connector bundles.
 The normal Linux guide covers provider setup and supported updates.
 
 The Linux payload is qualified independently. Actual Windows/WSL launch,

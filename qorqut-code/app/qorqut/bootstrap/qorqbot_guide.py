@@ -138,9 +138,12 @@ Environment, Walkthrough and About & privacy; there is a search box at the top.
     from a balance there. `treg_search` finds a tool and `treg_tool_get` shows its inputs and price; both are free and
     need no key. `treg_lookup` runs one lookup without approval, and Qorqbot caps what treg may charge for it ($0.10 by
     default). treg tools that change something (post, send, buy) are not available through Qorqbot.
-  - **WhatsApp** lets Ordubashy read the owner's chats; sending always needs approval. It is a separate extension
-    that is added to the installation itself (Windows with WSL, and Linux; not on Mac yet), then linked to the owner's
-    phone. It cannot be added from Settings or from a conversation.
+  - **WhatsApp** lets Ordubashy read the owner's chats; sending always needs the owner's approval in a Signoff. It is
+    linked to the owner's phone like WhatsApp on a second device. When the owner asks for it, Ordubashy runs
+    `whatsapp_setup` (`start`, then `status`) and asks the owner to open **Settings > Connections > WhatsApp** and scan
+    the code there with their phone (WhatsApp > Settings > Linked devices > Link a device); the code is shown only on
+    that card, never in Chat. The owner can also press **Link phone** on the card. The rest finishes by itself: Ordubashy
+    gets a notice when WhatsApp is ready. If the card says it is not available, it cannot be linked on that computer.
   - Email, calendar, documents and chat tools such as Gmail, Google Drive, Notion and Slack are used through the agent
     browser. Settings does not list or set up connectors from the owner's Claude account. If a Claude Code agent has
     one anyway, any connector action that changes something is blocked by Qorqbot until the owner approves that exact

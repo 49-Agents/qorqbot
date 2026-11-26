@@ -82,8 +82,9 @@ Google Calendar is included but inactive. With Qorqbot stopped, run:
 ./qorqbot calendar-connect --name main --google-client /path/to/client.json
 ```
 
-You supply the account/client configuration. Fastmail, Telegram and WhatsApp are
-separate optional downloads; you handle accounts and connection setup. Fastmail
+You supply the account/client configuration. WhatsApp is built in and dormant: ask
+Ordubashy to set it up, or use Settings > Connections; no terminal step. Fastmail and
+Telegram are separate optional downloads; you handle accounts and connection setup. Fastmail
 requires your separately configured email engine URL and private token file.
 Install a trusted connector while Qorqbot and its agents are stopped:
 
@@ -105,7 +106,7 @@ Back up the whole folder while Qorqbot and its agents are stopped. Update with:
 ```
 
 This release supports only updates with unchanged schemas and managed instruction
-contents, with core and the bundled Google Calendar, treg and OpenRouter
+contents, with core and the bundled Google Calendar, treg, OpenRouter and WhatsApp
 extensions only. Updates with separately installed
 connectors are refused until compatible updates are qualified. Instance data is
 never replaced. An interrupted update can be recovered with

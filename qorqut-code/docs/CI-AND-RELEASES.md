@@ -38,15 +38,15 @@ No live installation, account, native conversation or provider is a test fixture
 Dispatch `Release checks` with the intended version and connector selection to
 qualify a Linux download. Mac qualification remains a separate manual workflow.
 The Linux workflow can also be called by ordinary CI for relevant changes. It
-retains the exact checked archives, optional bundles, WhatsApp corresponding
-source, reports and failure logs as Actions artifacts. It never publishes or
+retains the exact checked archives, optional bundles, the WhatsApp corresponding-source
+archive (from both the Linux and the Mac job), reports and failure logs as Actions artifacts. It never publishes or
 deploys them. Use the retained, checked bytes for publication; rebuilding the
 same commit creates a new candidate requiring its own qualification.
 
 Installer restart, self-update preservation, checksum refusal and offline
-connector checks remain in this workflow. WhatsApp's offline corresponding-source
-rebuild remains required when qualifying WhatsApp. An unrelated Telegram change
-does not run the Go builds. First-party license/resource and console-entrypoint
+connector checks remain in this workflow. Every download builds the WhatsApp
+helper (Linux through the pinned Go container, Mac natively on Apple silicon) and
+the Linux job rebuilds it offline from its corresponding source and compares the bytes. First-party license/resource and console-entrypoint
 audits run once inside `native_build.py`; their report is in `build.json` under
 `source_audit`.
 

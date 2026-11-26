@@ -21,7 +21,8 @@ import sys
 import tarfile
 import zipfile
 
-FACTORIES = {name: 'qorqut_' + name + '.extension:create' for name in ('fastmail', 'telegram', 'whatsapp')}
+# WhatsApp is built in (selected by the launcher, see native_launch.select_whatsapp), so no bundle installs it.
+FACTORIES = {name: 'qorqut_' + name + '.extension:create' for name in ('fastmail', 'telegram')}
 LIMIT = 1024 ** 3
 
 
@@ -203,7 +204,7 @@ def inspect_wheel(path):
 def inspect_resources(path, extension_id):
     """Check the selected wheel's managed instruction contract before installing code."""
     package = 'qorqut_' + extension_id
-    index_name = package + ('/index.json' if extension_id == 'whatsapp' else '/resources/index.json')
+    index_name = package + '/resources/index.json'
     with zipfile.ZipFile(path) as wheel:
         names = set(wheel.namelist())
         if index_name not in names or package + '/extension.py' not in names:

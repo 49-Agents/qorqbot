@@ -1,7 +1,8 @@
 """Optional owner-installed personal reader, bound to one global Ordubashy UUID.
 
-This prepares a read-only client. It never opens the session store, pairs a phone,
-contacts WhatsApp, or grants another role access because it has a similar name.
+This prepares a read-only client. It never reads session keys, pairs a phone, contacts
+WhatsApp, or grants another role access because it has a similar name; ``linked`` only asks
+the session store whether a device row exists.
 A version 2 binding additionally records the managed-send transport (its private
 socket, operator-created secret file and frozen opaque account reference). That
 transport is never part of the agent's MCP launch: the connector's MCP stays
@@ -15,6 +16,9 @@ import json
 import os
 from pathlib import Path
 import re
+import sqlite3
+import sys
+from urllib.parse import quote
 from uuid import UUID
 
 from qorqut_operations.contracts import DomainError
@@ -38,6 +42,65 @@ def send_socket_path(instance: Path) -> Path:
 
 def send_secret_path(instance: Path) -> Path:
     return instance / "private" / (NAME + "-send.key")
+
+
+def root_binding(instance: Path) -> Path:
+    return instance / "config" / (NAME + ".json")
+
+
+def setup_marker_path(instance: Path) -> Path:
+    """Present while the app itself is finishing a setup it started (``setup.py``); never written by hand."""
+    return instance / "private" / "whatsapp-setup.json"
+
+
+def data_path(instance: Path) -> Path:
+    return instance / "private" / "whatsapp"
+
+
+def bundled_helper() -> Path:
+    """The helper built into this package for this platform; absent where no build ships."""
+    return Path(__file__).parent / "bin" / NAME
+
+
+def supported() -> bool:
+    helper = bundled_helper()
+    return helper.is_file() and os.access(helper, os.X_OK)
+
+
+def socket_limit() -> int:
+    """sockaddr_un.sun_path: 108 bytes on Linux, 104 on macOS (both include the final NUL)."""
+    return 104 if sys.platform == "darwin" else 108
+
+
+def socket_fits(path) -> bool:
+    return len(os.fsencode(str(path))) < socket_limit()
+
+
+def linked(instance: Path) -> bool:
+    """The helper's session store holds a linked device. Reads one row count; never reads keys or contacts WhatsApp."""
+    store = data_path(instance) / "session.sqlite3"
+    if not store.is_file() or store.is_symlink():
+        return False
+    try:
+        connection = sqlite3.connect("file:" + quote(str(store)) + "?mode=rw", uri=True, timeout=5)
+        try:
+            return connection.execute("SELECT 1 FROM whatsmeow_device LIMIT 1").fetchone() is not None
+        finally:
+            connection.close()
+    except sqlite3.OperationalError as problem:
+        # A store its helper holds locked is in use, not unlinked: a busy moment must never read as "not set up", which
+        # would stop a working receiver or let a cancel remove a working binding.
+        return "locked" in str(problem) or "busy" in str(problem)
+    except sqlite3.Error:
+        return False
+
+
+def pending_send(value: dict, instance: Path) -> dict | None:
+    """The managed-send transport of a read-only binding the app is finishing (marker and secret present), before its
+    version 2 binding can record the account reference. None otherwise."""
+    if value["version"] != 1 or not setup_marker_path(instance).is_file() or not send_secret_path(instance).is_file():
+        return None
+    return {"socket": str(Path(value["socket"]).parent / "send.sock"), "secret_file": str(send_secret_path(instance))}
 
 
 def regular_path(path: Path) -> bool:
@@ -78,7 +141,7 @@ def validate_binding(value, instance: Path) -> dict:
 def load_binding(instance: Path) -> dict | None:
     """The validated installation binding, or None when the reader is not installed. Resolved from the runtime's
     instance root, never from the mutable ``current`` release pointer."""
-    binding = instance / "config" / (NAME + ".json")
+    binding = root_binding(instance)
     if not regular_path(binding):
         raise DomainError("invalid_configuration", "Personal WhatsApp binding may not cross a symlink")
     if not binding.exists():
@@ -110,6 +173,8 @@ def launch(paths, data) -> tuple[dict | None, dict | None]:
     binary = Path(value["binary"])
     if not binary.is_file() or not os.access(binary, os.X_OK):
         return {"prepared": False, "reason": "reader_not_installed"}, None
+    if not linked(paths.instance_root):
+        return {"prepared": False, "reason": "not_linked"}, None
     with binary.open("rb") as stream:
         if hashlib.file_digest(stream, "sha256").hexdigest() != value["sha256"]:
             raise DomainError("invalid_configuration", "Personal WhatsApp binary failed its installation integrity check")

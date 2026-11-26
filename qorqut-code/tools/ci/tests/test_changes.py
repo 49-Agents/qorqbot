@@ -40,10 +40,16 @@ class ChangeSelection(unittest.TestCase):
                      "qorqut-code/app/qorqut/composition/assembly.py",
                      "qorqut-code/app/service-constraints.txt",
                      "qorqut-code/qorqut-operations/pyproject.toml",
-                     "qorqut-code/tools/prepare-local.py",
-                     "qorqut-code/extensions/whatsapp/native/main.go"):
+                     "qorqut-code/tools/prepare-local.py"):
             with self.subTest(path=path):
                 self.assertTrue({"backend", "distribution", "connectors"} <= self.enabled(path))
+
+    def test_built_in_whatsapp_changes_qualify_the_download_not_optional_bundles(self):
+        for path in ("qorqut-code/extensions/whatsapp/native/main.go", "qorqut-code/extensions/whatsapp/qorqut_whatsapp/extension.py",
+                     "qorqut-code/extensions/whatsapp/tools/build.py"):
+            with self.subTest(path=path):
+                self.assertEqual(self.enabled(path), {"backend", "distribution"})
+                self.assertEqual(changes.connector_selection([path]), "none")
 
     def test_unknown_paths_and_ci_changes_fail_closed(self):
         for path in ("new-build-input", ".github/workflows/checks.yml"):
@@ -57,7 +63,7 @@ class ChangeSelection(unittest.TestCase):
         self.assertEqual(changes.connector_selection(["qorqut-code/app/qorqut/extensions.py"]), "all")
         self.assertEqual(changes.connector_selection([], full=True), "all")
         self.assertEqual(changes.connector_selection(["qorqut-code/extensions/telegram/provider.py",
-            "qorqut-code/extensions/whatsapp/native/main.go"]), "telegram,whatsapp")
+            "qorqut-code/extensions/whatsapp/native/main.go"]), "telegram")
 
     def test_moves_keep_both_path_owners(self):
         with tempfile.TemporaryDirectory() as folder:
