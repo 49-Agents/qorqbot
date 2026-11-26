@@ -7,6 +7,9 @@
 .gchat-banner[role="alert"] { color: var(--danger); }
 .gchat-banner[hidden], .gchat-older[hidden], .gchat-jump[hidden], .gchat-empty[hidden], .gchat-composer[hidden] { display: none; }
 .gchat-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: var(--chat-top-inset, 0px) 2px 14px; overscroll-behavior: contain; }
+/* The feed still scrolls (wheel, touch, keys); it just never draws a scrollbar. */
+.gchat-scroll { scrollbar-width: none; }
+.gchat-scroll::-webkit-scrollbar { display: none; }
 .gchat-older { display: block; margin: 0 auto 12px; }
 .gchat-log { padding-left: 32px; display: flex; flex-direction: column; gap: 0; }
 .gchat-log > .gchat-msg + .gchat-msg { margin-top:22px; }
@@ -175,10 +178,17 @@ button.gchat-file-card:hover { background:color-mix(in srgb, var(--file-color) 9
 /* Typed text and the placeholder use the message size, so nothing jumps when typing starts. */
 .gchat-composer textarea::placeholder { font-size:inherit; }
 .gchat-composer textarea:focus { outline:none; }
-/* The text line slides away while the pointer is off the chat (js/chat-view.js, tuck); the buttons stay. */
-.gchat-composer textarea { transition:max-height .22s ease, min-height .22s ease, padding .22s ease, opacity .16s ease; }
-.gchat-composer.gchat-composer-tucked textarea { max-height:0; min-height:0; padding-block:0; opacity:0; overflow:hidden; pointer-events:none; }
-@media (prefers-reduced-motion:reduce) { .gchat-composer textarea { transition:opacity .12s ease; } }
+/* While the pointer is off the chat (js/chat-view.js, tuck) everything below the focus strip slides away: the text line, the
+   model pill and the buttons. A composer without a focus strip folds down to nothing. */
+.gchat-composer { transition:padding .22s ease, row-gap .22s ease, border-color .22s ease, background-color .22s ease; }
+.gchat-composer > :not(.wfpanel) { transition:max-height .22s ease, min-height .22s ease, padding .22s ease, margin .22s ease, opacity .16s ease, transform .14s ease, background .14s ease; }
+.gchat-composer > .wfpanel { transition:margin .22s ease, border-color .22s ease; }
+.gchat-composer.gchat-composer-tucked { row-gap:0; padding-bottom:0; }
+/* !important: the buttons' own sizes (.agfocus .gchat-composer .gchat-send and the like) are as specific as this. */
+.gchat-composer.gchat-composer-tucked > :not(.wfpanel) { max-height:0 !important; min-height:0 !important; padding-block:0 !important; margin-block:0 !important; border-block-width:0 !important; opacity:0; overflow:hidden; pointer-events:none; }
+.gchat-composer.gchat-composer-tucked > .wfpanel { margin-bottom:0; border-bottom-color:transparent; }
+.gchat-composer.gchat-composer-tucked:not(:has(> .wfpanel:not([hidden]))) { padding-top:0; border-color:transparent; background-color:transparent; }
+@media (prefers-reduced-motion:reduce) { .gchat-composer, .gchat-composer > * { transition:opacity .12s ease; } }
 .gchat-composer:focus-within { border-color:color-mix(in srgb, var(--fg) 22%, transparent); }
 .gchat-send { flex:none; min-height:36px; height:36px; padding:5px 11px; border-radius:18px; }
 /* The primary button look is the shared Send in every host; Focus's secondary-button restyle (.agfocus button) never applies to it. */
