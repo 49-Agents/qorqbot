@@ -7,7 +7,7 @@ license = "Apache-2.0 AND GPL-3.0-only"
 license-files = ["LICENSE", "LICENSE-SCOPE.md", "LICENSES/GPL-3.0.txt", "SOURCE-AVAILABILITY.md"]
 name = "qorqut-whatsapp"
 version = "0.1.0"
-description = "Optional private WhatsApp reading and owner-approved sending for Qorqbot"
+description = "Private WhatsApp reading and owner-approved sending for Qorqbot"
 requires-python = ">=3.12"
 dependencies = ["qorqut-core==1.3.0.dev0"]
 

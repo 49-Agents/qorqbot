@@ -51,6 +51,7 @@ def inside(phase):
             assert 'Git is required' in str(error)
         else:
             raise AssertionError('Missing Git was not reported')
+        whatsapp(root)
         return
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     def request(path, body=None):
@@ -72,7 +73,14 @@ def inside(phase):
     assert b'<html' in request('/').lower()
     session = request('/api/session')['data']
     assert session['is_installation_owner'] and session['operational_timezone'] == 'UTC'
-    assert request('/api/root/extensions')['data'] == {'extensions': []}
+    # The bundled WhatsApp connector is the only selected extension with dashboard assets; it stays dormant.
+    assert [item['id'] for item in request('/api/root/extensions')['data']['extensions']] == ['whatsapp']
+    def command_line(process):
+        try:
+            return process.read_bytes()
+        except OSError:
+            return b''
+    assert not [p for p in Path('/proc').glob('[0-9]*/cmdline') if b'whatsapp-personal' in command_line(p)]
     state = root.parent / 'acceptance-state.json'
     db = root / 'instance/operations/.runtime/operations.sqlite3'
     marker = root / 'instance/operations/acceptance.txt'
@@ -96,6 +104,37 @@ def inside(phase):
         assert db.stat().st_ino == saved['database_inode']
         assert hashlib.sha256(marker.read_bytes()).hexdigest() == saved['marker_sha256']
     print(json.dumps({'phase': phase, 'dashboard': 'ok', 'readiness': 'ok', 'owner': 'ok', 'record': 'ok'}))
+
+
+def whatsapp(root):
+    """The built-in connector is selected with its guidance imported, and its shipped helper runs here; no account is used."""
+    import selectors
+    factories = [item['factory'] for item in json.loads((root / 'instance/config/extensions.json').read_text())['extensions']]
+    assert 'qorqut_whatsapp.extension:create' in factories, factories
+    assert (root / 'instance/operations/agentic/plugins/imported-whatsapp/agentic.yaml').is_file()
+    helper = root / 'runtime/venv/lib/python3.12/site-packages/qorqut_whatsapp/bin/whatsapp-personal'
+    packets = [{'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {'protocolVersion': '2025-03-26', 'capabilities': {},
+                'clientInfo': {'name': 'synthetic-native-acceptance', 'version': '1'}}},
+               {'jsonrpc': '2.0', 'method': 'notifications/initialized'}, {'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list'}]
+    process = subprocess.Popen([helper, 'mcp', '--socket', root / 'instance/operations/.runtime/absent-synthetic-whatsapp.sock'],
+                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        with selectors.DefaultSelector() as ready:
+            ready.register(process.stdout, selectors.EVENT_READ)
+            process.stdin.write(json.dumps(packets[0]) + '\n'); process.stdin.flush()
+            assert ready.select(15), 'Helper initialize timed out'
+            assert json.loads(process.stdout.readline())['id'] == 1
+            process.stdin.write(''.join(json.dumps(item) + '\n' for item in packets[1:])); process.stdin.flush()
+            assert ready.select(15), 'Helper tools listing timed out'
+            listed = json.loads(process.stdout.readline())['result']['tools']
+    finally:
+        process.stdin.close()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill(); process.wait()
+        process.stdout.close(); process.stderr.close()
+    assert 'whatsapp_read' in {tool['name'] for tool in listed}, listed
 
 
 def main():

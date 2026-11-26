@@ -4,15 +4,14 @@ const model = require('../js/connectors.js');
 
 const item = (id, kind, status, extra = {}) => ({id, kind, status, ...extra});
 
-test('an extension that is not set up from the dashboard has no button', () => {
-  assert.strictEqual(model.action(item('whatsapp', 'extension', 'coming_soon')).kind, 'none');
+test('an extension that is not part of this Qorqbot has no button', () => {
   assert.strictEqual(model.action(item('whatsapp', 'extension', 'not_installed')).kind, 'none');
+  assert.strictEqual(model.action(item('whatsapp', 'extension', 'unsupported')).kind, 'none');
 });
 
 test('notes explain what the owner has to do', () => {
   assert.match(model.note(item('whatsapp', 'extension', 'not_set_up')).text, /Link your phone/);
   assert.strictEqual(model.note(item('whatsapp', 'extension', 'connected')), null);
-  assert.match(model.note(item('whatsapp', 'extension', 'not_paired')).text, /Linked devices/);
 });
 
 test('unknown statuses fall back safely', () => {
@@ -59,14 +58,25 @@ test('no Claude connector is described or offered', () => {
     assert.strictEqual(model.ICONS[id], undefined, id);
     assert.deepStrictEqual(model.action(item(id, 'claude', 'not_added')), {kind: 'none'});
   }
-  assert.deepStrictEqual(Object.keys(model).sort(), ['COPY', 'ICONS', 'STATUS', 'action', 'note', 'status']);
+  assert.deepStrictEqual(Object.keys(model).sort(), ['COPY', 'ICONS', 'LINK_STEPS', 'STATUS', 'action', 'note', 'polls', 'status']);
 });
 
-test('whatsapp on a Mac says it is coming and has no button', () => {
-  const whatsapp = item('whatsapp', 'extension', 'coming_soon');
-  assert.strictEqual(model.action(whatsapp).kind, 'none');
-  assert.strictEqual(model.status(whatsapp).label, 'Coming soon on Mac');
-  assert.deepStrictEqual(model.note(whatsapp), {text: 'The WhatsApp extension is available for Windows (WSL) and Linux. A Mac version is in progress.', tone: 'info'});
+test('whatsapp is linked from its card: Link phone, Cancel while the code shows, Try again after a failure', () => {
+  const whatsapp = status => item('whatsapp', 'extension', status);
+  assert.deepStrictEqual(model.action(whatsapp('not_set_up')), {kind: 'wa-link', label: 'Link phone'});
+  assert.deepStrictEqual(model.action(whatsapp('linking')), {kind: 'wa-cancel', label: 'Cancel', quiet: true});
+  assert.deepStrictEqual(model.action(whatsapp('finishing')), {kind: 'none'});
+  assert.deepStrictEqual(model.action(whatsapp('failed')), {kind: 'wa-link', label: 'Try again'});
+  assert.deepStrictEqual(model.action(whatsapp('connected')), {kind: 'none'});
+  assert.deepStrictEqual(model.action(item('whatsapp', 'extension', 'connected', {send_ready: false})), {kind: 'wa-link', label: 'Finish setup', quiet: true});
+  assert.strictEqual(model.status(whatsapp('linking')).label, 'Linking');
+  assert.strictEqual(model.status(whatsapp('unsupported')).label, 'Not available');
+  assert.deepStrictEqual(model.note(whatsapp('unsupported')), {text: 'WhatsApp can’t be linked on this computer yet.', tone: 'info'});
+  assert.deepStrictEqual(model.note(item('whatsapp', 'extension', 'failed', {note: 'The code expired before it was scanned.'})),
+    {text: 'The code expired before it was scanned.', tone: 'warn'});
+  assert.match(model.LINK_STEPS.join(' '), /Linked devices.*Link a device/);
+  assert.deepStrictEqual(['not_set_up', 'linking', 'finishing', 'connected', 'failed'].filter(state => model.polls(whatsapp(state))), ['linking', 'finishing']);
+  assert.strictEqual(model.polls(item('treg', 'extension', 'linking')), false);
 });
 
 test('browsing is not a connector the owner sees', () => {

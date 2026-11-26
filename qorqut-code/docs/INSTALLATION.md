@@ -33,7 +33,8 @@ Needed only for the optional pieces you enable later (the scripts neither check 
 
 - **Browser runtime** (agent browser): Node **24+** and npm **11+** (`app/tools/browser/package.json` engines),
   then Chrome (managed Global desktops: [Browser desktops](BROWSER-DESKTOPS.md)).
-- **WhatsApp tool**: Go (the version in `extensions/whatsapp/native/go.mod`) and a C compiler (SQLite uses CGO).
+- **WhatsApp tool** (built into the downloads; needed only for a source installation): Go (the version in
+  `extensions/whatsapp/native/go.mod`) and a C compiler (SQLite uses CGO).
 - **Native coding CLIs** for agent sessions (Claude Code, Codex): the pinned versions are in
   `app/tools/native_clis/package.json`. Qorqbot runs them itself as managed sessions by default
   ([managed agent sessions](MANAGED-RUNTIME.md)); nobody opens a terminal or types their commands.
@@ -150,7 +151,8 @@ configuration.
 
 Optional integrations are configured per their own documents: [Email ownership](EMAIL-OWNERSHIP.md),
 [Calendar](CALENDAR.md), [Telegram](TELEGRAM-OWNER-BRIDGE.md),
-[browser control](BROWSER-CONTROL.md) and the WhatsApp README above.
+[browser control](BROWSER-CONTROL.md) and the WhatsApp README above. In the downloads WhatsApp is built in and
+dormant: the owner sets it up by asking Ordubashy or from Settings > Connections, with no terminal step.
 
 **Fastmail provider (optional).** The core contains no Fastmail code, no email engine and needs no mailbox file. To use the
 `fastmail_*` operations and Fastmail CalDAV, prepare with `--with-fastmail`: this installs the `qorqut-fastmail` bridge into

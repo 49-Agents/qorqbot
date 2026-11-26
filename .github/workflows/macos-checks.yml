@@ -60,6 +60,18 @@ jobs:
           test "$(uname -m)" = arm64
           brew install librsvg
           python -m pip install packaging
+      - name: Install the Go toolchain the WhatsApp helper is built with
+        run: |
+          set -euo pipefail
+          # The exact version build.py requires (GO_VERSION), checked against the checksum go.dev publishes for it.
+          version=$(python -c 'import re,sys; print(re.search(r"^GO_VERSION = .(go[0-9.]+).$", open(sys.argv[1]).read(), re.M).group(1))' qorqut-code/extensions/whatsapp/tools/build.py)
+          archive="$version.darwin-arm64.tar.gz"
+          expected=$(curl --fail --silent --show-error --location 'https://go.dev/dl/?mode=json&include=all' | python -c 'import json,sys; print(next(f["sha256"] for r in json.load(sys.stdin) for f in r["files"] if f["filename"] == sys.argv[1]))' "$archive")
+          curl --fail --silent --show-error --location "https://go.dev/dl/$archive" --output "$RUNNER_TEMP/$archive"
+          printf '%s  %s\n' "$expected" "$RUNNER_TEMP/$archive" | shasum -a 256 --check
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/go/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/go/bin/go" version
       - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: ~/.cache/qorqbot/mac-tools
@@ -104,13 +116,25 @@ jobs:
         run: |
           mkdir -p "$RELEASE_WORK"
           python qorqut-code/tools/export-unified.py --repository "$GITHUB_WORKSPACE" --commit "$GITHUB_SHA" --with-fastmail --output "$RELEASE_WORK/source"
-          python qorqut-code/tools/distribution/runtime_source.py project --source "$RELEASE_WORK/source" --output "$RELEASE_WORK/runtime-source" --report "$RELEASE_WORK/projection.json"
-          python qorqut-code/tools/prepare-local.py --source-root "$RELEASE_WORK/runtime-source" --output "$RELEASE_WORK/prepared" --with-google-calendar --with-treg --with-openrouter
           sign=()
           if [ "${{ inputs.notarize }}" = "true" ]; then
             sign=(--sign-identity "$SIGN_IDENTITY")
           fi
+          # The built-in WhatsApp connector's helper, compiled and tested natively; signed in its wheel when notarizing.
+          python -B "$RELEASE_WORK/source/qorqut-code/extensions/whatsapp/tools/build.py" --target macos-arm64 --work "$RELEASE_WORK/whatsapp" "${sign[@]}"
+          whatsapp_wheels=("$RELEASE_WORK/whatsapp/dist"/qorqut_whatsapp-*.whl)
+          test "${#whatsapp_wheels[@]}" -eq 1
+          python qorqut-code/tools/distribution/runtime_source.py project --source "$RELEASE_WORK/source" --output "$RELEASE_WORK/runtime-source" --report "$RELEASE_WORK/projection.json"
+          python qorqut-code/tools/prepare-local.py --source-root "$RELEASE_WORK/runtime-source" --output "$RELEASE_WORK/prepared" --with-google-calendar --with-treg --with-openrouter --with-whatsapp "${whatsapp_wheels[0]}"
           python qorqut-code/tools/distribution/native_build.py --prepared "$RELEASE_WORK/prepared" --target macos14-arm64 --bundled-tools "$HOME/.cache/qorqbot/mac-tools/out" --output "$RELEASE_WORK/package" --report "$RELEASE_WORK/build.json" --version "$QORQBOT_BUILD_VERSION" "${sign[@]}"
+      - name: Save the WhatsApp helper's corresponding source
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: whatsapp-source-macos-arm64-${{ github.run_id }}-${{ github.run_attempt }}
+          compression-level: 0
+          retention-days: 14
+          if-no-files-found: error
+          path: ${{ env.RELEASE_WORK }}/whatsapp/*-source.tar.gz
       - name: Check exact Mac archive lifecycle
         run: |
           python qorqut-code/tools/distribution/check_posix.py --archive "$RELEASE_WORK/package/qorqbot-${QORQBOT_BUILD_VERSION}-macos14-arm64.tar.gz" --output "/tmp/qm-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
@@ -225,6 +249,7 @@ jobs:
           path: |
             ${{ env.RELEASE_WORK }}/dmg/*
             ${{ env.RELEASE_WORK }}/package/*.tar.gz
+            ${{ env.RELEASE_WORK }}/whatsapp/*-source.tar.gz
             ${{ env.RELEASE_WORK }}/build.json
             ${{ env.RELEASE_WORK }}/desktop-check.json
       - name: Save Mac qualification diagnostics

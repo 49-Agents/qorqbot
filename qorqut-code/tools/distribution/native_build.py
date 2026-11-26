@@ -195,6 +195,9 @@ SIGNED_PROGRAM_CHECKS = (
       'import ctypes, _cffi_backend, cryptography.hazmat.bindings._rust, pydantic_core._pydantic_core, '
       'psutil._psutil_osx, rpds, websockets.speedups, yaml._yaml'), 'Python with its compiled libraries'),
 )
+# The WhatsApp helper is signed by its own build (extensions/whatsapp/tools/build.py) before it goes into its wheel, so
+# the wheel Apple's notary opens holds the signed program too. Run without arguments it prints its usage and exits 1.
+WHATSAPP_HELPER = 'venv/lib/python3.12/site-packages/qorqut_whatsapp/bin/whatsapp-personal'
 
 
 def sign_shipped_programs(runtime, identity):
@@ -217,6 +220,11 @@ def sign_shipped_programs(runtime, identity):
                                 capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
         if result.returncode != 0:
             raise ValueError(f'The signed {label} does not start (exit {result.returncode}): {(result.stderr or result.stdout)[-500:]}')
+    if (runtime / WHATSAPP_HELPER).is_file():
+        result = subprocess.run([runtime / WHATSAPP_HELPER], cwd=runtime.parent, env={'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8'},
+                                capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
+        if result.returncode < 0 or 'usage' not in result.stderr + result.stdout:
+            raise ValueError(f'The signed WhatsApp helper does not start (exit {result.returncode}): {result.stderr[-500:]}')
     return {'programs': sum(kind == 'program' for _, kind in signed), 'libraries': sum(kind == 'library' for _, kind in signed),
             'files': sorted(str(path.relative_to(runtime)) for path, _ in signed)}
 

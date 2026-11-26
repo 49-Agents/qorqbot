@@ -1,7 +1,8 @@
 # Optional extensions
 
-The core host starts and serves with no extension. Google Calendar is bundled without an account; Fastmail, Telegram and
-WhatsApp are separate optional installations. Paper and content creation remain outside the publication repository.
+The core host starts and serves with no extension. Google Calendar is bundled without an account. WhatsApp is built into every
+download and stays dormant until the owner asks Ordubashy to set it up (or uses Settings > Connections); Fastmail and
+Telegram are separate optional installations. Paper and content creation remain outside the publication repository.
 Installed distributions are selected once by the trusted installation configuration, for example:
 
 ```json

@@ -53,15 +53,20 @@ def put(path, data, mode=0o755):
 class FakeCodesign:
     """Stands in for subprocess.run: codesign marks files, reads back what it marked; other commands succeed."""
 
-    def __init__(self, unsigned=(), fail=()):
+    def __init__(self, unsigned=(), fail=(), killed=()):
         self.signed, self.runtime, self.calls, self.others = {}, {}, [], []
-        self.unsigned, self.fail = set(unsigned), set(fail)
+        self.unsigned, self.fail, self.killed = set(unsigned), set(fail), set(killed)
 
     def __call__(self, argv, **kwargs):
         argv = [str(a) for a in argv]
         if argv[0] != payload_signing.CODESIGN:
             self.others.append(argv)
-            code = 1 if Path(argv[0]).name in self.fail else 0
+            name = Path(argv[0]).name
+            if name in self.killed:
+                return subprocess.CompletedProcess(argv, -9, '', '')
+            if name == 'whatsapp-personal':  # without arguments the helper prints its usage and exits 1
+                return subprocess.CompletedProcess(argv, 1, '', 'usage: whatsapp-personal serve ... | mcp --socket PATH')
+            code = 1 if name in self.fail else 0
             return subprocess.CompletedProcess(argv, code, '', 'it crashed' if code else '')
         self.calls.append(argv)
         target = Path(argv[-1])
@@ -234,6 +239,27 @@ class SignShippedPrograms(unittest.TestCase):
     def test_a_signed_program_that_no_longer_starts_stops_the_build(self):
         with self.assertRaisesRegex(ValueError, 'signed agent-browser does not start'):
             self.run_with(FakeCodesign(fail={'agent-browser'}))
+
+    def test_the_whatsapp_helper_is_checked_as_signed_by_its_build_and_started(self):
+        helper = put(self.runtime / native_build.WHATSAPP_HELPER, PROGRAM + MARK)
+        fake = FakeCodesign()
+        fake.runtime['whatsapp-personal'] = True
+        record = self.run_with(fake)
+        self.assertNotIn(native_build.WHATSAPP_HELPER, record['files'])  # signed inside its wheel, never re-signed here
+        self.assertIn(['codesign', '-dvv', str(helper)], [[Path(a[0]).name, *a[1:]] for a in fake.calls])
+        self.assertEqual(Path(fake.others[-1][0]), helper)
+
+    def test_an_unsigned_whatsapp_helper_stops_the_build(self):
+        put(self.runtime / native_build.WHATSAPP_HELPER, PROGRAM)
+        with self.assertRaisesRegex(ValueError, 'Signing check failed:\n.*whatsapp-personal: not signed'):
+            self.run_with(FakeCodesign())
+
+    def test_a_signed_whatsapp_helper_the_system_kills_stops_the_build(self):
+        put(self.runtime / native_build.WHATSAPP_HELPER, PROGRAM + MARK)
+        fake = FakeCodesign(killed={'whatsapp-personal'})
+        fake.runtime['whatsapp-personal'] = True
+        with self.assertRaisesRegex(ValueError, 'signed WhatsApp helper does not start'):
+            self.run_with(fake)
 
     def test_signing_needs_the_bundled_tools(self):
         with self.assertRaisesRegex(ValueError, 'add --bundled-tools'):

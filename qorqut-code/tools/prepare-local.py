@@ -2,13 +2,14 @@
 """Prepare owned local source copies, first-party wheels and Python environments from an exported source tree.
 
     prepare-local.py --source-root EXPORTED_DIRECTORY --output NEW_DIRECTORY [--with-content] [--with-paper] [--with-fastmail]
-                     [--with-google-calendar] [--with-treg] [--with-openrouter]
+                     [--with-google-calendar] [--with-treg] [--with-openrouter] [--with-whatsapp WHEEL]
 
 ``--source-root`` is the output of ``export-unified.py`` (it must carry ``SOURCE-MANIFEST.json``) with this layout:
 
     qorqut-code/ (app/, with qorqut-operations/, qorqut-context/, dashboard/ filled by their own components;
                   extensions/google-calendar/ is part of this component and is built only with --with-google-calendar;
-                  extensions/treg/ likewise, only with --with-treg; extensions/openrouter/ only with --with-openrouter)
+                  extensions/treg/ likewise, only with --with-treg; extensions/openrouter/ only with --with-openrouter;
+                  extensions/whatsapp/ only with --with-whatsapp)
     qorqut-agentic/src/qorqut_agentic/resources/defaults/   dependencies/{document-history,email-management}/
     extensions/{qorqut-paper,qorqut-content,content-library,qorqut-fastmail}/ and services/{paper-service,email-engine}/
         (only for the selected extensions; a standard preparation needs neither the email engine nor the Fastmail package)
@@ -45,6 +46,11 @@ Without the flag no OpenRouter wheel is built, installed or recorded. The wheel 
 named in the installation configuration (``qorqut_openrouter.extension:create``) and the owner connects their own OpenRouter account
 in the dashboard; nothing here contacts OpenRouter.
 
+``--with-whatsapp WHEEL`` adds the ``qorqut-whatsapp`` wheel that ``qorqut-code/extensions/whatsapp/tools/build.py`` built (it
+compiles the Go helper this tool never builds) to the host environment. The wheel is accepted only when every file it shares with
+``qorqut-code/extensions/whatsapp`` of this export has the export's bytes and its only other files are the helper, its build
+record, its notices and the wheel metadata. Nothing is selected, linked or started here; nothing contacts WhatsApp.
+
 The result is a preparation receipt (``OUTPUT/PREPARATION-RECEIPT.json``), not a configured or running instance: this tool
 creates no owner identity or configuration, provisions no OS service or native CLI, builds no Node or Go component, starts
 nothing and contacts no provider.
@@ -62,6 +68,7 @@ import subprocess
 import sys
 import sysconfig
 import tempfile
+import tomllib
 import zipfile
 from datetime import datetime, timezone
 from email.parser import Parser
@@ -91,6 +98,9 @@ FASTMAIL_BRIDGE = ("qorqut-fastmail", "extensions/qorqut-fastmail")
 GOOGLE_CALENDAR = ("qorqut-google-calendar", "qorqut-code/extensions/google-calendar")
 TREG = ("qorqut-treg", "qorqut-code/extensions/treg")
 OPENROUTER = ("qorqut-openrouter", "qorqut-code/extensions/openrouter")
+WHATSAPP = ("qorqut-whatsapp", "qorqut-code/extensions/whatsapp")
+# Wheel members of qorqut-whatsapp that its helper build adds; every other package file must equal the export's.
+WHATSAPP_BUILT = ("qorqut_whatsapp/bin/whatsapp-personal", "qorqut_whatsapp/build.json", "qorqut_whatsapp/third_party/")
 PAPER_SERVICE = ("paper-service", "services/paper-service")
 PAPER_BRIDGE = ("qorqut-paper", "extensions/qorqut-paper")
 CONTENT = [("content-library", "extensions/content-library"), ("qorqut-content", "extensions/qorqut-content")]
@@ -106,6 +116,7 @@ REQUIRED_CONTENT = ["extensions/content-library/pyproject.toml", "extensions/qor
 REQUIRED_GOOGLE_CALENDAR = ["qorqut-code/extensions/google-calendar/pyproject.toml"]
 REQUIRED_TREG = ["qorqut-code/extensions/treg/pyproject.toml"]
 REQUIRED_OPENROUTER = ["qorqut-code/extensions/openrouter/pyproject.toml"]
+REQUIRED_WHATSAPP = ["qorqut-code/extensions/whatsapp/pyproject.toml"]
 
 NOT_INCLUDED = ["owner identity and installation configuration", "operating-system services", "native coding CLIs", "browser runtime (npm)",
                 "WhatsApp tool (Go build)", "Paper web UI artifact (npm build)", "any started process or provider contact"]
@@ -140,9 +151,10 @@ def inside(path, parent):
 
 class Preparer:
     def __init__(self, source, output, content, paper, fastmail=False, google_calendar=False, wheel_cache=None, treg=False,
-                 openrouter=False):
+                 openrouter=False, whatsapp=None):
         self.source, self.output, self.content, self.paper, self.fastmail = source, output, content, paper, fastmail
         self.google_calendar, self.treg, self.openrouter = google_calendar, treg, openrouter
+        self.whatsapp = whatsapp                       # the built qorqut-whatsapp wheel, or None
         self.wheel_cache = wheel_cache
         self.wheel_inputs, self.reused = {}, set()
         self.src, self.wheels, self.logs = output / "src", output / "wheels", output / "logs"
@@ -171,7 +183,8 @@ class Preparer:
         self.check_links()
         required = (REQUIRED + (REQUIRED_PAPER if self.paper else []) + (REQUIRED_CONTENT if self.content else [])
                     + (REQUIRED_FASTMAIL if self.fastmail else []) + (REQUIRED_GOOGLE_CALENDAR if self.google_calendar else [])
-                    + (REQUIRED_TREG if self.treg else []) + (REQUIRED_OPENROUTER if self.openrouter else []))
+                    + (REQUIRED_TREG if self.treg else []) + (REQUIRED_OPENROUTER if self.openrouter else [])
+                    + (REQUIRED_WHATSAPP if self.whatsapp else []))
         missing = [name for name in required if not (self.source / name).exists()]
         if missing:
             empty = [name for name in ("qorqut-operations", "qorqut-context", "dashboard")
@@ -201,6 +214,8 @@ class Preparer:
             sources.append(TREG)
         if self.openrouter:
             sources.append(OPENROUTER)
+        if self.whatsapp:
+            sources.append(WHATSAPP)
         return sources
 
     # --- subprocess and files ---------------------------------------------------------------------------------------
@@ -227,6 +242,8 @@ class Preparer:
         return directory / "bin" / "python"
 
     def build(self, python, key, relative):
+        if key == WHATSAPP[0]:
+            return self.adopt_built_wheel(key, relative)
         # Hash bytes/modes/links, not Git SHA or timestamps: an unrelated commit
         # must not rebuild this package, and a changed resource must invalidate it.
         inputs = {"source": _snapshot.snapshot_sha256(self.src / relative),
@@ -248,6 +265,36 @@ class Preparer:
         with zipfile.ZipFile(wheel) as archive:
             member = next(name for name in archive.namelist() if name.endswith(".dist-info/METADATA"))
             self.meta[key] = Parser().parsestr(archive.read(member).decode())
+        return wheel
+
+    def adopt_built_wheel(self, key, relative):
+        """Take the helper build's wheel after proving its package files are this export's."""
+        if not self.whatsapp.is_file() or self.whatsapp.is_symlink() or self.whatsapp.suffix != ".whl":
+            raise PrepareError(f"--with-whatsapp is not a wheel file: {self.whatsapp}")
+        root = self.src / relative
+        with zipfile.ZipFile(self.whatsapp) as archive:
+            for name in archive.namelist():
+                if name.endswith("/") or name.split("/", 1)[0].endswith(".dist-info"):
+                    continue
+                if any(name == built or (built.endswith("/") and name.startswith(built)) for built in WHATSAPP_BUILT):
+                    continue
+                path = root / name
+                if ".." in Path(name).parts or path.is_symlink() or not path.is_file() or path.read_bytes() != archive.read(name):
+                    raise PrepareError(f"the WhatsApp wheel file {name} is not the export's {relative}/{name}")
+            missing = [built for built in WHATSAPP_BUILT if not any(n == built or (built.endswith("/") and n.startswith(built))
+                                                                    for n in archive.namelist())]
+            if missing:
+                raise PrepareError("the WhatsApp wheel lacks its built " + ", ".join(missing))
+        wheel = self.wheels / self.whatsapp.name
+        shutil.copy2(self.whatsapp, wheel)
+        self.wheel_inputs[key] = hashlib.sha256(wheel.read_bytes()).hexdigest()
+        self.built[key] = wheel
+        with zipfile.ZipFile(wheel) as archive:
+            member = next(name for name in archive.namelist() if name.endswith(".dist-info/METADATA"))
+            self.meta[key] = Parser().parsestr(archive.read(member).decode())
+        project = tomllib.loads((root / "pyproject.toml").read_text())["project"]
+        if self.meta[key]["Name"] != project["name"] or self.meta[key]["Version"] != project["version"]:
+            raise PrepareError("the WhatsApp wheel is not qorqut-whatsapp at the export's version")
         return wheel
 
     def cached_wheel(self, fingerprint):
@@ -359,7 +406,8 @@ class Preparer:
         self.plan_first_party()
         host = ([key for key, _ in ENGINES] + [key for key, _ in CONTENT if self.content] + (["qorqut-paper"] if self.paper else [])
                 + (["qorqut-fastmail"] if self.fastmail else []) + (["qorqut-google-calendar"] if self.google_calendar else [])
-                + (["qorqut-treg"] if self.treg else []) + (["qorqut-openrouter"] if self.openrouter else []))
+                + (["qorqut-treg"] if self.treg else []) + (["qorqut-openrouter"] if self.openrouter else [])
+                + ([WHATSAPP[0]] if self.whatsapp else []))
         self.check_first_party("venv", [*host, "host"], {"host": HOST_EXTRAS})
         if self.fastmail:
             self.check_first_party("email-engine-venv", ["email-engine"])
@@ -420,7 +468,7 @@ class Preparer:
                            "component": component["name"], "commit": component["commit"], "tree": component["tree"],
                            "build_inputs_sha256": self.wheel_inputs[key], "reused": key in self.reused})
         selection = {"content": self.content, "paper": self.paper, "fastmail": self.fastmail, "google_calendar": self.google_calendar,
-                     "treg": self.treg, "openrouter": self.openrouter}
+                     "treg": self.treg, "openrouter": self.openrouter, "whatsapp": bool(self.whatsapp)}
         receipt = {"format": 1, "state": "prepared-not-configured", "prepared_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                    "python": sys.version.split()[0], "selection": selection,
                    "source_components": self.components, "source_manifest_sha256": self.manifest_digest, "wheels": wheels, "environments": environments, "not_included": NOT_INCLUDED}
@@ -441,6 +489,9 @@ def main(argv=None):
                         help="also install the treg toolkit wheel (nothing is selected, no key is read and treg is not contacted)")
     parser.add_argument("--with-openrouter", action="store_true",
                         help="also install the OpenRouter extension wheel (nothing is selected, no key is read and OpenRouter is not contacted)")
+    parser.add_argument("--with-whatsapp", type=Path, metavar="WHEEL",
+                        help="also install this qorqut-whatsapp wheel built by extensions/whatsapp/tools/build.py from the same commit "
+                             "(nothing is selected or started and WhatsApp is not contacted)")
     cache = parser.add_mutually_exclusive_group()
     cache.add_argument("--wheel-cache", type=Path,
                        default=Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "qorqbot/wheels",
@@ -467,7 +518,8 @@ def main(argv=None):
             raise PrepareError("--wheel-cache must be separate from the source export and prepared output")
         preparer = Preparer(source, output, arguments.with_content, arguments.with_paper, arguments.with_fastmail,
                             arguments.with_google_calendar, wheel_cache, treg=arguments.with_treg,
-                            openrouter=arguments.with_openrouter)
+                            openrouter=arguments.with_openrouter,
+                            whatsapp=arguments.with_whatsapp.resolve() if arguments.with_whatsapp else None)
         preparer.check_source()
         try:
             preparer.prepare()

@@ -73,6 +73,56 @@ test('Connections renders browser readiness and the extensions, with treg set up
   } finally { await browser.close(); }
 });
 
+test('the WhatsApp card links a phone: code and steps while linking, refreshed until connected', {skip: !available && 'Playwright Chromium unavailable'}, async () => {
+  const browser = await chromium.launch({headless: true});
+  try {
+    const page = await browser.newPage({viewport: {width: 1120, height: 900}});
+    const codes = [];
+    await page.route('**/api/root/extensions/whatsapp/qr*', route => { codes.push(route.request().url()); route.fulfill({status: 404, body: ''}); });
+    // A real origin, so the code image's relative address is requested (and answered here) instead of failing to load.
+    await page.route('http://qorqbot.test/', route => route.fulfill({contentType: 'text/html', body: '<main id="panel"></main>'}));
+    await page.goto('http://qorqbot.test/');
+    await page.addStyleTag({path: path.join(__dirname, '../css/connectors.css')});
+    await page.evaluate(() => {
+      window.esc = value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
+      window.coreData = value => value;
+      window.setup = {state: 'not_set_up', note: '', qr: false, send_ready: false};
+      window.sent = [];
+      window.reads = 0;
+      window.api = async url => {
+        if (url === '/root/browser-setup') return {kind: 'built_in', tool_installed: true, chrome_installed: true, ready: true, state: 'healthy', explanation: '', agents: []};
+        if (url === '/root/browser-accounts') return {sites: []};
+        if (url === '/root/extensions/whatsapp/setup') { window.reads += 1; return window.setup; }
+        return {platform: 'linux', clients: [], connectors: [{id: 'whatsapp', kind: 'extension', status: window.setup.state}]};
+      };
+      window.post = async (url, body) => {
+        window.sent.push({url, body});
+        window.setup = body.action === 'link' ? {state: 'linking', note: '', qr: true, send_ready: false} : {state: 'not_set_up', note: '', qr: false, send_ready: false};
+        return window.setup;
+      };
+    });
+    await page.addScriptTag({path: path.join(__dirname, '../js/connectors.js')});
+    await page.evaluate(() => connectorsPanel.mount(document.querySelector('#panel'), {rows: true}));
+    const card = page.locator('[data-cx-card="whatsapp"]');
+    await card.getByRole('button', {name: 'Link phone'}).click();
+    await card.locator('img[data-cx-wa-code]').waitFor();
+    assert.deepEqual(await page.evaluate(() => window.sent.at(-1)), {url: '/root/extensions/whatsapp/setup', body: {action: 'link'}});
+    assert.match(await card.locator('[data-cx-wa-link] ol').textContent(), /Linked devices/);
+    // The code is read again while linking; the same image element takes the new address.
+    const image = await card.locator('img[data-cx-wa-code]').elementHandle();
+    await page.waitForFunction(() => window.reads >= 1, null, {timeout: 8000});
+    await page.waitForFunction(element => /v=[1-9]/.test(element.getAttribute('src')) && element.isConnected, image, {timeout: 8000});
+    assert.ok(codes.length >= 1);
+    await page.evaluate(() => { window.setup = {state: 'connected', note: '', qr: false, send_ready: true}; });
+    await card.locator('.cx-status').getByText('Connected').waitFor({timeout: 8000});
+    assert.equal(await card.locator('[data-cx-wa-link]').count(), 0);
+    const settled = await page.evaluate(() => window.reads);
+    await page.waitForTimeout(3500);
+    assert.equal(await page.evaluate(() => window.reads), settled, 'no reading once connected');
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  } finally { await browser.close(); }
+});
+
 test('without an installed Chrome the card follows the download of Qorqbot’s own browser', {skip: !available && 'Playwright Chromium unavailable'}, async () => {
   const browser = await chromium.launch({headless: true});
   try {

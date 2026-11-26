@@ -30,7 +30,7 @@ class ConnectorsTest(unittest.TestCase):
         status = {item["id"]: item["status"] for item in result["connectors"]}
         self.assertEqual(status["treg"], "not_installed")
         self.assertEqual(status["openrouter"], "not_installed")
-        self.assertEqual(status["whatsapp"], "coming_soon" if connectors.host_platform() == "darwin" else "not_installed")
+        self.assertEqual(status["whatsapp"], "not_installed")
         self.assertEqual(set(result), {"connectors", "platform"})
 
     def test_only_qorqbot_extensions_are_listed(self):
@@ -67,23 +67,26 @@ class ConnectorsTest(unittest.TestCase):
         extension.status = lambda: "connected"
         self.assertEqual(openrouter()["status"], "connected")
 
-    def test_whatsapp_without_extension_is_coming_soon_on_mac(self):
-        self.runtime.resolver.native_connections = {}
-        self.assertEqual(connectors._whatsapp_status(self.runtime, "darwin"), {"status": "coming_soon"})
-        self.assertEqual(connectors._whatsapp_status(self.runtime, "wsl"), {"status": "not_installed"})
-        self.assertEqual(connectors._whatsapp_status(self.runtime, "linux"), {"status": "not_installed"})
+    def test_whatsapp_without_extension_is_not_installed_on_every_platform(self):
+        self.assertEqual(connectors._whatsapp_status(self.runtime), {"status": "not_installed"})
+        self.runtime.selection = SimpleNamespace(extensions=(SimpleNamespace(id="whatsapp", setup=None),))
+        self.assertEqual(connectors._whatsapp_status(self.runtime), {"status": "not_installed"})
 
-    def test_whatsapp_status_follows_setup(self):
-        self.runtime.resolver.native_connections = {"whatsapp": object()}
-        instance = self.runtime_dir.parent
-        self.assertEqual(connectors._whatsapp_status(self.runtime), {"status": "not_set_up"})
-        self.assertEqual(connectors._whatsapp_status(self.runtime, "darwin"), {"status": "not_set_up"})
-        (instance / "config").mkdir()
-        (instance / "config/whatsapp-personal.json").write_text("{}")
-        self.assertEqual(connectors._whatsapp_status(self.runtime), {"status": "not_paired"})
-        (instance / "private/whatsapp").mkdir(parents=True)
-        (instance / "private/whatsapp/session.sqlite3").write_text("")
-        self.assertEqual(connectors._whatsapp_status(self.runtime), {"status": "connected"})
+    def test_whatsapp_reports_the_extensions_own_setup_state(self):
+        views = iter([{"state": "unsupported", "note": "a", "qr": False, "send_ready": False},
+                      {"state": "linking", "note": "b", "qr": True, "send_ready": False},
+                      {"state": "connected", "note": "c", "qr": False, "send_ready": True}])
+        setup = SimpleNamespace(status=lambda: next(views))
+        self.runtime.selection = SimpleNamespace(extensions=(SimpleNamespace(id="whatsapp", setup=setup),))
+        self.assertEqual(connectors._whatsapp_status(self.runtime), {"status": "unsupported", "note": "a", "send_ready": False})
+        self.assertEqual(connectors._whatsapp_status(self.runtime), {"status": "linking", "note": "b", "send_ready": False})
+        self.assertEqual(connectors._whatsapp_status(self.runtime), {"status": "connected", "note": "c", "send_ready": True})
+
+    def test_an_unreadable_whatsapp_state_is_reported_not_raised(self):
+        def broken():
+            raise OSError("disk")
+        self.runtime.selection = SimpleNamespace(extensions=(SimpleNamespace(id="whatsapp", setup=SimpleNamespace(status=broken)),))
+        self.assertEqual(connectors._whatsapp_status(self.runtime)["status"], "failed")
 
 
 class ProbeEnvironmentTest(unittest.TestCase):

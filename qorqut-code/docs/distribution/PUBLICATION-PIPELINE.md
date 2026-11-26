@@ -40,7 +40,8 @@ download qualification, not to every code change.
 2. **Runtime projection:** `runtime_source.py project` retains initialization,
    migration, recovery and notices, and excludes tests, development history,
    build/deployment tools and optional connector payloads. Google Calendar is
-   bundled but inactive; Fastmail, Telegram and WhatsApp install separately.
+   bundled but inactive; WhatsApp is built in and dormant, its helper compiled into
+   its wheel; Fastmail and Telegram install separately.
 3. **Build:** `prepare-local.py` and `native_build.py` build
    the Ubuntu 24.04 x86-64 archive. Docker is a construction and acceptance tool,
    not a customer requirement. Python and Git are user-installed dependencies of

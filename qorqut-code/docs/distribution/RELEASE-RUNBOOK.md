@@ -18,7 +18,10 @@ For a local build:
 2. Export the exact commit with `python3 qorqut-code/tools/export-unified.py --repository /absolute/repo --commit COMMIT --with-fastmail --output EXPORT`.
    Git metadata and private working files are never exported.
 3. Run `python3 qorqut-code/tools/distribution/runtime_source.py project --source EXPORT --output RUNTIME_SOURCE --report PROJECTION.json`.
-4. Run `python3 qorqut-code/tools/prepare-local.py --source-root RUNTIME_SOURCE --output PREPARED --with-google-calendar --with-treg --with-openrouter`.
+4. Build the WhatsApp helper wheel and its corresponding-source archive with
+   `python3 qorqut-code/extensions/whatsapp/tools/build.py --work WHATSAPP` (Mac:
+   `--target macos-arm64 --sign-identity IDENTITY`), then run
+   `python3 qorqut-code/tools/prepare-local.py --source-root RUNTIME_SOURCE --output PREPARED --with-google-calendar --with-treg --with-openrouter --with-whatsapp WHATSAPP/WHEEL.whl`.
    Unchanged pure-Python first-party wheels reuse the content-checked cache. The
    receipt records source, wheel hashes, reuse and resolved dependencies. No
    native toolchain is built or copied.
@@ -35,9 +38,9 @@ For a local build:
    setup, missing-tool messages, restart, supported repeated updates and retained
    task/document/owner/DB identity. Keep the report and failure logs.
 7. Build only the optional bundles being released and qualify them against this
-   exact core archive with `check_optional_extensions.py`. Include WhatsApp's exact
-   corresponding-source archive and offline rebuild evidence when releasing its
-   helper. Actual provider sign-in, native clients/browser and stock-host checks
+   exact core archive with `check_optional_extensions.py`. Publish the WhatsApp
+   `*-source.tar.gz` from step 4 beside the download of the same platform, with the
+   Linux offline rebuild evidence. Actual provider sign-in, native clients/browser and stock-host checks
    are separate from synthetic offline qualification.
 8. Preserve the verified archives and checksums, source commit, dependency/license
    notices, source artifacts, test evidence and platform limitations. Complete the
@@ -100,7 +103,8 @@ CLI startup/status/stop inspect their saved PID identities, not all processes.
 See MACOS.md for the remaining advanced Linux-only facilities.
 
 Build optional Telegram with a Mac Pillow wheel. Fastmail uses platform-neutral
-wheels. The optional WhatsApp helper must be built on an Apple silicon Mac with
-`extensions/whatsapp/tools/build.py --target macos-arm64 --work NEW_DIRECTORY`;
-install the documented Go and C toolchains first. Include the resulting matching
-GPL corresponding-source archive. Do not relabel a Linux helper as a Mac binary.
+wheels. The built-in WhatsApp helper is built on an Apple silicon Mac with
+`extensions/whatsapp/tools/build.py --target macos-arm64 --work NEW_DIRECTORY --sign-identity IDENTITY`
+(Go and Xcode's C compiler first); it runs the race tests and signs the helper.
+Publish the resulting matching GPL corresponding-source archive. Do not relabel a
+Linux helper as a Mac binary.

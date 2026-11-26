@@ -19,9 +19,9 @@ def install_reader(instance, agent_id, *, binary=None):
     target = instance / "config" / (binding.NAME + ".json")
     if os.path.lexists(target):
         raise ValueError("A WhatsApp binding already exists; preserve it and use the documented offline update procedure")
-    if len(os.fsencode(binding.socket_path(instance))) >= 108:
+    if not binding.socket_fits(binding.send_socket_path(instance)):
         raise ValueError("Use a shorter Qorqbot folder path for Unix socket support")
-    binary = Path(binary) if binary else Path(__file__).parent / "bin" / binding.NAME
+    binary = Path(binary) if binary else binding.bundled_helper()
     payload = binary.read_bytes()
     sha = hashlib.sha256(payload).hexdigest()
     installed = instance / "runtime" / "connectors" / binding.NAME / sha[:40] / binding.NAME
@@ -35,11 +35,22 @@ def install_reader(instance, agent_id, *, binary=None):
     require_private_directory(target.parent, create=True)
     value = {"version": 1, "agent_id": agent_id, "binary": str(installed), "sha256": sha,
              "socket": str(binding.socket_path(instance))}
-    if len(os.fsencode(value["socket"])) >= 108:
-        raise ValueError("Use a shorter Qorqbot folder path for Unix socket support")
     binding.validate_binding(value, instance)
     write_private_file(target.parent, target.name, (json.dumps(value, indent=2) + "\n").encode())
     return value
+
+
+def pair_command(instance, settings):
+    """``(args, data directory, environment)`` of one pairing run of the helper: it writes a rotating ``pair.png`` into the
+    private data directory and exits once the phone is linked (or the codes expire). No --enable-send or managed
+    transport is permitted during pairing."""
+    from .receiver import helper_environment
+    require_private_directory(instance / "private", create=True)
+    data = require_private_directory(binding.data_path(instance), create=True)
+    temporary = require_private_directory(data / "tmp", create=True)
+    require_private_directory(Path(settings["socket"]).parent, create=True)
+    args = [settings["binary"], "serve", "--data-dir", str(data), "--socket", settings["socket"], "--pair", "--pair-only"]
+    return args, data, helper_environment(data, temporary)
 
 
 def main(argv=None):
@@ -59,12 +70,8 @@ def main(argv=None):
     settings = binding.load_binding(instance)
     if settings is None:
         parser.error("Install the reader binding first")
-    data = require_private_directory(instance / "private" / "whatsapp", create=True)
-    temporary = require_private_directory(data / "tmp", create=True)
-    require_private_directory(Path(settings["socket"]).parent, create=True)
-    # No --enable-send or managed transport is permitted during pairing.
-    return subprocess.call([settings["binary"], "serve", "--data-dir", str(data), "--socket", settings["socket"], "--pair", "--pair-only"],
-                           cwd=data, env=dict(os.environ, HOME=str(data), TMPDIR=str(temporary)))
+    args, data, environment = pair_command(instance, settings)
+    return subprocess.call(args, cwd=data, env=environment)
 
 
 if __name__ == "__main__":

@@ -52,17 +52,19 @@ def _keyed_status(runtime, identity) -> dict:
     return {"status": "not_installed" if extension is None else extension.status()}
 
 
-def _whatsapp_status(runtime, platform="linux") -> dict:
-    connections = getattr(getattr(runtime, "resolver", None), "native_connections", None) or {}
-    if "whatsapp" not in connections:
-        # The WhatsApp helper is built for Linux x86-64 only (Linux and Windows through WSL2); there is no Mac build yet.
-        return {"status": "coming_soon" if platform == "darwin" else "not_installed"}
-    instance = Path(runtime.paths.runtime).parent
-    if not (instance / "config" / "whatsapp-personal.json").is_file():
-        return {"status": "not_set_up"}
-    if not (instance / "private" / "whatsapp" / "session.sqlite3").is_file():
-        return {"status": "not_paired"}
-    return {"status": "connected"}
+def _whatsapp_status(runtime) -> dict:
+    """The WhatsApp extension's own setup state (``qorqut_whatsapp.setup``): unsupported, not_set_up, linking, finishing,
+    connected or failed, with its note; ``not_installed`` when the extension is not selected. Reads local files only."""
+    selected = getattr(getattr(runtime, "selection", None), "extensions", ())
+    extension = next((item for item in selected if item.id == "whatsapp"), None)
+    setup = getattr(extension, "setup", None)
+    if setup is None:
+        return {"status": "not_installed"}
+    try:
+        view = setup.status()
+    except Exception:  # noqa: BLE001 - one unreadable card never hides the others
+        return {"status": "failed", "note": "WhatsApp's setup could not be read right now."}
+    return {"status": view["state"], "note": view["note"], "send_ready": view["send_ready"]}
 
 
 def host_platform(proc_version="/proc/version") -> str:
@@ -82,6 +84,6 @@ def view(runtime, *, environ=None) -> dict:
     items = []
     for entry in CATALOG:
         item = dict(entry)
-        item.update(_keyed_status(runtime, entry["id"]) if entry["id"] in KEYED else _whatsapp_status(runtime, platform))
+        item.update(_keyed_status(runtime, entry["id"]) if entry["id"] in KEYED else _whatsapp_status(runtime))
         items.append(item)
     return {"connectors": items, "platform": platform}

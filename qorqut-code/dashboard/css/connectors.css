@@ -44,6 +44,10 @@ button.cx-link:hover { background: none; color: var(--fg); transform: none; }
 .cx-does { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--fg); opacity: .88; }
 .cx-note { margin: 0; font-size: 11.5px; line-height: 1.45; color: var(--warn); }
 .cx-note[data-tone="info"] { color: var(--fg-2); }
+.cx-wa-link { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; padding: 10px 11px; border-radius: var(--r-sm); background: var(--bg); border: 1px solid var(--line-2); }
+.cx-wa-code { display: block; width: 192px; height: 192px; max-width: 100%; border-radius: var(--r-sm); background: #fff; image-rendering: pixelated; }
+.cx-wa-wait { margin: 0; width: 192px; font-size: 12px; color: var(--fg-2); }
+.cx-wa-link ol { margin: 0; padding-left: 18px; flex: 1 1 180px; font-size: 12px; line-height: 1.55; color: var(--fg-2); }
 .cx-key { display: grid; gap: 8px; padding: 10px 11px; border-radius: var(--r-sm); background: var(--bg); border: 1px solid var(--line-2); }
 .cx-key[hidden] { display: none; }
 .cx-key label { display: grid; gap: 5px; font-size: 11.5px; color: var(--fg-2); }

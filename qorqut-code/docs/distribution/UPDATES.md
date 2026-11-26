@@ -27,7 +27,8 @@ pins a newer Chrome downloads it after the next start.
 
 The first updater supports unchanged database schemas and unchanged managed
 instruction contents with core, the bundled Google Calendar provider and the
-bundled treg and OpenRouter extensions. A
+bundled treg, OpenRouter and WhatsApp extensions. An installation that does
+not have WhatsApp yet adopts it once at the next start. A
 read-only managed plan checks the retained binding before the new application
 can start. A new build always changes the provenance its catalogs record for packaged
 sources (commit, tree, snapshot and manifest hashes, source root) even when no

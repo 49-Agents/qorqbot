@@ -40,7 +40,6 @@ CORE_COMPONENTS = ("qorqut-code", "qorqut-operations", "qorqut-context", "dashbo
 EXCLUDED_FAMILIES = (
     ("fastmail", re.compile(r"(?:^|-)fastmail(?:-|$)")),
     ("telegram", re.compile(r"(?:^|-)telegram(?:-|$)")),
-    ("whatsapp", re.compile(r"(?:^|-)whatsapp(?:-|$)")),
     ("email-engine", re.compile(r"(?:^|-)email-engine(?:-|$)")),
     ("paper", re.compile(r"(?:^|-)paper(?:-|$)")),
     ("content", re.compile(r"(?:^|-)content(?:-(?:library|thinking))?(?:-|$)|^content-library$")),
@@ -48,7 +47,7 @@ EXCLUDED_FAMILIES = (
 )
 # Import roots of the excluded components: a retained module must not import them unguarded.
 EXCLUDED_IMPORT_ROOTS = frozenset({"qorqut_fastmail", "engine_email", "qorqut_paper", "email_outreach", "qorqut_content",
-                                   "content_library", "qorqut_telegram", "qorqut_whatsapp"})
+                                   "content_library", "qorqut_telegram"})
 
 TEST_DIRS = {"tests", "test", "__tests__", "__snapshots__", "test-results", "coverage"}
 DEV_DIRS = {".git", ".github", ".gitlab", ".circleci", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox", ".nox", "__pycache__"}
@@ -68,8 +67,11 @@ HOST_EXCLUDES = (
     "app/scripts", "app/tools/release_worker", "app/tools/check_installed_host.py", "app/tools/installed_host_probe.py",
     "app/tools/rehearse_agentic_install.py", "app/tools/prepare_agentic_helper_manifest.py",
     "app/tools/browser/build_runtime.py",
+    # The WhatsApp helper's Go source and build tools: the helper ships compiled inside its wheel, and its exact
+    # corresponding source is published as a separate archive beside each download.
+    "extensions/whatsapp/native", "extensions/whatsapp/tools",
 )
-HOST_OPTIONAL_EXTENSIONS = ("extensions/fastmail", "extensions/telegram", "extensions/whatsapp")
+HOST_OPTIONAL_EXTENSIONS = ("extensions/fastmail", "extensions/telegram")
 RUNTIME_INIT = b'"""Shared runtime/session helpers; release execution is not included in the download."""\n'
 
 # Initialization, migration, recovery, schema/template, helper, instruction and notice files the runtime cannot do without.
@@ -97,14 +99,21 @@ REQUIRED_RUNTIME_ASSETS = {
     "google-calendar": ("qorqut-code/extensions/google-calendar/pyproject.toml",),
     "treg": ("qorqut-code/extensions/treg/pyproject.toml",),
     "openrouter": ("qorqut-code/extensions/openrouter/pyproject.toml",),
+    "whatsapp": ("qorqut-code/extensions/whatsapp/pyproject.toml", "qorqut-code/extensions/whatsapp/LICENSE",
+                 "qorqut-code/extensions/whatsapp/LICENSES/GPL-3.0.txt", "qorqut-code/extensions/whatsapp/SOURCE-AVAILABILITY.md"),
 }
+# Package data a first-party wheel gets from its build, not from the source: the WhatsApp helper program compiled by
+# extensions/whatsapp/tools/build.py, its build record and its third-party notices. The wheel must carry each.
+BUILT_PACKAGE_DATA = {"qorqut-whatsapp": {("qorqut_whatsapp", "bin/whatsapp-personal"): "qorqut_whatsapp/bin/whatsapp-personal",
+                                          ("qorqut_whatsapp", "build.json"): "qorqut_whatsapp/build.json",
+                                          ("qorqut_whatsapp", "third_party/**/*"): "qorqut_whatsapp/third_party/"}}
 NOTICE_NAMES = re.compile(r"^(?:LICENSE|LICENCE|NOTICE|COPYING|THIRD[-_ ]PARTY)(?:[-_.].*)?$", re.I)
 
 # Optional-only payload groups the default package must not carry. Each is matched by whole name tokens, so "telegram" in a
 # migration, a history enum value or a prose document is not a payload; only executable code, packaged resources, guidance
 # bundles and dashboard assets whose own path names the provider are.
 PAYLOAD_GROUPS = {
-    "telegram": (("telegram",),), "whatsapp": (("whatsapp",),), "cloudflare": (("cloudflare",),), "fastmail": (("fastmail",),),
+    "telegram": (("telegram",),), "cloudflare": (("cloudflare",),), "fastmail": (("fastmail",),),
     "paper": (("paper",),), "email-engine": (("engine", "email"), ("email", "engine")),
     "content": (("qorqut", "content"), ("content", "library")),
 }
@@ -722,7 +731,7 @@ def audit(source, wheels=None, snapshot=None, required=REQUIRED_RUNTIME_ASSETS, 
                 find("missing-required-asset", path, category)
     projects, package_data = _projects(source, files, find)
     for row in package_data:
-        if not row["matches"]:
+        if not row["matches"] and (row["package"], row["pattern"]) not in BUILT_PACKAGE_DATA.get(row["project"], {}):
             find("missing-required-asset", row["pyproject"], f"package-data {row['package']}: {row['pattern']} matches no file")
     import_found, graph, modules = import_findings(source, files)
     findings += import_found
@@ -823,6 +832,9 @@ def _audit_wheels(wheels, projects, package_data, find):
                             if "release_worker" in target or script.strip() in RELEASE_ENTRY_POINTS:
                                 find("development-entry-point", f"{path.name}:{member}", f"{script.strip()} = {target.strip()}")
             assets = expected.get(normalize(project), {})
+            for member in BUILT_PACKAGE_DATA.get(normalize(project), {}).values():
+                if not any(name == member or (member.endswith("/") and name.startswith(member)) for name in names):
+                    find("missing-required-asset", f"{path.name}:{member}", "the wheel lacks a file its build must add")
             for member in sorted(set(assets) - set(names)):
                 find("missing-required-asset", f"{path.name}:{member}", "package data present in the runtime source is absent from the wheel")
             for member in sorted(set(assets) & set(names)):

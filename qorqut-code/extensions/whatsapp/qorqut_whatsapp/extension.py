@@ -1,4 +1,7 @@
-"""Optional WhatsApp selection; no provider access or service starts during composition."""
+"""WhatsApp selection; no provider access or service starts during composition.
+
+Selected in every installation and dormant until the owner asks Ordubashy to set it up (``whatsapp_setup``) or links the
+phone from Settings (the owner routes below); ``setup.py`` holds that lifecycle."""
 from pathlib import Path
 
 from qorqut.extensions import Assets, Extension, NativeConnection, ServiceDeclaration
@@ -9,7 +12,7 @@ from qorqut_operations.application.plans import schema
 from qorqut_operations.background.programs import Program
 from qorqut_operations.contracts import DomainError, PolicyDecision
 
-from . import binding
+from . import binding, setup
 from .operations import WhatsAppSendOperations, OPERATION, PROGRAM
 from .program import WhatsAppSendProgram
 
@@ -50,17 +53,22 @@ def guidance(*, agentic_view):
     return "\n" + render(agentic_view, "whatsapp", "qorqut_whatsapp/guidance.md") + "\n"
 
 
+def orientation(prepared, ordubashy, **_):
+    return "" if prepared else "\nWhatsApp is not linked. When the owner asks for it, set it up with whatsapp_setup.\n"
+
+
 class WhatsApp(Extension):
     id = "whatsapp"
 
     def __init__(self):
-        self.operations = self.receiver = None
+        self.operations = self.receiver = self.setup = None
 
     def catalog(self):
-        return (CatalogContribution(self.id, entries=(CatalogEntry(OPERATION, True, "compound", frozenset({"mcp"})),)),)
+        return (CatalogContribution(self.id, entries=(CatalogEntry(OPERATION, True, "compound", frozenset({"mcp"})),
+                                                      CatalogEntry(setup.TOOL, False, "records", frozenset({"mcp"})))),)
 
     def policy_rules(self):
-        return {OPERATION: policy}
+        return {OPERATION: policy, setup.TOOL: setup.policy}
 
     def global_discovery_operations(self):
         return (OPERATION,)
@@ -75,8 +83,7 @@ class WhatsApp(Extension):
 
     def native_connections(self):
         return (NativeConnection(binding.NAME, binding.NAME, status, entry, lambda *_: {},
-            lambda prepared, ordubashy, **_: "" if prepared else "\nThe optional WhatsApp reader is unavailable for this agent.\n",
-            guidance, roles=("ordubashy",), tools=tuple(binding.TOOLS), require_new_binding=True),)
+            orientation, guidance, roles=("ordubashy",), tools=tuple(binding.TOOLS), require_new_binding=True),)
 
     def assets(self):
         return Assets(Path(__file__).parent / "assets", scripts=("whatsapp.js",), styles=("whatsapp.css",))
@@ -86,12 +93,19 @@ class WhatsApp(Extension):
         register_program(runtime.programs, self.operations)
         from .receiver import Receiver
         self.receiver = Receiver(runtime.paths)
+        self.setup = setup.Setup(runtime.paths, self.receiver, setup.RuntimeHost(runtime))
+        setup.SetupTool(runtime.application, self.setup).register(runtime.registry)
 
     def services(self):
-        if self.receiver is None:
+        if self.setup is None:
             return ()
-        return (ServiceDeclaration("whatsapp_receiver", self.receiver, start_before="background", stop_before="background",
-            running=lambda receiver: receiver.process is not None and receiver.process.poll() is None),)
+        # The receiver and a pairing in progress are children of this one service step.
+        return (ServiceDeclaration("whatsapp_receiver", self.setup, start_before="background", stop_before="background",
+            running=lambda service: service.running()),)
+
+    def owner_routes(self):
+        from . import routes
+        return routes.owner_routes(self)
 
 
 def create(config=None):

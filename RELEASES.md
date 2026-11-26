@@ -24,9 +24,9 @@ GitHub Releases hosts versioned releases, including
 published November 25, 2026. A release
 page can host both the application and separate
 connector assets, with a short index linking to each connector's setup guide.
-This requires no separate marketplace or automatic extension registry. The
-WhatsApp bundle must be accompanied by the exact helper corresponding-source
-archive and its build instructions. Preserve the separate Apache 2.0 adapter/UI
+This requires no separate marketplace or automatic extension registry. WhatsApp
+is built into every download; each release must be accompanied by the exact helper
+corresponding-source archive for each platform and its build instructions. Preserve the separate Apache 2.0 adapter/UI
 and GPL-3.0-only helper notices alongside dependency notices.
 
 Verify the checksum from the trusted release channel before installation. A
