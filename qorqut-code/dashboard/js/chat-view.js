@@ -645,7 +645,7 @@ function mountChatView(host, options = {}) {
   const input = form.querySelector('textarea'), send = form.querySelector('.gchat-send');
   // Voice input (js/voice-input.js) adds its microphone beside Send when the OpenRouter extension is part of this Qorqbot.
   const mic = options.voiceInput !== false && typeof voiceInput !== 'undefined'
-    ? voiceInput.attach({form, input, before: send, maxLength: defaults.maxLength}) : null;
+    ? voiceInput.attach({form, input, before: send, maxLength: defaults.maxLength, onChange: () => { if (ready) { paintSend(); tuck(); } }}) : null;
   host.append(root);
   if (options.composerHost) options.composerHost.append(form);
   else { if (options.footer) root.append(options.footer); root.append(form); }
@@ -657,11 +657,29 @@ function mountChatView(host, options = {}) {
   const emit = (name, ...args) => { if (!disposed && ready) options[name]?.(...args); };
   if (mic) cleanups.push(() => mic.dispose());
 
+  // On a device with a mouse the text line is tucked away until the pointer is over the chat (its feed or its composer).
+  // It stays out while the line has focus or the microphone is recording or turning words into text.
+  const hoverDevice = typeof matchMedia === 'function' && matchMedia('(hover: hover) and (pointer: fine)').matches;
+  let pointerOver = false;
+  function tuck() {
+    if (disposed) return;
+    const open = !hoverDevice || pointerOver || form.contains(document.activeElement) || !!mic?.busy;
+    if (form.classList.contains('gchat-composer-tucked') === open) { form.classList.toggle('gchat-composer-tucked', !open); if (open) resizeComposer(); }
+  }
+  if (hoverDevice) {
+    // Entering either part, or leaving one for the other, keeps the line out; leaving both (or the window) tucks it.
+    const inside = node => node instanceof Node && (host.contains(node) || form.contains(node));
+    const track = event => { const over = event.type === 'pointerenter' || inside(event.relatedTarget); if (over !== pointerOver) { pointerOver = over; tuck(); } };
+    for (const target of new Set([host, form])) { listen(target, 'pointerenter', track); listen(target, 'pointerleave', track); }
+    listen(form, 'focusin', tuck); listen(form, 'focusout', () => setTimeout(tuck));
+  }
+
   // Measure at the compact width first so wrapping never oscillates between layouts.
   // Refreshes with an unchanged draft leave selection and textarea scrolling alone.
   let composerMeasure = '';
   function resizeComposer() {
-    if (disposed || form.hidden || !input.clientWidth) return;
+    // A tucked line is measured again when it opens.
+    if (disposed || form.hidden || !input.clientWidth || form.classList.contains('gchat-composer-tucked')) return;
     const signature = JSON.stringify([input.value, form.clientWidth, attachments.hidden, model.composer.sendLabel, !!mic?.wave.hidden]);
     if (signature === composerMeasure) return;
     composerMeasure = signature;
@@ -1280,7 +1298,8 @@ function mountChatView(host, options = {}) {
   }
   // While the agent works and nothing is typed or attached, Send is Stop (`composer.stop`): one press stops the agent. Typing
   // anything turns it back into Send, so a message can still go in mid-turn.
-  const stopMode = () => !!model.composer.stop && !model.composer.hidden && !input.value.trim() && !(model.composer.attachments || []).length;
+  // A recording in progress (or being turned into text) is a message on its way, so the button stays Send.
+  const stopMode = () => !!model.composer.stop && !model.composer.hidden && !input.value.trim() && !(model.composer.attachments || []).length && !mic?.busy;
   function paintSend() {
     const c = model.composer, stopping = stopMode(), label = stopping ? 'Stop' : c.sendLabel;
     send.type = stopping ? 'button' : 'submit';
@@ -1474,11 +1493,16 @@ function mountChatView(host, options = {}) {
     event.preventDefault();
     // inputDisabled only locks editing: a visible, enabled Send (a retry of a locked draft) still dispatches.
     if (model.composer.hidden || send.disabled) return;
+    // Send while recording means stop, turn the words into text and send them with the draft.
+    if (mic?.busy) {
+      mic.sendWhenDone(() => { if (!disposed && (input.value.trim() || (model.composer.attachments || []).length)) form.requestSubmit(); });
+      return;
+    }
     emit('onSubmit', input.value);
   });
 
   paintComposer(); paintOlder(); paintBanner();
-  ready = true;
+  ready = true; tuck();
   return {
     root,
     elements: {scroll: scroller, log, pending: pendingHost, composer: form, input, send, older: olderButton, jump, banner, empty: emptyNote},

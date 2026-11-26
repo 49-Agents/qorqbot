@@ -1,0 +1,99 @@
+'use strict';
+// Sending while recording stops, transcribes and sends; the microphone spins while the words become text; the text line is
+// tucked away until the pointer is over the chat; the stop square is 1.6 times its old size.
+const {test} = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+let chromium;
+try { ({chromium} = require('playwright')); } catch (_) { /* Optional local browser dependency. */ }
+const executable = process.env.CHROME_PATH || chromium?.executablePath();
+const available = !!chromium && fs.existsSync(executable);
+const root = path.join(__dirname, '..');
+
+async function fixture(run) {
+  const browser = await chromium.launch({headless: true, executablePath: executable});
+  try {
+    const page = await browser.newPage({viewport: {width: 900, height: 800}});
+    await page.setContent('<main id="chat" style="display:flex;flex-direction:column;height:500px;width:600px"></main><div id="away" style="height:200px"></div>');
+    for (const file of ['app.css', 'css/chat-view.css']) await page.addStyleTag({path: path.join(root, file)});
+    await page.evaluate(() => {
+      window.esc = v => String(v ?? ''); window.agentGlyph = () => ''; window.coreData = x => x; window.toast = text => toasts.push(text);
+      window.toasts = []; window.sent = []; window.stops = 0;
+      delete window.AudioContext; delete window.webkitAudioContext;
+      let release;
+      window.transcribed = new Promise(resolve => { release = resolve; });
+      window.finishTranscription = () => release({text: 'hello there'});
+      window.api = async url => url === '/root/connectors' ? {connectors: [{id: 'openrouter', status: 'connected'}]} : window.transcribed;
+      Object.defineProperty(navigator, 'mediaDevices', {value: {getUserMedia: async () => ({getTracks: () => [{stop() {}}]})}});
+      window.MediaRecorder = class extends EventTarget {
+        static isTypeSupported() { return true; }
+        constructor() { super(); this.state = 'inactive'; this.mimeType = 'audio/webm'; }
+        start() { this.state = 'recording'; }
+        stop() {
+          this.state = 'inactive';
+          const data = new Event('dataavailable'); data.data = new Blob(['x'], {type: 'audio/webm'});
+          this.dispatchEvent(data); this.dispatchEvent(new Event('stop'));
+        }
+      };
+    });
+    await page.addScriptTag({path: path.join(root, 'js/voice-input.js')});
+    await page.addScriptTag({path: path.join(root, 'js/chat-view.js')});
+    await page.evaluate(() => {
+      window.view = mountChatView(document.querySelector('#chat'), {onSubmit: text => sent.push(text), onStop: () => { stops++; }});
+      view.render({entries: [], composer: {stop: true}});
+    });
+    await page.waitForSelector('.gchat-mic:not([hidden])');
+    await run(page);
+  } finally { await browser.close(); }
+}
+const browserTest = (name, run) => test(name, {skip: !available && 'Local Playwright Chromium is unavailable'}, () => fixture(run));
+
+browserTest('Send pressed while recording stops, transcribes and sends; the microphone spins meanwhile', async page => {
+  await page.mouse.move(100, 100);
+  assert.equal(await page.getAttribute('.gchat-send', 'aria-label'), 'Stop');
+  await page.click('.gchat-mic');
+  await page.waitForSelector('.gchat-mic[data-state="recording"]');
+  assert.equal(await page.getAttribute('.gchat-send', 'aria-label'), 'Send', 'a recording is a message on its way, not a stop');
+  await page.click('.gchat-send');
+  await page.waitForSelector('.gchat-mic[data-state="working"] .gchat-mic-spinner');
+  assert.notEqual(await page.$eval('.gchat-mic', el => getComputedStyle(el).cursor), 'progress');
+  assert.equal(await page.$eval('.gchat-wave', el => el.hidden), true, 'the waveform goes once the recording stops');
+  // Pressing Send again while the words are turned into text sends once, not twice.
+  await page.click('.gchat-send');
+  assert.deepEqual(await page.evaluate(() => sent), []);
+  await page.evaluate(() => finishTranscription());
+  await page.waitForFunction(() => sent.length > 0);
+  assert.deepEqual(await page.evaluate(() => [sent, stops]), [['hello there'], 0]);
+  assert.equal(await page.$('.gchat-mic .gchat-mic-spinner'), null, 'the microphone icon is back');
+});
+
+browserTest('Escape discards the recording and a pending send with it', async page => {
+  await page.mouse.move(100, 100);
+  await page.click('.gchat-mic');
+  await page.waitForSelector('.gchat-mic[data-state="recording"]');
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('.gchat-mic[data-state="idle"]');
+  assert.deepEqual(await page.evaluate(() => sent), []);
+});
+
+browserTest('the text line is tucked away until the pointer is over the chat, and stays while it has focus', async page => {
+  const state = () => page.$eval('.gchat-composer', form => [form.classList.contains('gchat-composer-tucked'), Math.round(form.querySelector('textarea').getBoundingClientRect().height)]);
+  await page.mouse.move(100, 700);
+  await page.waitForTimeout(400);
+  assert.deepEqual(await state(), [true, 0]);
+  await page.mouse.move(100, 100);
+  await page.waitForTimeout(400);
+  assert.deepEqual(await state(), [false, 36]);
+  await page.focus('.gchat-composer textarea');
+  await page.mouse.move(100, 700);
+  await page.waitForTimeout(400);
+  assert.deepEqual(await state(), [false, 36], 'focused, it stays');
+  await page.evaluate(() => document.activeElement.blur());
+  await page.waitForTimeout(400);
+  assert.deepEqual(await state(), [true, 0]);
+});
+
+browserTest('the stop square is 1.6 times its old 16px', async page => {
+  assert.equal(await page.$eval('.gchat-send.gchat-stop svg', svg => Math.round(svg.getBoundingClientRect().width * 10) / 10), 25.6);
+});

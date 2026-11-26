@@ -4,7 +4,8 @@
 // composer; the recording goes to the OpenRouter extension's own route and its text is inserted where the cursor is.
 // The hotkey is Ctrl+Shift+Space: it starts and stops a recording in the composer being typed in, or the one on screen.
 // While recording, a small waveform (a loudness history read from the same microphone stream) and the elapsed time sit
-// between the text field and the buttons; they freeze and dim while the words are turned into text.
+// between the text field and the buttons; they go when the recording stops, and the microphone button shows a spinner
+// while the words are turned into text. Sending while recording stops the recording, waits for its text and then sends (`sendWhenDone`).
 const voiceInputModel = (() => {
   // What a browser can record, most compatible first; the service accepts each by its plain media type.
   const RECORDINGS = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
@@ -99,6 +100,7 @@ const openrouterConnect = (() => {
 })();
 
 const voiceInput = (() => {
+  const SPINNER = '<svg class="gchat-mic-spinner" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"/></svg>';
   const ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg>';
   const controllers = new Set();
   let status = null, reading = null;
@@ -114,7 +116,8 @@ const voiceInput = (() => {
   const refresh = () => readStatus();
   const say = text => { if (typeof toast === 'function') toast(text); };
 
-  // options: {form, input, before, maxLength}. The button is inserted before `before` inside `form`.
+  // options: {form, input, before, maxLength, onChange}. The button is inserted before `before` inside `form`; `onChange` is
+  // called whenever the recording state changes.
   function attach(options) {
     const {form, input} = options;
     const button = document.createElement('button');
@@ -128,19 +131,22 @@ const voiceInput = (() => {
     form.insertBefore(wave, form.querySelector(':scope > .gchat-attach') || button);
     const bars = [...wave.querySelector('.gchat-wave-bars').children], clock = wave.querySelector('.gchat-wave-time');
     let state = 'idle', recorder = null, stream = null, chunks = [], timer = 0, locked = false, lockedWhy = '', cancelled = false, disposed = false;
+    let after = null, transcribing = false;
     let waving = false, audio = null, analyser = null, samples = null, ticker = 0, history = [], startedAt = 0;
     const label = () => state === 'recording' ? 'Stop and insert what you said' : state === 'working' ? 'Turning your words into text…'
       : locked && state === 'idle' && lockedWhy ? `Voice input is off. ${lockedWhy}` : `Voice input (${voiceInputModel.hotkeyLabel(navigator.platform)})`;
     function paint() {
       if (disposed) return;
       button.hidden = !status || status === 'not_installed';
+      if (button.dataset.state !== state) button.innerHTML = state === 'working' ? SPINNER : ICON;
       button.dataset.state = state;
       button.disabled = state === 'working' || (state === 'idle' && (locked || input.disabled));
       button.setAttribute('aria-pressed', state === 'recording' ? 'true' : 'false');
       button.setAttribute('aria-label', label()); button.title = label();
-      // Shown from the first recorded moment until the text is in (frozen and dim while `working`), gone once idle.
-      if (state === 'recording') waving = true; else if (state === 'idle') waving = false;
+      // Shown only while recording; the spinner on the button covers the wait for the text.
+      waving = state === 'recording';
       wave.hidden = !waving; wave.dataset.state = state;
+      options.onChange?.();
     }
     // Writes bar heights and the clock only; nothing here reads layout.
     function drawWave() {
@@ -181,8 +187,11 @@ const voiceInput = (() => {
     async function finish(type) {
       const blob = new Blob(chunks, {type});
       release();
-      if (cancelled || !blob.size) { state = 'idle'; paint(); return; }
-      state = 'working'; paint();
+      // A send pressed meanwhile goes ahead once the words are in; a discarded recording drops it.
+      let then = cancelled ? null : after;
+      after = null;
+      if (cancelled || !blob.size) { state = 'idle'; paint(); then?.(); return; }
+      state = 'working'; transcribing = true; paint();
       try {
         const data = coreData(await api('/root/extensions/openrouter/transcribe',
           {method: 'POST', headers: {'Content-Type': voiceInputModel.mediaType(type) || 'audio/webm'}, body: blob}));
@@ -194,9 +203,13 @@ const voiceInput = (() => {
           input.dispatchEvent(new Event('input', {bubbles: true}));
           if (!next.inserted.trim()) say('The message is full. Send it or shorten it first.');
         }
-      } catch (failure) { if (!disposed) say(failure.message || 'Your words could not be turned into text. Try again.'); }
+        // A send pressed during transcription is taken too.
+        then = after || then;
+      } catch (failure) { then = null; if (!disposed) say(failure.message || 'Your words could not be turned into text. Try again.'); }
+      after = null; transcribing = false;
       state = 'idle'; paint();
       if (!disposed && !input.disabled) input.focus();
+      if (!disposed) then?.();
     }
     async function start() {
       if (state !== 'idle' || locked || input.disabled) return;
@@ -227,10 +240,18 @@ const voiceInput = (() => {
     function stop(discard = false) {
       if (state !== 'recording' || !recorder) return;
       cancelled = discard;
+      if (discard) after = null;
       clearTimeout(timer); timer = 0;
       if (recorder.state !== 'inactive') recorder.stop();
     }
     const toggle = () => { if (state === 'recording') stop(); else void start(); };
+    // Send pressed while recording: stop, turn the words into text, then `send`. While the words are already being turned
+    // into text, `send` waits for them. Otherwise (idle, or the microphone still starting) it runs at once.
+    function sendWhenDone(send) {
+      if (state === 'recording') { after = send; stop(); }
+      else if (transcribing) after = send;
+      else send();
+    }
     const onClick = () => toggle();
     // Escape discards a recording in progress without touching the draft.
     const onKey = event => { if (event.key === 'Escape' && state === 'recording') { event.preventDefault(); event.stopPropagation(); stop(true); } };
@@ -245,11 +266,12 @@ const voiceInput = (() => {
     controllers.add(controller);
     if (status) paint(); else void readStatus();
     return {
-      button, wave,
+      button, wave, sendWhenDone,
+      get busy() { return state === 'recording' || transcribing; },
       // The composer's own lock (no session to send to, a send in flight) also locks the microphone.
       setLocked(value, why = '') { locked = !!value; lockedWhy = locked ? String(why || '') : ''; paint(); },
       dispose() {
-        disposed = true; controllers.delete(controller);
+        disposed = true; controllers.delete(controller); after = null;
         stop(true); release();
         button.removeEventListener('click', onClick); form.removeEventListener('keydown', onKey);
         button.remove(); wave.remove();
