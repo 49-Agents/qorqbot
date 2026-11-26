@@ -1,0 +1,8 @@
+- id: connection
+  based_on: customer
+  label: Connection
+  plural: Connections
+  fields:
+    - {id: met_at, label: Where we met, type: string}
+    - {id: closeness, label: Closeness, type: enum, values: [close, friendly, distant]}
+    - {id: last_contact, label: Last contact, type: date}

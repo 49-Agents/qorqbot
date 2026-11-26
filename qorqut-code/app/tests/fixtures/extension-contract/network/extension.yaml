@@ -1,0 +1,13 @@
+contract: 1
+id: network
+name: Network
+summary: Ordubashy keeps your personal network, so he knows who you know, where you met and when to follow up.
+version: 1.0.0
+delivery: downloadable
+platforms: [linux, mac, windows]
+requires:
+  qorqbot: ">=1.7.0"
+setup:
+  kind: none
+agents:
+  allowed: [ordubashy]

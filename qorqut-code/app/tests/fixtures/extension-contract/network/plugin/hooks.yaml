@@ -1,0 +1,17 @@
+- id: note-people-mentioned
+  at: owner_message
+  text: instructions/note-people-mentioned.md
+
+- id: after-crm-change
+  at: after_tool
+  tools: [crm_entries_update]
+  text: instructions/after-crm-change.md
+
+- id: check-follow-ups
+  at: stop
+  text: instructions/check-follow-ups.md
+
+- id: weekly-review
+  at: timed
+  every: 7d
+  text: instructions/weekly-review.md
