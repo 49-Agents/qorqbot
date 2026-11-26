@@ -292,8 +292,16 @@ adds no database table and no code.
 - A record of the new type is stored as its base type and behaves as its base type everywhere: in CRM tables, in Focus,
   in what counts as work.
 - The dashboard shows the label and draws the extra fields from this list. An extension writes no dashboard code for it.
-- A type id is unique across all extensions.
-- When the extension is switched off or removed, the records stay and are shown as their base type with their fields.
+- A type id is unique across all extensions, follows the rule for field ids, and is not the name of one of Qorqbot's
+  own types.
+- A type exists while its extension is `ready` and on for at least one agent. Agents see in `tasks_config_get` the types
+  of the extensions on for them; the owner sees every type that exists. A type can be used in every project and in
+  Global.
+- When the extension is switched off for every agent or removed, its records stay. They show as their base type, with
+  the extra values listed under their field ids. An edit keeps those values as they are; a value that is changed is
+  checked against the fields the record's project defines.
+- Qorqbot reads `records.yaml` from the extension's copy in the agentic layer. A copy that breaks a rule gives no types
+  and the extension shows as `needs_attention`. Two extensions that declare the same type id give it to neither.
 
 ## 10. The code part
 
@@ -411,7 +419,7 @@ files hold, it reports a problem and never fails.
 | The Connections card drawn from the manifest | To build; three extensions are written into the screen by hand |
 | One private folder per extension | To build; each extension picks its own files today |
 | Hooks and nudges list | To build; about thirty separately written points today |
-| Record types | To build; the four Task types are a fixed list in the backend and the dashboard |
+| Record types | Exist. A record is a Task of the type's base with `record_type` set and its extra values as custom fields. The Type editor, the CRM row form, `tasks_create`, `tasks_update` and `crm_entries_add` take it, and `tasks_list` filters by it. No table |
 | The index of downloadable extensions | To build |
 | The checker | Exists in part ([section 12](#12-the-checker)); Qorqbot runs it at start |
 
@@ -457,6 +465,7 @@ All dates are 26 November 2026.
     `summary`, and a shortest `every`; they are removed. Limits that Qorqbot already applies are named as such.
 14. Bringing today's extensions under the contract is a separate job.
 15. An agent created later, of a role the extension is on for by default, has the extension from its first session.
+16. A record type from an extension can be used in every project. There is no scoping.
 
 **Written into the draft and shown to the owner, who did not object**
 
@@ -479,6 +488,9 @@ The owner's word changes any of these.
 10. A folder that breaks the contract shows in the list as needing attention, with the reason. Nothing of it reaches an
     agent.
 11. A switch made before the extension is ready is kept. The agent gets nothing of the extension until it is ready.
+12. A record of an extension's type can be created by hand in the dashboard and by agents, and its type can be changed
+    afterwards. The extra values stay on the record.
+13. The plural of a record type is carried for agents. The dashboard has no new list by type.
 
 **Not decided**
 

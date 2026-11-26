@@ -109,7 +109,8 @@ class Entries:
             return self.placeholder(entry)
         record = access.view(ctx, row, uow, cache, now)
         cells, errors = access.render(entry, table["columns_json"], record,
-                                      access.definitions(ctx, entry["record_project_id"], entry["record_task_id"], uow, cache))
+                                      access.definitions(ctx, entry["record_project_id"], entry["record_task_id"], uow, cache,
+                                                         record["record_type"]))
         local = {column["id"] for column in table["columns_json"] if column.get("record_field") is None}
         return {"id": entry["id"], "table_id": entry["table_id"], "project_id": entry["project_id"],
                 "revision": entry["revision"], "position": entry["position"], "stage_id": entry["stage_id"], "cells": cells,
@@ -210,7 +211,8 @@ class Entries:
         row = access.row(entry["record_project_id"], entry["record_task_id"], uow)
         record = access.source(row, uow, cache)
         cells, _ = access.render(entry, table["columns_json"], record,
-                                 access.definitions(ctx, entry["record_project_id"], entry["record_task_id"], uow, cache))
+                                 access.definitions(ctx, entry["record_project_id"], entry["record_task_id"], uow, cache,
+                                                    record["record_type"]))
         return query in (record["title"] + " " + json.dumps(list(cells.values()), ensure_ascii=False)).casefold()
 
     # -- writes ----------------------------------------------------------------------------------------------------
@@ -288,11 +290,18 @@ class Entries:
             raise DomainError("conflict", "The record is already an entry with different values; use crm_entries_update",
                               details={"entry_id": entry["id"], "columns": sorted(differs)})
 
-    def task_arguments(self, ctx, args):
-        """The ``tasks_create`` arguments of a new entry: a Customer (person) unless another Task type is chosen."""
+    def task_arguments(self, ctx, args, uow):
+        """The ``tasks_create`` arguments of a new entry: a Customer (person) unless another Task type or a record type is
+        chosen."""
         # A row is a record of its Table, so a second row with the same name is the Table's concern, not a duplicate Task.
-        create = {"task_type": "customer", "allow_duplicate": True, **args["create"]}
-        if ctx.principal_kind == "agent" and create["task_type"] == "task":
+        create = {"allow_duplicate": True, **args["create"]}
+        found = self.crm.tasks.record_types.active(uow).get(create.get("record_type"))
+        if "task_type" not in create and create.get("record_type") is None:
+            create = {"task_type": "customer", **create}
+        if ctx.principal_kind == "agent" and found is not None and found.based_on == "task":
+            raise DomainError("validation_error", f"A {found.label} is based on a Task, which is a piece of work, so it cannot be "
+                                                  "a CRM row.")
+        if ctx.principal_kind == "agent" and create.get("task_type") == "task":
             # A work Task per row fills every work view with records and leaves each row's state in two places.
             raise DomainError("validation_error",
                               "A CRM row is a record, not a piece of work: leave task_type out (the row is stored as a Customer "
@@ -301,7 +310,7 @@ class Entries:
 
     def compose_task(self, ctx, builder, args, options, uow):
         """Prepare the new Task with the Task service's own validation and adopt its effects into the Table's plan."""
-        prepared = self.crm.tasks.prepare("tasks_create", ctx, self.task_arguments(ctx, args), options, uow)
+        prepared = self.crm.tasks.prepare("tasks_create", ctx, self.task_arguments(ctx, args, uow), options, uow)
         for target in prepared.expected_targets:
             if builder.targets.get(target.resource, target) != target:
                 raise DomainError("invalid_plan", "Prepared snapshots disagree")
@@ -382,7 +391,7 @@ class Entries:
         entry = next((change for change in table_changes if change.resource.resource_type == "crm_entries"
                       and change.action in {"insert", "update"}), None)
         if "create" in args:
-            task_plan = replace(plan, operation_name="tasks_create", arguments=self.task_arguments(ctx, args), changes=task_changes)
+            task_plan = replace(plan, operation_name="tasks_create", arguments=self.task_arguments(ctx, args, uow), changes=task_changes)
             self.crm.tasks.validate_prepared(ctx, task_plan, uow)
             created = next((c.resource.resource_id for c in task_changes if c.resource.resource_type == "tasks" and c.action == "insert"), None)
             if created is None or entry is None or entry.action != "insert" or (
@@ -454,7 +463,7 @@ class Entries:
         created = bool(task_changes)
         if created:
             # The Task service's own apply: its writes, follows, system entry and event, inside this one transaction.
-            self.crm.tasks.apply(ctx, replace(plan, operation_name="tasks_create", arguments=self.task_arguments(ctx, args),
+            self.crm.tasks.apply(ctx, replace(plan, operation_name="tasks_create", arguments=self.task_arguments(ctx, args, uow),
                                               changes=task_changes), uow)
         table_plan = replace(plan, changes=table_changes)
         applied = apply_records(ctx, replace(table_plan, changes=tuple(c for c in table_changes if c.action != "capture_table_version")), uow)

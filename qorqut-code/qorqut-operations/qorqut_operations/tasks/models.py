@@ -15,7 +15,8 @@ import re
 from qorqut_operations.application.plans import timestamp
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.tasks.schema import CLOSED_STATES, KINDS, PAUSED_STATES, STATES
-from qorqut_operations.tasks.types import custom_fields, validate_attributes
+from qorqut_operations.tasks.record_types import NO_RECORD_TYPES
+from qorqut_operations.tasks.types import attributes, custom_fields, validate_attributes
 
 NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 FIELD_TYPES = ("string", "int", "bool", "date", "enum")
@@ -62,11 +63,26 @@ def validate_config(value) -> dict:
     if not isinstance(fields, dict):
         invalid("Task fields must be an object")
     for name, spec in fields.items():
-        if not NAME.fullmatch(name) or name in RESERVED_FIELD_NAMES or not isinstance(spec, dict) or spec.get("type") not in FIELD_TYPES:
-            invalid("Invalid custom task field")
-        if spec["type"] == "enum" and (not isinstance(spec.get("values"), list) or not spec["values"]):
+        problem = "name" if not field_name_accepted(name) else definition_problem(spec)
+        if problem == "values":
             invalid("Enum task fields need permitted values")
+        if problem:
+            invalid("Invalid custom task field")
     return fields
+
+
+# The one rule for a custom field definition, also applied to the fields an extension's record type declares.
+def field_name_accepted(name) -> bool:
+    return isinstance(name, str) and bool(NAME.fullmatch(name)) and name not in RESERVED_FIELD_NAMES
+
+
+def definition_problem(spec):
+    """``type`` (not a mapping with one of ``FIELD_TYPES``), ``values`` (an enum without permitted values), or None."""
+    if not isinstance(spec, dict) or spec.get("type") not in FIELD_TYPES:
+        return "type"
+    if spec["type"] == "enum" and (not isinstance(spec.get("values"), list) or not spec["values"]):
+        return "values"
+    return None
 
 
 def is_date(value) -> bool:
@@ -76,11 +92,16 @@ def is_date(value) -> bool:
         return False
 
 
-def validate_task(task, fields, stored=None):
+def validate_task(task, fields, stored=None, *, types=NO_RECORD_TYPES):
     """The retained v1 task rules against the current field definitions (``fields``).
 
     ``stored`` is the Task as it is saved. A field it already holds, with the same value, is kept even when no definition names it
-    (older data), so such a Task can still be closed or edited; setting or changing an undefined field is still refused."""
+    (older data), so such a Task can still be closed or edited; setting or changing an undefined field is still refused.
+
+    ``types`` are the active record types. A Task of one is of the type's base, and its custom fields are judged against
+    ``fields`` with the type's own definitions laid over them. A record type that is not active is kept only while unchanged.
+    On such a record a value unchanged from ``stored`` is never judged, since it was set under the type's own definition;
+    only the values a write changes are checked, against the definitions that apply now."""
     kept = stored.get("fields_json") if stored else None
     kept = kept if isinstance(kept, dict) else {}
     title = task["title"]
@@ -96,7 +117,19 @@ def validate_task(task, fields, stored=None):
     if not isinstance(values, dict):
         invalid("Task fields must be an object")
     validate_attributes(task)
+    typed = attributes(task)
+    record_type = typed["record_type"]
+    if record_type is not None:
+        found = types.get(record_type)
+        if found is None and record_type != (attributes(stored)["record_type"] if stored else None):
+            invalid("Unknown record type: " + record_type)
+        if found is not None and found.based_on != typed["task_type"]:
+            invalid(f"A {found.label} is a {found.based_on} record")
+    inactive = record_type is not None and types.get(record_type) is None
+    fields = types.fields_for(record_type, fields)
     for name, value in custom_fields(task).items():
+        if inactive and name in kept and kept[name] == value:
+            continue
         spec = fields.get(name)
         if spec is None:
             if name in kept and kept[name] == value:

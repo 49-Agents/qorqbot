@@ -31,10 +31,12 @@ CUSTOMER_ONLY = frozenset({"customer_kind", "customer_state"})
 
 
 class ScopeCache:
-    """Per-call memory of what one caller may read: each Task and Table source (exactly), and each scope's configuration."""
+    """Per-call memory of what one caller may read: each Task and Table source (exactly), each scope's configuration, and the
+    active record types."""
 
     def __init__(self):
         self.allowed, self.contexts, self.fields, self.labels, self.threads = {}, {}, {}, {}, {}
+        self.types = None
 
 
 def task_resource(project_id, task_id):
@@ -143,9 +145,13 @@ class RecordAccess:
             cache.fields[project_id] = self.crm.tasks.configuration(scoped, uow)[0]["fields"]
         return cache.fields[project_id]
 
-    def definitions(self, ctx, project_id, task_id, uow, cache: ScopeCache):
-        """The custom Task fields the record's own scope defines now (what its values are judged against)."""
-        return self.fields(self.context_for(ctx, project_id, task_id, uow, cache), project_id, uow, cache)
+    def definitions(self, ctx, project_id, task_id, uow, cache: ScopeCache, record_type=None):
+        """The custom Task fields the record's own scope defines now, with those of its active record type laid over them
+        (what its values are judged against)."""
+        if cache.types is None:
+            cache.types = self.crm.tasks.record_types.active(uow)
+        return cache.types.fields_for(record_type, self.fields(self.context_for(ctx, project_id, task_id, uow, cache),
+                                                               project_id, uow, cache))
 
     def view(self, ctx, row, uow, cache: ScopeCache, now=None):
         """The list-sized public Task DTO (its discussion page and related-link expansion are left to ``tasks_get``)."""

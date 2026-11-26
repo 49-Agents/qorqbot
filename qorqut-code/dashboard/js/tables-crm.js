@@ -467,7 +467,7 @@ function crmAddDialog(project, table, onDone) {
       editor = taskTypeMount(el, project, {task_type: 'customer'});
       const chosenList = el.querySelector('.crm-chosen');
       const paintChosen = () => chosenList.replaceChildren(...chosen.map(item => {
-        const li = document.createElement('li'); li.textContent = `${item.title} · ${TASK_TYPE_LABELS[item.task_type] || 'Task'} · ${item.scope_label} `;
+        const li = document.createElement('li'); li.textContent = `${item.title} · ${taskTypeLabel(item)} · ${item.scope_label} `;
         const drop = crmButton(`Remove ${item.title} from the chosen records`, 'quiet', 'Remove');
         drop.onclick = () => { chosen = chosen.filter(other => crmScopeKey(other.ref) !== crmScopeKey(item.ref)); paintChosen(); };
         li.append(drop); return li;
