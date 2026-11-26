@@ -1,0 +1,1 @@
+Not run. `{{TOOL}}` is covered by the skill {{NAME}}, which you have not read in this conversation. Read it in full now with the Skill tool, by that name, then make this call again.

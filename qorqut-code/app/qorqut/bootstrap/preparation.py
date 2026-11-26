@@ -491,6 +491,12 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
             # Longer than the gate's own request timeout: Claude Code lets a call continue when a hook times out.
             hooks['PreToolUse'].append({'matcher': 'mcp__claude_ai_.*', 'hooks': [
                 {'type': 'command', 'command': activity_command + ' --connector-gate', 'timeout': 30}]})
+            # The skill-read gate: a Qorqut tool a listed, unread skill names is refused until that skill is read. It
+            # fails open, and a timed-out hook lets the call continue too, so a fault never locks an agent out.
+            hooks['PreToolUse'].append({'matcher': 'mcp__qorqut__.*', 'hooks': [
+                {'type': 'command', 'command': activity_command + ' --skill-gate', 'timeout': 5}]})
+            hooks['PostToolUse'].append({'matcher': 'Skill', 'hooks': [
+                {'type': 'command', 'command': activity_command + ' --skill-gate', 'timeout': 5}]})
     skills_script = str(workspace / '.qorqut/always-skills.py')
     # The main hook composes skills and runtime rules before contextual data.
     profile = {key: data[key] for key in ("schema_version", "agent_id", "profile_revision", "name", "display_name", "status", "runtime", "role", "scope", "assignment_brief", "plugins", "tool_policy", "presentation", "created_at")}

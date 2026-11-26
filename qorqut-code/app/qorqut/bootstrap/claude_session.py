@@ -18,8 +18,8 @@ from .client import (BOOTSTRAP_TIMEOUT, REQUEST_TIMEOUT, STARTUP_INSTRUCTIONS, B
                      load_registration, path_has_symlink, write_json_private, write_text_private)
 from .transcript_snapshot import run as snapshot_transcript
 from .environment import bootstrap_environment_context
-from qorqut_agentic.behavior.instructions import (ALWAYS_SKILLS, BOOTSTRAP_BUDGET, from_prepared, bootstrap_failure,
-                                                  render_skill_discovery)
+from qorqut_agentic.behavior.instructions import (ALWAYS_SKILLS, BOOTSTRAP_BUDGET, FIRST_CONVERSATION_SKILLS, from_prepared,
+                                                  bootstrap_failure, render_skill_discovery)
 
 LIFECYCLE_EVENTS = frozenset({"startup", "resume", "clear", "compact", "fork"})
 
@@ -27,8 +27,8 @@ LIFECYCLE_EVENTS = frozenset({"startup", "resume", "clear", "compact", "fork"})
 CLAUDE_HOOK_LIMIT = 9_500
 STARTUP_CONTEXT = ".qorqut/startup-context.md"
 STARTUP_SKILLS = ".qorqut/startup-skills.md"
-# Loaded with the always-loaded skills while the owner is new (the FIRST CONVERSATION and FIRST MESSAGE lines).
-FIRST_CONVERSATION_SKILLS = ("qorqut-role-get-set-up",)
+# FIRST_CONVERSATION_SKILLS (instructions.py) are loaded with the always-loaded skills while the owner is new; the
+# skill-read gate in the activity hook reads the same constant from the prepared copy of that module.
 # A prompt's short operational reminder stays in the hook output; anything longer is the always-loaded skill text.
 INLINE_SKILLS_LIMIT = 1_000
 INSTRUCTIONS_CHANGED = (f"Your managed instructions changed after this session loaded them. Read {STARTUP_INSTRUCTIONS} "

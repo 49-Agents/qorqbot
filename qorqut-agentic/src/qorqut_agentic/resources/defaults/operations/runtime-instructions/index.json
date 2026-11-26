@@ -689,6 +689,30 @@
       "previous_source": "bootstrap/claude_session.py"
     },
     {
+      "id": "skill-gate-refusal",
+      "path": "messages/skill-gate-refusal.md",
+      "parameters": [
+        "NAME",
+        "TOOL"
+      ],
+      "status": "conditional",
+      "trigger": "skill-read gate",
+      "audience": "registered Claude Code agents; a covered tool called before its skill is read",
+      "previous_source": "bootstrap/activity_hook.py"
+    },
+    {
+      "id": "skill-gate-refusal-several",
+      "path": "messages/skill-gate-refusal-several.md",
+      "parameters": [
+        "NAMES",
+        "TOOL"
+      ],
+      "status": "conditional",
+      "trigger": "skill-read gate",
+      "audience": "registered Claude Code agents; a covered tool called before its skills are read",
+      "previous_source": "bootstrap/activity_hook.py"
+    },
+    {
       "id": "skills-header",
       "path": "messages/skills-header.md",
       "parameters": [],

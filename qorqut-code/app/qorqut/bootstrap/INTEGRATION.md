@@ -277,6 +277,17 @@ value in the skill's front matter, so a skill from an add-on brings its own; a
 skill without one gets a line built from its description. A cached prompt carries no
 discovery section. A prepared snapshot without the four `skill-discovery-*`
 messages delivers none.
+On Claude Code the skill-read gate enforces the section (`activity_hook.py
+--skill-gate`, a `PreToolUse` hook for `mcp__qorqut__.*` and a `PostToolUse` hook
+for `Skill`). A Qorqut tool named in backticks in a listed skill's `read_for`
+(`name_*` is a prefix) is refused, naming the skill, until that skill is read with
+the Skill tool in this conversation (a per-session record under
+`.qorqut/skill-reads/`). An `operations_batch` call is checked by the calls
+inside it. The gate reads the installed skill folders at each call
+through the prepared `.qorqut/agentic-instructions.py`, so a skill refresh at
+bootstrap is seen at once. At most three refusal rounds per skill and
+conversation (refusals within 10 seconds of a round's first are that round), then
+the calls go through and the record says so. Any fault lets the call continue.
 UserPromptSubmit uses the same composer, emits a replacement when changed, and
 blocks when unready. Ordubashy's operational-intake reminder is emitted on every
 prompt, including when configuration and skills are unchanged. Cached prompts can additionally emit a

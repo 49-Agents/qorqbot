@@ -24,6 +24,8 @@ ALWAYS_SKILLS = (
     "qorqut-plugin-email-management", "qorqut-role-project-tables",
     "qorqut-qorqbot-guide",
 )
+# Loaded with the always-loaded skills while the owner is new (the FIRST CONVERSATION and FIRST MESSAGE lines).
+FIRST_CONVERSATION_SKILLS = ("qorqut-role-get-set-up",)
 SKILL_ROOTS = {"codex": ".agents/skills", "claude-code": ".claude/skills"}
 SKILL_BUDGET = 120000
 # The ordered startup message combines the two previously separate deliveries.
@@ -183,6 +185,12 @@ def installed_skills(workspace, runtime):
     return found
 
 
+def discovery_entries(workspace, runtime, loaded=()):
+    """The installed skills the "Skills to read first" section lists: all but ``role`` and those loaded in full."""
+    skipped = set(DISCOVERY_SKIPPED) | set(loaded)
+    return [(name, front) for name, front in installed_skills(workspace, runtime) if name not in skipped]
+
+
 def render_skill_discovery(instructions, workspace, runtime, loaded=()):
     """The "for this kind of work, read this skill first" section: one line for each installed skill that is not loaded in full.
 
@@ -190,8 +198,7 @@ def render_skill_discovery(instructions, workspace, runtime, loaded=()):
     brings its own short phrase as `read_for` in its front matter; without one its line is built from the first
     sentence of its description. Returns "" when nothing is left to list.
     """
-    skipped = set(DISCOVERY_SKIPPED) | set(loaded)
-    entries = [(name, front) for name, front in installed_skills(workspace, runtime) if name not in skipped]
+    entries = discovery_entries(workspace, runtime, loaded)
     if not entries:
         return ""
     suffix = runtime  # Claude Code reads a skill by name; Codex opens the file, so its lines carry the path.
@@ -245,3 +252,45 @@ def render_skills(instructions, workspace, runtime, limit=SKILL_BUDGET, extra=()
     if notes:
         parts.append("Skill notes:\n" + "\n".join(notes))
     return "\n\n".join(parts)
+
+
+# The skill-read gate (Claude Code). A tool a listed skill's `read_for` names in backticks is refused until that skill
+# has been read in this conversation. `name_*` covers every tool whose name starts with `name_`; any other token is an
+# exact tool name. A skill without a backticked tool in its `read_for` (or without a `read_for`) is not gated.
+SKILL_GATE_TOKEN = re.compile(r"`([A-Za-z0-9][A-Za-z0-9_]*\*?)`")
+SKILL_GATE_REFUSAL = ("Not run. `{{TOOL}}` is covered by the skill {{NAME}}, which you have not read in this "
+                      "conversation. Read it in full now with the Skill tool, by that name, then make this call again.")
+SKILL_GATE_REFUSAL_SEVERAL = ("Not run. `{{TOOL}}` is covered by the skills {{NAMES}}, which you have not read in this "
+                              "conversation. Read each of them in full now with the Skill tool, by those names, then "
+                              "make this call again.")
+
+
+def skill_gate_tools(read_for):
+    """The tool names and ``prefix_*`` patterns a `read_for` value names in backticks, in order."""
+    return tuple(dict.fromkeys(SKILL_GATE_TOKEN.findall(read_for or "")))
+
+
+def skill_gate_map(workspace, runtime, loaded=()):
+    """``[(pattern, skill)]`` for every skill the discovery section lists for this agent; the same skills, by the same
+    rule, so the gate and the section cannot name different skills."""
+    return [(pattern, name) for name, front in discovery_entries(workspace, runtime, loaded)
+            for pattern in skill_gate_tools(front.get("read_for"))]
+
+
+def skill_gate_covers(pattern, tool):
+    return tool.startswith(pattern[:-1]) if pattern.endswith("_*") else tool == pattern
+
+
+def skill_gate_refusal(instructions, tool, names):
+    """The refusal for one tool and the unread skills that cover it. A snapshot without these messages uses the same
+    wording built in."""
+    names = list(names)
+    several = len(names) > 1
+    key = "skill-gate-refusal-several" if several else "skill-gate-refusal"
+    joined = ", ".join(names[:-1]) + " and " + names[-1] if several else names[0]
+    values = {"TOOL": tool, **({"NAMES": joined} if several else {"NAME": joined})}
+    try:
+        return instructions.render(key, **values)
+    except (AttributeError, KeyError, ValueError):
+        template = SKILL_GATE_REFUSAL_SEVERAL if several else SKILL_GATE_REFUSAL
+        return TOKEN.sub(lambda match: values[match.group(1)], template)

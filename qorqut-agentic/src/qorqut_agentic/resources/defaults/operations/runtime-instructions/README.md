@@ -75,6 +75,8 @@ The consolidation preserves existing wording, triggers and delivery order. Condi
 | [skill-discovery-header-codex](messages/skill-discovery-header-codex.md) | bootstrap/claude_session.py | conditional |
 | [skill-discovery-line-claude-code](messages/skill-discovery-line-claude-code.md) | bootstrap/claude_session.py | conditional |
 | [skill-discovery-line-codex](messages/skill-discovery-line-codex.md) | bootstrap/claude_session.py | conditional |
+| [skill-gate-refusal](messages/skill-gate-refusal.md) | bootstrap/activity_hook.py | conditional |
+| [skill-gate-refusal-several](messages/skill-gate-refusal-several.md) | bootstrap/activity_hook.py | conditional |
 | [skills-header](messages/skills-header.md) | always skills | conditional |
 | [skills-omitted](messages/skills-omitted.md) | always skills | conditional |
 | [startup-denied](messages/startup-denied.md) | claude session | conditional |
