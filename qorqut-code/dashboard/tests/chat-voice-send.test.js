@@ -43,6 +43,8 @@ async function fixture(run) {
       window.view = mountChatView(document.querySelector('#chat'), {onSubmit: text => sent.push(text), onStop: () => { stops++; }});
       view.render({entries: [], composer: {stop: true}});
     });
+    // The buttons show only while the pointer is over the chat.
+    await page.mouse.move(100, 100);
     await page.waitForSelector('.gchat-mic:not([hidden])');
     await run(page);
   } finally { await browser.close(); }
@@ -77,8 +79,8 @@ browserTest('Escape discards the recording and a pending send with it', async pa
   assert.deepEqual(await page.evaluate(() => sent), []);
 });
 
-browserTest('the text line is tucked away until the pointer is over the chat, and stays while it has focus', async page => {
-  const state = () => page.$eval('.gchat-composer', form => [form.classList.contains('gchat-composer-tucked'), Math.round(form.querySelector('textarea').getBoundingClientRect().height)]);
+browserTest('the text line and buttons are tucked away until the pointer is over the chat, and stay while it has focus', async page => {
+  const state = () => page.$eval('.gchat-composer', form => [form.classList.contains('gchat-composer-tucked'), Math.round(Math.max(form.querySelector('textarea').getBoundingClientRect().height, form.querySelector('.gchat-send').getBoundingClientRect().height))]);
   await page.mouse.move(100, 700);
   await page.waitForTimeout(400);
   assert.deepEqual(await state(), [true, 0]);
