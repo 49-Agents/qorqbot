@@ -17,6 +17,8 @@ from qorqut import extension_contract as contract
 from qorqut_agentic.files import split_path
 
 EXAMPLE = Path(__file__).resolve().parent / "fixtures" / "extension-contract" / "network"
+REPOSITORY = Path(__file__).resolve().parents[3]
+PACKAGE_MAP = REPOSITORY / "qorqut-code" / "app" / "package-sources.json"
 WORKFLOW = {"schema_version": 1, "id": "first-use", "description": "Set up the first Connections.",
             "steps": [{"id": "start", "instructions": "Ask the owner who matters most."},
                       {"id": "add", "instructions": "Add them.", "depends_on": ["start"]}]}
@@ -379,9 +381,10 @@ class SkillTest(Case):
         text = (folder / self.skill).read_text().replace("qorqut-plugin-network", "qorqut-plugin-email-management")
         shutil.rmtree(folder / "plugin/skills/network")
         self.write("plugin/skills/email-management/SKILL.md", text, folder)
+        # The names of this repository's own package map, as the service gives them from its installation's map.
+        shipped = contract.skill_names_of(contract.load_sources(REPOSITORY, config_path=PACKAGE_MAP))
         self.assertFinding("'qorqut-plugin-email-management'", "ships with Qorqbot",
-                           found=contract.check_folder(folder))
-        # The caller's names are the ones checked against, when it gives them.
+                           found=contract.check_folder(folder, shipped=shipped))
         self.assertEqual(contract.check_folder(folder, shipped=frozenset()), [])
         self.assertFinding("'qorqut-plugin-network'", "ships with Qorqbot",
                            found=contract.check_folders([self.folder], shipped=frozenset({"qorqut-plugin-network"}))[
