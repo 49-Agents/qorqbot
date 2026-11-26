@@ -394,6 +394,8 @@ function agviewboxSurfacesMount(p, host) {
     const button = event.target.closest('button');
     if (!button || !host.contains(button)) return;
     if (button.hasAttribute('data-focus-notes')) { void openNotes(); return; }
+    // Calendar has no Close bar: pressing its launcher again closes it.
+    if (button.dataset.focusSurface === 'calendar' && p.surface?.kind === 'calendar') { void agpadSurfaceClose(p); return; }
     if (button.dataset.focusSurface) { if (button.getAttribute('aria-disabled') !== 'true') agpadRequestView(p, button.dataset.focusSurface); return; }
   };
   const applyActive = () => {

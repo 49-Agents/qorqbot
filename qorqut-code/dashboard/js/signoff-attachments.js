@@ -109,6 +109,13 @@ async function sgAttachFileBody(ref, section) {
     img.onerror = () => img.replaceWith(sgAttachNode('p', 'sg-notice', 'This image could not be displayed.'));
     return [img];
   }
+  // A PDF shows in the browser's own viewer, from the route that serves only files whose header says PDF.
+  if (meta.preview_kind === 'pdf' && typeof meta.urls?.pdf === 'string' && meta.urls.pdf.startsWith('/api/root/files/pdf?')) {
+    const frame = sgAttachNode('iframe', 'sg-attachment-pdf');
+    frame.title = ref.label; frame.src = meta.urls.pdf;
+    section.setTall?.();
+    return [frame];
+  }
   if (meta.binary) return [sgAttachNode('p', 'sg-notice', 'This file cannot be shown here.')];
   const payload = await sgAttachFile('content', ref.route.search), out = [];
   if (payload.truncated) out.push(sgAttachNode('p', 'sg-notice', 'Only the first part of this file is shown.'));
@@ -190,7 +197,8 @@ function sgAttachSection(ref) {
   const body = sgAttachNode('div', 'sg-attachment-body');
   body.append(sgAttachNode('p', 'sg-notice', 'Loading…'));
   section.append(head, body);
-  const control = {setSubtitle: text => { subtitle.textContent = text ? `· ${text}` : ''; }, open: () => sgAttachOpen(ref, control), record: null};
+  const control = {setSubtitle: text => { subtitle.textContent = text ? `· ${text}` : ''; }, setTall: () => body.classList.add('sg-attachment-body-pdf'),
+    open: () => sgAttachOpen(ref, control), record: null};
   open.onclick = event => { event.stopPropagation(); void control.open(); };
   const reader = ref.kind === 'file' ? sgAttachFileBody : ref.kind === 'table' ? sgAttachTableBody : sgAttachTaskBody;
   const what = ref.kind === 'file' ? 'file' : ref.kind === 'table' ? 'table' : 'record';

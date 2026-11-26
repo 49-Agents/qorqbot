@@ -216,7 +216,8 @@ class FileViewer:
             head, _ = opened.read_preview(previews.SNIFF_BYTES)
             kind = previews.sniff(name, head)
             return {**base, "current": True, "version": None, "size": opened.size, "modified_at": opened.modified_at,
-                    "preview_kind": kind, "binary": kind == "binary", "preview_limit": previews.PREVIEW_BYTES,
+                    # A PDF has no text preview: it stays ``binary`` for readers of `content` and is shown from `pdf`.
+                    "preview_kind": kind, "binary": kind in {"binary", "pdf"}, "preview_limit": previews.PREVIEW_BYTES,
                     "urls": self._urls(selector, managed, name)}
         finally:
             opened.close()
@@ -235,7 +236,7 @@ class FileViewer:
     def _urls(self, selector, managed, name):
         query = urlsplit(selector.url()).query
         result = {"view": selector.url(), "content": f"{API}/content?{query}", "download": f"{API}/download?{query}",
-                  "copy": selector.url(), "image": f"{API}/image?{query}"}
+                  "copy": selector.url(), "image": f"{API}/image?{query}", "pdf": f"{API}/pdf?{query}"}
         if managed and managed["history_available"] and not selector.is_document:
             result["copy"] = managed["stable_url"]
         if selector.version is not None:
@@ -289,6 +290,19 @@ class FileViewer:
             if mime is None:
                 raise DomainError("validation_error", "This file is not a supported image")
             return mime, size, body
+        except BaseException:
+            if not isinstance(body, bytes):
+                body.close()
+            raise
+
+    def pdf(self, selector):
+        """``(filename, size, body)`` for a file whose own header says PDF, for the browser's PDF viewer."""
+        name, size, body = self.download(selector)
+        try:
+            head = body[:previews.SNIFF_BYTES] if isinstance(body, bytes) else body.read_preview(previews.SNIFF_BYTES)[0]
+            if not previews.is_pdf(head):
+                raise DomainError("validation_error", "This file is not a PDF")
+            return name, size, body
         except BaseException:
             if not isinstance(body, bytes):
                 body.close()

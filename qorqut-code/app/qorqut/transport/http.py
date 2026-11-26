@@ -934,7 +934,7 @@ class HTTPAPI:
         """
         if request.headers.get("authorization") is not None:
             raise DomainError("forbidden", "The file viewer is for the owner's dashboard and takes no bearer credential")
-        if request.method != "GET" or len(tail) != 1 or tail[0] not in {"directory", "metadata", "content", "download", "history", "image"}:
+        if request.method != "GET" or len(tail) != 1 or tail[0] not in {"directory", "metadata", "content", "download", "history", "image", "pdf"}:
             raise DomainError("not_found", "File endpoint is not registered")
         from qorqut.file_viewer import service as file_service
         from qorqut.file_viewer.paths import reject_bad_escapes
@@ -960,7 +960,7 @@ class HTTPAPI:
             return getattr(viewer, action)(viewer.selector(items))
 
         data = await anyio.to_thread.run_sync(read)
-        if action not in {"download", "image"}:
+        if action not in {"download", "image", "pdf"}:
             result = response(OperationResult.ok(data, request_id=request.scope["qorqut.request_id"]))
             result.headers["Cache-Control"] = "private, no-store"
             return result
@@ -972,6 +972,12 @@ class HTTPAPI:
             media_type = name  # Validated raster MIME from the already opened descriptor.
             headers["Content-Disposition"] = "inline"
             headers["Content-Security-Policy"] = "default-src 'none'; sandbox"
+        elif action == "pdf":
+            # Shown by the browser's own PDF viewer, which a sandboxed document cannot host; the policy still allows
+            # nothing else to load from it.
+            media_type = "application/pdf"
+            headers["Content-Disposition"] = file_service.content_disposition(name).replace("attachment", "inline", 1)
+            headers["Content-Security-Policy"] = "default-src 'none'"
         if isinstance(body, bytes):
             return Response(body, media_type=media_type, headers=headers)
         return StreamingResponse(body.chunks(), media_type=media_type, headers=headers,

@@ -200,6 +200,43 @@ class ProjectBadgesTests(unittest.TestCase):
         entries = json.loads(response.body)['data']['entries']
         self.assertEqual(next(row for row in entries if row['name'] == 'example')['project']['open_tasks'], 3)
 
+    def metadata(self, path):
+        # Managed-document lookup needs a full instance; these files are plain files.
+        with patch.object(FileViewer, 'managed_for_path', return_value=None):
+            return self.viewer.metadata(self.viewer.selector([('path', path)]))
+
+    def pdf_route(self, path):
+        api = HTTPAPI.__new__(HTTPAPI)
+        api.runtime = self.runtime
+        api.context = lambda *_:(self.context, None)
+        query = ('path=' + path).encode()
+        request = Request({'type':'http', 'method':'GET', 'path':'/api/root/files/pdf',
+            'query_string':query, 'headers':[], 'qorqut.request_id':'example'})
+        return asyncio.run(api.files_route(request, None, ['pdf']))
+
+    def test_a_pdf_is_recognized_by_its_header_and_served_inline_for_the_browser_viewer(self):
+        data = b'%PDF-1.7\n%\xe2\xe3\xcf\xd3\n1 0 obj\n<<>>\nendobj\n'
+        (self.root / 'projects/example/notes/pitch v2.pdf').write_bytes(data)
+        meta = self.metadata('projects/example/notes/pitch v2.pdf')
+        self.assertEqual((meta['preview_kind'], meta['binary']), ('pdf', True))
+        self.assertTrue(meta['urls']['pdf'].startswith('/api/root/files/pdf?'))
+        response = self.pdf_route('projects/example/notes/pitch%20v2.pdf')
+        self.assertEqual(response.media_type, 'application/pdf')
+        self.assertTrue(response.headers['content-disposition'].startswith('inline; filename="pitch_v2.pdf"'))
+        self.assertEqual(response.headers['content-security-policy'], "default-src 'none'")
+        self.assertEqual(response.headers['cache-control'], 'private, no-store')
+        async def body():
+            return b''.join([chunk async for chunk in response.body_iterator])
+        self.assertEqual(asyncio.run(body()), data)
+
+    def test_the_pdf_route_refuses_a_file_that_only_has_a_pdf_name(self):
+        (self.root / 'projects/example/notes/fake.pdf').write_bytes(b'<html><script>alert(1)</script></html>')
+        meta = self.metadata('projects/example/notes/fake.pdf')
+        self.assertNotEqual(meta['preview_kind'], 'pdf')
+        with self.assertRaises(DomainError) as raised:
+            self.pdf_route('projects/example/notes/fake.pdf')
+        self.assertEqual(raised.exception.code, 'validation_error')
+
 
 if __name__ == '__main__':
     unittest.main()
