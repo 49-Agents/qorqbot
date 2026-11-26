@@ -125,15 +125,29 @@ def skill_name(folder: str) -> str:
     return f"qorqut-plugin-{folder}"
 
 
-@cache
-def shipped_skill_names() -> frozenset[str]:
-    """The managed skill names of the packages that ship with Qorqbot in the older per-agent format, read from the app's
-    ``package-sources.json`` and named as ``qorqut.catalog.packages`` names them (``qorqut-<kind>-<skill id>``)."""
+def skill_names_of(sources) -> frozenset[str]:
+    """The managed skill names of the packages of a loaded source map (``qorqut.catalog.sources.load_sources``), in the
+    older per-agent format, named as ``qorqut.catalog.packages`` names them (``qorqut-<kind>-<skill id>``)."""
     names = set()
-    for kind, root, manifest in load_sources(APP.parents[1], config_path=APP / "package-sources.json").values():
-        data = load_yaml((root / manifest).read_text(encoding="utf-8"))
+    for kind, root, manifest in sources.values():
+        try:
+            data = load_yaml((root / manifest).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise DomainError("invalid_configuration", f"Cannot read package manifest: {root / manifest}") from exc
         names.update(f"qorqut-{kind}-{entry['id']}" for entry in data.get("skills", ()))
     return frozenset(names)
+
+
+@cache
+def shipped_skill_names() -> frozenset[str]:
+    """The managed skill names of the packages that ship with Qorqbot, read from the ``package-sources.json`` of the
+    source tree this module is in: what the command line checks against. Where the module runs as an installed
+    package there is no map beside it and this is empty; the service gives the names of its own map instead
+    (``check_folders(..., shipped=...)``)."""
+    path = APP / "package-sources.json"
+    if not path.is_file():
+        return frozenset()
+    return skill_names_of(load_sources(APP.parents[1], config_path=path))
 
 
 def _read(path: Path) -> tuple[Any, str | None]:
@@ -371,13 +385,13 @@ def _skill_file_findings(plugin: Path, folder: Path) -> list[str]:
     return found
 
 
-def _skill_findings(plugin: Path, ext_id: str) -> list[str]:
+def _skill_findings(plugin: Path, ext_id: str, shipped: frozenset[str]) -> list[str]:
     found = []
     for folder in _skill_folders(plugin):
         where = f"The skill {folder.name!r}"
         if folder.name != ext_id and not folder.name.startswith(ext_id + "-"):
             found.append(f"{where} must be named {ext_id!r}, or {ext_id!r} followed by '-' and more.")
-        if skill_name(folder.name) in shipped_skill_names():
+        if skill_name(folder.name) in shipped:
             found.append(f"{where} gives the managed skill name {skill_name(folder.name)!r}, which a package that "
                          "ships with Qorqbot already uses.")
         found.extend(_skill_file_findings(plugin, folder))
@@ -716,9 +730,10 @@ def _identity(folder: Path) -> str:
     return folder.name
 
 
-def check_folder(folder: Path) -> list[str]:
+def check_folder(folder: Path, *, shipped: frozenset[str] | None = None) -> list[str]:
     """Every way ``folder`` breaks the rules this module checks, one sentence each. Empty means it passes. The
-    agentic-layer load is checked only once every other rule passes."""
+    agentic-layer load is checked only once every other rule passes. ``shipped`` are the managed skill names of the
+    packages that ship with Qorqbot (``skill_names_of``); without them, those of this source tree."""
     folder = Path(folder).resolve()
     if not folder.is_dir():
         return [f"{folder} is not a folder."]
@@ -740,7 +755,7 @@ def check_folder(folder: Path) -> list[str]:
         found.append("The extension has neither a `plugin/` directory nor a `code/` directory.")
     found.extend(_code_findings(folder, ext_id))
     if plugin.is_dir():
-        found.extend(_skill_findings(plugin, ext_id))
+        found.extend(_skill_findings(plugin, ext_id, shipped_skill_names() if shipped is None else shipped))
         found.extend(read_hooks(_folder_reader(plugin), extension_id=ext_id)[1])
         found.extend(read_record_types(_folder_reader(plugin), extension_id=ext_id)[1])
         found.extend(_workflow_findings(plugin, ext_id))
@@ -755,12 +770,12 @@ def _record_ids(folder: Path, ext_id: str) -> set[str]:
     return {item["id"] for item in types}
 
 
-def check_folders(folders: Iterable[Path]) -> dict[str, list[str]]:
+def check_folders(folders: Iterable[Path], *, shipped: frozenset[str] | None = None) -> dict[str, list[str]]:
     """``check_folder`` for each folder, keyed by folder name, plus the findings that need several folders."""
     folders = [Path(folder).resolve() for folder in folders]
     names = Counter(folder.name for folder in folders)
     keys = [folder.name if names[folder.name] == 1 else str(folder) for folder in folders]
-    result = {key: check_folder(folder) for key, folder in zip(keys, folders)}
+    result = {key: check_folder(folder, shipped=shipped) for key, folder in zip(keys, folders)}
     linked = {key for key, folder in zip(keys, folders) if _link_findings(folder)}  # Read nothing through a link.
     ids = {key: folder.name if key in linked else _identity(folder) for key, folder in zip(keys, folders)}
     records = {key: set() if key in linked else _record_ids(folder, ids[key]) for key, folder in zip(keys, folders)}

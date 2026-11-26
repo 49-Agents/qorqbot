@@ -90,6 +90,22 @@ class DiscoverTest(Case):
         (self.built_in / "notes.txt").write_text("not a folder")
         self.assertEqual(self.discover(), ())
 
+    def test_the_installation_gives_the_skill_names_it_ships_with(self):
+        asked = []
+
+        def shipped():
+            asked.append(True)
+            return frozenset({"qorqut-plugin-network"})
+        # Nothing is asked where no folder was found.
+        self.assertEqual(self.discover(shipped=shipped), ())
+        self.assertEqual(asked, [])
+        self.place()
+        item = self.one(shipped=shipped)
+        self.assertEqual(asked, [True])
+        self.assertTrue(item.refused)
+        self.assertIn("ships with Qorqbot already uses", item.findings[0])
+        self.assertTrue(self.one(shipped=frozenset).fine)
+
     def test_a_folder_in_the_wrong_place_is_refused(self):
         self.place(self.built_in)
         item = self.one()

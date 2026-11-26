@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 import yaml
 
@@ -380,6 +381,28 @@ class SkillTest(Case):
         self.write("plugin/skills/email-management/SKILL.md", text, folder)
         self.assertFinding("'qorqut-plugin-email-management'", "ships with Qorqbot",
                            found=contract.check_folder(folder))
+        # The caller's names are the ones checked against, when it gives them.
+        self.assertEqual(contract.check_folder(folder, shipped=frozenset()), [])
+        self.assertFinding("'qorqut-plugin-network'", "ships with Qorqbot",
+                           found=contract.check_folders([self.folder], shipped=frozenset({"qorqut-plugin-network"}))[
+                               self.folder.name])
+
+    def test_no_source_map_beside_the_module_reads_nothing(self):
+        # As an installed package the module has no package map beside it: the check must not fail on that.
+        contract.shipped_skill_names.cache_clear()
+        self.addCleanup(contract.shipped_skill_names.cache_clear)
+        with mock.patch.object(contract, "APP", self.folder):
+            self.assertEqual(contract.shipped_skill_names(), frozenset())
+            self.assertEqual(contract.check_folder(self.folder), [])
+
+    def test_skill_names_of_a_source_map(self):
+        package = self.folder.parent / "package"
+        package.mkdir()
+        (package / "plugin.yaml").write_text("skills:\n  - id: letters\n")
+        self.assertEqual(contract.skill_names_of({"one": ("plugin", package, "plugin.yaml")}),
+                         frozenset({"qorqut-plugin-letters"}))
+        with self.assertRaisesRegex(contract.DomainError, "Cannot read package manifest"):
+            contract.skill_names_of({"one": ("plugin", package, "missing.yaml")})
 
 
 class HooksTest(Case):

@@ -116,19 +116,22 @@ class Found:
         return not self.findings and self.unsupported is None
 
 
-def discover(paths, *, selected=(), app_version, platform) -> tuple[Found, ...]:
+def discover(paths, *, selected=(), app_version, platform, shipped=None) -> tuple[Found, ...]:
     """Every extension folder of the two places, checked. Reads files only.
 
     ``selected`` holds the ids of today's extensions, chosen by ``config/extensions.json``; the same id here is refused, so
     nothing is loaded twice. ``app_version`` is this build's version (None when it has none) and ``platform`` this
-    computer's (``current_platform``); a build without a version does not compare ``requires.qorqbot``."""
+    computer's (``current_platform``); a build without a version does not compare ``requires.qorqbot``. ``shipped`` gives
+    the managed skill names of the packages this installation ships with (``contract.skill_names_of``); it is asked only
+    when a folder was found."""
     places = []
     for root, delivery in extension_roots(paths):
         if root.is_dir():
             places += [(folder, delivery) for folder in sorted(root.iterdir())
                        if folder.is_dir() and (folder / contract.MANIFEST).is_file()]
     # ``check_folders`` keeps the order of the folders it is given.
-    checked = contract.check_folders([folder for folder, _ in places]).values()
+    checked = contract.check_folders([folder for folder, _ in places],
+                                     shipped=shipped() if shipped and places else None).values()
     found = []
     for (folder, delivery), findings in zip(places, checked):
         try:

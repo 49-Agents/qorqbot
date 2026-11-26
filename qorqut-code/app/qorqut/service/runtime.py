@@ -396,8 +396,11 @@ def build_runtime(workspace, *, paths, database=None, worker_profiles=None,
         raise DomainError("invalid_configuration", "Extensions are the owner's startup selection")
     from qorqut import extension_registry
     # Extensions that follow the contract are found next to today's selection; an id selected both ways is refused.
-    found = extension_registry.discover(paths, selected=selection.ids, app_version=extension_registry.app_version(),
-                                        platform=extension_registry.current_platform())
+    found = extension_registry.discover(
+        paths, selected=selection.ids, app_version=extension_registry.app_version(),
+        platform=extension_registry.current_platform(),
+        # The names come from this installation's own package map, wherever the app's files are.
+        shipped=lambda: extension_registry.contract.skill_names_of(load_sources(workspace, paths=paths)))
     from qorqut.agentic.installation import open_installation
     agentic_layer, agentic_view = open_installation(paths, selection.ids)
     if database is None:
