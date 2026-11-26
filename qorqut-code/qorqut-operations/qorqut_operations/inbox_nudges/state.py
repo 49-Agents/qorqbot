@@ -353,6 +353,13 @@ def note(uow, agent_id: str, reason: str | None, now: str) -> None:
                                (reason[:200] if reason else None, now, agent_id))
 
 
+def retry_delay(state: str, streak: int, policy: Policy = Policy()) -> float:
+    """Seconds to wait after the ``streak``-th notice in a row that was definitely not typed into the same session, the last
+    one ending in ``state``: doubling from that state's base, bounded by the policy's cap. Also paces extensions' timed
+    nudges (``qorqut.extension_hooks.TimedNudges``)."""
+    return min(policy.backoff_cap_seconds, NO_EFFECT_RETRY[state] * 2 ** max(0, streak - 1))
+
+
 def _retry(uow, agent_id: str, latest: dict, key: str, now: str, policy: Policy) -> Waiting | None:
     """Pace a retry after a notice that was definitely not typed (its own bounded backoff for the same exact session)."""
     if latest["state"] not in NO_EFFECT_RETRY or latest["session_key"] != key or latest["settled_at"] is None:
@@ -363,7 +370,7 @@ def _retry(uow, agent_id: str, latest: dict, key: str, now: str, policy: Policy)
         if row["state"] not in NO_EFFECT_RETRY or row["session_key"] != key:
             break
         streak += 1
-    delay = min(policy.backoff_cap_seconds, NO_EFFECT_RETRY[latest["state"]] * 2 ** max(0, streak - 1))
+    delay = retry_delay(latest["state"], streak, policy)
     due = add_seconds(latest["settled_at"], delay)
     return Waiting("retry_later", due) if parse_time(now) < parse_time(due) else None
 

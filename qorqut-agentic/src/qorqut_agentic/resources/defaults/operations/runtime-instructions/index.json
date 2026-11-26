@@ -574,6 +574,29 @@
       "previous_source": "bootstrap/environment.py"
     },
     {
+      "id": "extension-hook-rest",
+      "path": "messages/extension-hook-rest.md",
+      "parameters": [
+        "FILE"
+      ],
+      "status": "conditional",
+      "trigger": "extension hooks",
+      "audience": "registered agents an extension with hooks is on for; its texts did not all fit",
+      "previous_source": "extension_hooks.py"
+    },
+    {
+      "id": "extension-hook-text",
+      "path": "messages/extension-hook-text.md",
+      "parameters": [
+        "NAME",
+        "TEXT"
+      ],
+      "status": "conditional",
+      "trigger": "extension hooks",
+      "audience": "registered agents an extension with hooks is on for",
+      "previous_source": "extension_hooks.py"
+    },
+    {
       "id": "inbox-nudge",
       "path": "messages/inbox-nudge.md",
       "parameters": [],

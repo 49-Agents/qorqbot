@@ -8,12 +8,14 @@ from qorqut_operations.tasks import CLOSED_STATES
 from qorqut_operations.application.plans import timestamp, utc_clock
 from qorqut.agents.attention import enrolled_board
 from qorqut.agents.worker_access import is_worker
-from qorqut.bootstrap.activity_hook import safe_path
+from qorqut.bootstrap.activity_hook import read_used, safe_path
 from qorqut.composition.locations import agent_workspace_of
 
 RUNTIMES = frozenset({'claude-code', 'codex'})
 from qorqut_agentic.behavior import completion as completion_policy
 from qorqut_agentic.behavior.completion import REVIEW
+
+STOP_CODE = 'extension_stop'  # qorqut.extension_hooks.STOP_CODE; that module is imported only when an extension is in effect
 
 
 def native_checkpoint(runtime, agent_id, session_id, registration_id=None):
@@ -39,7 +41,13 @@ def native_checkpoint(runtime, agent_id, session_id, registration_id=None):
                 return None
         if type(state.get('dirty_sequence')) is not int or not 0 <= state['dirty_sequence'] < 2**63:
             return None
-        return state
+        # The watched operations used in this root turn and whether a message from the owner started it; an older root
+        # turn's record does not count.
+        turn = read_used(path.with_suffix('.used.json'))
+        if turn.get('root_turn_id') != state['root_turn_id']:
+            turn = {}
+        names = turn.get('used') if isinstance(turn.get('used'), list) else []
+        return {**state, 'used': [name for name in names if isinstance(name, str)], 'owner_turn': turn.get('owner_turn') is True}
     except (OSError, ValueError, KeyError, TypeError):
         return None
 
@@ -123,6 +131,13 @@ class AgentCheckpoints:
             issues['owner-inbox'] = {
                 'code': 'pending_owner_messages', 'project_id': None, 'task_id': None,
                 'message': instructions.render("completion-owner-inbox")}
+        # The stop texts of the agent's extensions, only on a turn a message started; none without an extension in effect.
+        registry = getattr(self.runtime, 'extension_registry', None)
+        if registry is not None:
+            from qorqut import extension_hooks
+            entries = extension_hooks.entries_for(registry, ctx.principal_id, 'stop', connection=uow.connection)
+            if entries:
+                issues.update(extension_hooks.stop_issues(entries, native, instructions))
         return issues, reviewed
 
     def check(self, ctx, registration_id, session_id, turn_id, *, allow_correction=False, claim_id=None, binding_generation=None):
@@ -174,7 +189,7 @@ class AgentCheckpoints:
                 if before['state'] == 'open' and self._closes(key, issues, reviewed):
                     uow.connection.execute("UPDATE agent_checkpoint_findings SET state='resolved',resolved_at=?,updated_at=? "
                                            'WHERE agent_id=? AND check_key=?', (now, now, ctx.principal_id, key))
-            claimed = []
+            claimed, notes, spilled, noted = [], [], [], []
             for key, issue in issues.items():
                 before = saved.get(key)
                 if before is None or before['state'] == 'resolved':
@@ -191,16 +206,37 @@ class AgentCheckpoints:
                     result = uow.connection.execute('UPDATE agent_checkpoint_findings SET claimed_at=?,claim_id=? '
                         "WHERE agent_id=? AND check_key=? AND state='open' AND claimed_at IS NULL",
                         (now, claim_id, ctx.principal_id, key))
-                    if result.rowcount:
+                    if result.rowcount and issue['code'] == STOP_CODE:
+                        (spilled if issue['spilled'] else notes).append((issue['extension_name'], issue['text']))
+                        noted.append(issue)
+                    elif result.rowcount:
                         claimed.append(issue['message'])
             current = {r['check_key']: dict(r) for r in uow.connection.execute(
                 "SELECT * FROM agent_checkpoint_findings WHERE agent_id=? AND state='open'", (ctx.principal_id,))}
-            return self._result(issues, current, claimed, 'checked', instructions=instructions)
+            answer = self._result(issues, current, claimed, 'checked', instructions=instructions, notes=notes,
+                                  spilled=spilled)
+            if noted:
+                from qorqut import extension_hooks
+                shown = answer.pop('notes_shown')
+                ordered = [issue for issue in noted if not issue['spilled']] + [issue for issue in noted if issue['spilled']]
+                extension_hooks.record(uow.connection, ctx.principal_id, 'stop', [
+                    {'extension_id': issue['extension_id'], 'entry_id': issue['entry_id'], 'text': issue['text'],
+                     'place': 'shown' if index < shown else 'rest_file'} for index, issue in enumerate(ordered)],
+                    at=now, session_id=session_id, turn_id=turn_id)
+        rest = answer.pop('correction_rest', None)
+        if rest:
+            from qorqut.bootstrap.client import write_text_private
+            write_text_private(agent_workspace_of(self.runtime.paths, ctx.principal_id) / rest['path'], rest['text'])
+        return answer
 
     _closes = staticmethod(completion_policy.closes)
 
-    def _result(self, issues, saved, claimed, state, *, instructions):
-        return completion_policy.result(instructions, issues, saved, claimed, state)
+    def _result(self, issues, saved, claimed, state, *, instructions, notes=(), spilled=()):
+        if not notes and not spilled:
+            return completion_policy.result(instructions, issues, saved, claimed, state)
+        from qorqut import extension_hooks
+        return completion_policy.result(instructions, issues, saved, claimed, state, notes=notes, spilled=spilled,
+                                        rest_file=extension_hooks.REST_FILE.format(point='stop'))
 
     def summary(self, ctx, agent_id, session, uow):
         visible = []

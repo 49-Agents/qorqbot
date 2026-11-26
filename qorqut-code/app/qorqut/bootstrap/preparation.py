@@ -145,6 +145,17 @@ def external_connections(resolver, data) -> list[str]:
     return sorted({*declared, *served})
 
 
+def extension_registration(resolver, agent_id) -> dict:
+    """What the activity hook notes per root turn for the hooks of the agent's extensions: the operations named in
+    ``if_used``/``unless_used``, and whether a message started the turn (for ``stop`` entries). Each key is written only
+    when it is needed, so an agent with no extension in effect gets the registration it had before extensions."""
+    from qorqut import extension_hooks
+    entries = extension_hooks.entries_for(getattr(resolver, "extensions", None), agent_id)
+    watched = extension_hooks.watched_tools(entries)
+    return {**({"extension_watched_tools": watched} if watched else {}),
+            **({"extension_owner_turn": True} if extension_hooks.needs_owner_turn(entries) else {})}
+
+
 def _contribution_path(name, owned) -> str:
     """A generated helper must stay under the managed integration directory with a plain relative path."""
     parts = name.split("/") if isinstance(name, str) else ()
@@ -563,7 +574,9 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
             "service_url": endpoint, "credential_file": ".qorqut/credential",
             "capture_transcripts": capture_transcripts,
             "checkpoint_protocol": dict(checkpoint_protocol or {}),
-            "read_operations": read_operations, **({"runtime_mode": "terminal"} if terminal else {})}),
+            "read_operations": read_operations,
+            **extension_registration(resolver, data["agent_id"]),
+            **({"runtime_mode": "terminal"} if terminal else {})}),
     }
     # Claude Code's own memory is off for every agent: the file is passed with ``--settings`` at each launch, which
     # outranks the owner's own Claude settings for that launch only and changes none of them.

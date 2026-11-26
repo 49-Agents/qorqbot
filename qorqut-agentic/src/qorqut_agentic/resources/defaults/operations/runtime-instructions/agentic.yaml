@@ -432,6 +432,20 @@
       "when_to_use": "environment; conditional; selected by the registered runtime policy."
     },
     {
+      "id": "extension-hook-rest",
+      "kind": "instruction",
+      "path": "messages/extension-hook-rest.md",
+      "description": "Extension hook texts, pointer to the rest",
+      "when_to_use": "extension_hooks.py; an extension text did not fit the room at its point."
+    },
+    {
+      "id": "extension-hook-text",
+      "kind": "instruction",
+      "path": "messages/extension-hook-text.md",
+      "description": "Extension hook text, one extension",
+      "when_to_use": "extension_hooks.py; a text of an extension that is on for the agent is delivered."
+    },
+    {
       "id": "inbox-nudge",
       "kind": "instruction",
       "path": "messages/inbox-nudge.md",
