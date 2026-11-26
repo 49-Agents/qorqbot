@@ -530,6 +530,20 @@
       "when_to_use": "bootstrap/claude_session.py; every fresh start; lists installed skills that are not loaded."
     },
     {
+      "id": "skill-gate-refusal",
+      "kind": "instruction",
+      "path": "messages/skill-gate-refusal.md",
+      "description": "Skill-read gate refusal, one skill",
+      "when_to_use": "bootstrap/activity_hook.py; Claude Code; a tool a not-yet-read listed skill covers is called."
+    },
+    {
+      "id": "skill-gate-refusal-several",
+      "kind": "instruction",
+      "path": "messages/skill-gate-refusal-several.md",
+      "description": "Skill-read gate refusal, several skills",
+      "when_to_use": "bootstrap/activity_hook.py; Claude Code; a tool several not-yet-read listed skills cover is called."
+    },
+    {
       "id": "response-style-reminder",
       "path": "messages/response-style-reminder.md",
       "kind": "instruction",

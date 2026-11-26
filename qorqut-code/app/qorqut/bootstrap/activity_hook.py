@@ -578,15 +578,188 @@ def connector_main(registration_path):
         sys.stdout.write(json.dumps(output, separators=(',', ':')) + '\n')
 
 
+SKILL_GATE_PREFIX = 'mcp__qorqut__'
+SKILL_GATE_ROUNDS = 3  # Refusal rounds per skill per conversation; after the last one the calls go through.
+SKILL_GATE_ROUND_SECONDS = 10  # Refusals within this time of a round's first refusal are that round (a parallel batch).
+SKILL_GATE_RECORD_BYTES = 64 * 1024
+
+
+def skill_gate_record_path(workspace, session_id):
+    import hashlib
+    return Path(workspace) / '.qorqut/skill-reads' / (hashlib.sha256(session_id.encode()).hexdigest() + '.json')
+
+
+def skill_gate_setup(hook, registration_path):
+    """The prepared registration, the prepared instruction helper and this conversation's record path."""
+    session = hook.get('session_id')
+    if not isinstance(session, str) or not 0 < len(session) <= 200:
+        raise ValueError('session')
+    registration_path = Path(registration_path)
+    if not safe_path(registration_path) or registration_path.stat().st_size > 1024 * 1024:
+        raise ValueError('registration')
+    registration = json.loads(registration_path.read_text())
+    workspace = Path(registration['workspace'])
+    if not workspace.is_absolute() or registration_path != workspace / '.qorqut/registration.json':
+        raise ValueError('workspace mismatch')
+    return registration, workspace, skill_gate_record_path(workspace, session)
+
+
+def skill_gate_load(path):
+    if not safe_path(path) or not path.exists():
+        return {}
+    if path.stat().st_size > SKILL_GATE_RECORD_BYTES:
+        raise ValueError('record')
+    value = json.loads(path.read_text())
+    if not isinstance(value, dict):
+        raise ValueError('record')
+    return value
+
+
+def skill_gate_save(path, value):
+    data = json.dumps(value, separators=(',', ':'))
+    if len(data) <= SKILL_GATE_RECORD_BYTES:
+        write_state(path, value)
+
+
+@contextmanager
+def skill_gate_record(path):
+    directory = path.parent
+    if not safe_path(directory):
+        raise ValueError('unsafe directory')
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with activity_lock(path):
+        yield skill_gate_load(path)
+
+
+def skill_gate_read(hook, registration_path):
+    """A successful Skill call records that skill as read in this conversation; `plugin:name` counts as `name`."""
+    response = hook.get('tool_response')
+    if hook.get('tool_name') != 'Skill' or isinstance(response, dict) and response.get('success') is False:
+        return
+    tool_input = hook.get('tool_input')
+    name = tool_input.get('skill') if isinstance(tool_input, dict) else None
+    if not isinstance(name, str):
+        return
+    name = name.strip().lstrip('/').rsplit(':', 1)[-1]
+    if not name or len(name) > 200:
+        return
+    _, _, path = skill_gate_setup(hook, registration_path)
+    with skill_gate_record(path) as record:
+        read = record.get('read') if isinstance(record.get('read'), list) else []
+        if name not in read:
+            record['read'] = [*read, name][-200:]
+            skill_gate_save(path, record)
+
+
+def skill_gate_operations(operation, tool_input):
+    """The Qorqut calls one tool call makes: itself, or for a batch the calls inside it."""
+    if operation != 'operations_batch':
+        return [operation]
+    entries = tool_input.get('operations') if isinstance(tool_input, dict) else None
+    if not isinstance(entries, list):
+        return []
+    return list(dict.fromkeys(entry['operation'] for entry in entries[:100]
+                              if isinstance(entry, dict) and isinstance(entry.get('operation'), str)))
+
+
+def skill_gate(hook, registration_path, *, now=None):
+    """None lets the call continue. A refusal only for a Qorqut tool that an unread listed skill covers."""
+    tool = hook.get('tool_name')
+    if hook.get('hook_event_name') != 'PreToolUse' or not isinstance(tool, str) or not tool.startswith(SKILL_GATE_PREFIX):
+        return None
+    operation = tool[len(SKILL_GATE_PREFIX):]
+    if not operation:
+        return None
+    registration, workspace, path = skill_gate_setup(hook, registration_path)
+    policy = agentic_policy(registration_path)
+    # The same rule as the start's "Skills to read first" section (claude_session.py), except that the first-
+    # conversation skills always count as loaded for the configured Ordubashy: whether this start carried them is not
+    # known here, and a wrong refusal costs more than a missed one.
+    loaded = (*policy.ALWAYS_SKILLS, *policy.FIRST_CONVERSATION_SKILLS) if registration.get('operational_intake_enabled') is True else ()
+    listed = policy.skill_gate_map(workspace, 'claude-code', loaded)
+    checks = []
+    for name in skill_gate_operations(operation, hook.get('tool_input')):
+        covering = sorted({skill for pattern, skill in listed if policy.skill_gate_covers(pattern, name)})
+        if covering:
+            checks.append((name, covering))
+    if not checks:
+        return None
+    now = time.time() if now is None else now
+    refused = None
+    with skill_gate_record(path) as record:
+        before = json.dumps(record, sort_keys=True)
+        read = record.get('read') if isinstance(record.get('read'), list) else []
+        rounds = record.get('refusals') if isinstance(record.get('refusals'), dict) else {}
+        for name, covering in checks:
+            blocking = []
+            for skill in covering:
+                if skill in read:
+                    continue
+                entry = rounds.get(skill) if isinstance(rounds.get(skill), dict) else {}
+                count, started = entry.get('rounds', 0), entry.get('round_at')
+                if not isinstance(count, int) or not isinstance(started, (int, float, type(None))):
+                    count, started = SKILL_GATE_ROUNDS, None  # A record this code did not write: let the call through.
+                if entry.get('released_at') is not None:
+                    entry['passed'] = entry.get('passed', 0) + 1 if isinstance(entry.get('passed'), int) else 1
+                elif started is not None and 0 <= now - started < SKILL_GATE_ROUND_SECONDS:
+                    blocking.append(skill)  # The same round, for example a parallel batch.
+                elif count >= SKILL_GATE_ROUNDS:
+                    entry.update({'released_at': now, 'passed': 1})  # The safety valve: counted, then let through.
+                else:
+                    entry.update({'rounds': count + 1, 'round_at': now})
+                    blocking.append(skill)
+                rounds[skill] = entry
+            if blocking:
+                refused = (name, blocking)  # A batch is refused at its first covered call with an unread skill.
+                break
+        if rounds:
+            record['refusals'] = rounds
+        if json.dumps(record, sort_keys=True) != before:
+            skill_gate_save(path, record)
+    if not refused:
+        return None
+    return connector_denial(policy.skill_gate_refusal(skill_gate_messages(policy, registration_path), *refused))
+
+
+def skill_gate_messages(policy, registration_path):
+    try:
+        return policy.from_prepared(registration_path)
+    except Exception:
+        return None  # The built-in wording is used.
+
+
+def skill_gate_main(registration_path):
+    """Fail open: any fault lets the call continue and records nothing."""
+    try:
+        raw = sys.stdin.read(4 * 1024 * 1024 + 1)
+        if len(raw) > 4 * 1024 * 1024:
+            return
+        hook = json.loads(raw)
+        if not isinstance(hook, dict):
+            return
+        if hook.get('hook_event_name') == 'PostToolUse':
+            skill_gate_read(hook, registration_path)
+            return
+        output = skill_gate(hook, registration_path)
+        if output:
+            sys.stdout.write(json.dumps(output, separators=(',', ':')) + '\n')
+    except Exception:
+        pass
+
+
 def main():
     deadline = time.monotonic() + ATTENTION_SECONDS
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--registration',type=Path,required=True)
     parser.add_argument('--runtime',choices=('claude-code','codex'),required=True)
     parser.add_argument('--connector-gate',action='store_true')
+    parser.add_argument('--skill-gate',action='store_true')
     args=parser.parse_args()
     if args.connector_gate:
         connector_main(args.registration)
+        return
+    if args.skill_gate:
+        skill_gate_main(args.registration)
         return
     output={}
     hook={}
