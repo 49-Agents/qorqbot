@@ -108,6 +108,38 @@ def completion_wrapper(instructions, correction):
     return instructions.render("completion-wrapper") + correction
 
 
+# Where the texts of extensions that do not fit the room at a point are written in the agent's workspace, one file per
+# point, as the start context that does not fit is written to ``.qorqut/startup-context.md``.
+EXTENSION_REST_FILE = ".qorqut/extension-notes-{point}.md"
+
+
+def extension_notes(instructions, own, notes, limit, rest_file, *, separator="\n\n", spilled=()):
+    """Qorqbot's own text at a point followed by the texts of extensions, as ``(text, rest, count)``.
+
+    ``notes`` are ``(extension name, text)`` pairs in delivery order; each is framed by ``extension-hook-text``. With no
+    notes, or when they all fit ``limit`` after ``own``, ``own`` is returned as it is with the framed notes after it. Otherwise
+    notes are shown in order while they and the ``extension-hook-rest`` sentence fit; that one and every later one go to
+    ``rest`` (the content for ``rest_file``), and the text ends with the sentence that points to the file. The sentence is
+    always delivered: when it does not fit after ``own`` even with no note shown, ``own`` is cut as far as it needs. No
+    extension text is cut. ``count`` is how many notes are shown. ``spilled`` are notes that go to ``rest`` whatever the
+    room, after those of ``notes`` that did not fit; with any, the pointing sentence is delivered."""
+    framed = [instructions.render("extension-hook-text", NAME=name, TEXT=text) for name, text in notes]
+    forced = [instructions.render("extension-hook-text", NAME=name, TEXT=text) for name, text in spilled]
+    whole = separator.join(filter(None, (own, *framed)))
+    if not forced and (not framed or len(whole) <= limit):
+        return whole, None, len(framed)
+    pointer = instructions.render("extension-hook-rest", FILE=rest_file)
+    shown = []
+    for text in framed:
+        if len(separator.join(filter(None, (own, *shown, text, pointer)))) > limit:
+            break
+        shown.append(text)
+    if not shown and own and len(own) + len(separator) + len(pointer) > limit:
+        own = own[:max(limit - len(separator) - len(pointer), 0)]
+    return (separator.join(filter(None, (own, *shown, pointer))), separator.join(framed[len(shown):] + forced),
+            len(shown))
+
+
 DISCOVERY_SKIPPED = ("role",)  # /role is the first message of every conversation: it is loaded, not discovered.
 DISCOVERY_LINE_LIMIT = 220
 DISCOVERY_SECTION_LIMIT = 6000

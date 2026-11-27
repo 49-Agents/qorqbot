@@ -39,7 +39,8 @@ from qorqut_agentic.util import load_yaml, split_frontmatter
 from qorqut_operations.contracts import OPERATION_NAME
 from qorqut_operations.errors import DomainError
 from qorqut_operations.global_agents import SUPPORTED_GLOBAL_ROLES
-from qorqut_operations.tasks.models import FIELD_TYPES, NAME as FIELD_NAME, RESERVED_FIELD_NAMES
+from qorqut_operations.tasks.models import FIELD_TYPES, definition_problem, field_name_accepted
+from qorqut_operations.tasks.record_types import TYPE_ID
 from qorqut_operations.tasks.types import TYPES
 
 MANIFEST = "extension.yaml"
@@ -610,11 +611,13 @@ def read_record_types(read: Reader, *, extension_id: str) -> tuple[list[dict], l
         mine = _unknown(label, entry, RECORD_KEYS)
         if "id" not in entry:
             mine.append(f"{label} needs an `id`.")
-        elif not isinstance(entry["id"], str) or not SOURCE_KEY.fullmatch(entry["id"]):
+        elif not isinstance(entry["id"], str) or not TYPE_ID.fullmatch(entry["id"]):
             mine.append(f"{label} has an `id` that is not lowercase letters, digits and underscores.")
         else:
             seen.append(entry["id"])
             label = f"The record type {entry['id']!r}"
+            if entry["id"] in TYPES:
+                mine.append(f"{label} has the name of one of Qorqbot's own types ({', '.join(TYPES)}).")
         if entry.get("based_on") not in RECORD_BASES:
             mine.append(f"{label} must be based_on one of {', '.join(RECORD_BASES)}.")
         for key in ("label", "plural"):
@@ -650,17 +653,14 @@ def _record_field_findings(fields: Any, label: str) -> list[str]:
                 found.append(f"{where} needs a non-empty `{key}`.")
         if isinstance(field.get("id"), str):
             seen.append(field["id"])
-            # The extra fields are ordinary custom fields, so their ids follow the rule Qorqbot has for those.
-            if field["id"].strip() and (not FIELD_NAME.fullmatch(field["id"]) or field["id"] in RESERVED_FIELD_NAMES):
-                found.append(f"{where} has the id {field['id']!r}, which Qorqbot does not accept as a custom field name.")
-        kind = field.get("type")
-        if kind not in FIELD_TYPES:
+        # The extra fields are ordinary custom fields, judged by the rule Qorqbot has for a custom field definition.
+        if _text(field.get("id")) and not field_name_accepted(field["id"]):
+            found.append(f"{where} has the id {field['id']!r}, which Qorqbot does not accept as a custom field name.")
+        problem = definition_problem({key: field[key] for key in ("type", "values") if key in field})
+        if problem == "type":
             found.append(f"{where} must have `type` as one of {', '.join(FIELD_TYPES)}.")
-        values = field.get("values")
-        if kind == "enum" and not (isinstance(values, list) and values and all(isinstance(v, str) for v in values)):
-            found.append(f"{where} is an enum and needs `values` as a non-empty list of strings.")
-        if kind != "enum" and "values" in field:
-            found.append(f"{where} has `values`, which is allowed only for an enum.")
+        elif problem == "values":
+            found.append(f"{where} is an enum and needs `values` as a non-empty list.")
     found.extend(f"{label} repeats the field id {name!r}." for name, count in Counter(seen).items() if count > 1)
     return found
 

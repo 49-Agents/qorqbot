@@ -268,17 +268,28 @@ in section 9 are from an imagined extension `network` that keeps the owner's per
 | --- | --- |
 | `start` | A conversation begins |
 | `owner_message` | With each message from the owner |
-| `after_tool` | As a note on the result of the tools named in `tools` |
-| `stop` | When the agent is about to stop, at most once per turn |
+| `after_tool` | As a note beside the result of the tools named in `tools` |
+| `stop` | When the agent is about to stop, at most once per turn, on a turn that a message started |
 | `timed` | As a nudge, at most once per `every` |
 
 `every` is written as a whole number followed by `m`, `h` or `d`: minutes, hours or days.
 
+A turn that a message started is one that began with a message from the owner, or with a message Ordubashy sent to the
+agent. A turn that a reminder, a timed nudge or another notice started is not one, and no `stop` text holds it.
+`owner_message` is for the owner's messages alone.
+
+A timed text comes first one `every` after its extension came into effect for the agent, then one `every` after each
+delivery. A timed nudge wakes an agent that is asleep. An agent that is paused or stopped gets none.
+
+At `after_tool` the note is given beside the result, under `extension_notes`. The result itself is unchanged.
+
 This contract sets no size limit on these texts. Qorqbot has limits of its own today, which were not set with extensions
 in mind: text handed to an agent at a hook is kept under 9,500 characters, because above 10,000 the agent's program
 shows only the first 2,000; the correction given at the stop check is at most 2,500 characters; and a tool result is cut
-at about 40,000 characters. What happens when the texts of switched-on extensions do not fit is not decided
-([section 15](#15-decisions-and-open-points)).
+at about 40,000 characters.
+
+Where the texts due at one point do not fit, Qorqbot's own text comes first. What does not fit of the extensions' texts
+is written to a file, and the agent is given a sentence that points to that file. That sentence is always delivered.
 
 Conditions an entry may carry, checked by Qorqbot:
 
@@ -288,7 +299,7 @@ Conditions an entry may carry, checked by Qorqbot:
 | `unless_used: [tools]` | Only when the agent used none of these tools in this turn |
 
 A condition is given only at `after_tool` and `stop`, the two points that have a turn to look at. It names at least one
-tool, and one entry does not name the same tool in both.
+tool, and one entry does not name the same tool in both. At `after_tool` the call the note is for counts as used.
 
 Rules:
 
@@ -323,8 +334,16 @@ adds no database table and no code.
 - A record of the new type is stored as its base type and behaves as its base type everywhere: in CRM tables, in Focus,
   in what counts as work.
 - The dashboard shows the label and draws the extra fields from this list. An extension writes no dashboard code for it.
-- A type id is unique across all extensions.
-- When the extension is switched off or removed, the records stay and are shown as their base type with their fields.
+- A type id is unique across all extensions, follows the rule for field ids, and is not the name of one of Qorqbot's
+  own types.
+- A type exists while its extension is `ready` and on for at least one agent. Agents see in `tasks_config_get` the types
+  of the extensions on for them; the owner sees every type that exists. A type can be used in every project and in
+  Global.
+- When the extension is switched off for every agent or removed, its records stay. They show as their base type, with
+  the extra values listed under their field ids. An edit keeps those values as they are; a value that is changed is
+  checked against the fields the record's project defines.
+- Qorqbot reads `records.yaml` from the extension's copy in the agentic layer. A copy that breaks a rule gives no types
+  and the extension shows as `needs_attention`. Two extensions that declare the same type id give it to neither.
 
 ## 10. The code part
 
@@ -463,8 +482,8 @@ files hold, it reports a problem and never fails.
 | The `extensions_*` tools | Exist: list, set-up, switch, install and remove. The owner's Install, Update and Remove are on the Connections card |
 | The Connections card drawn from the manifest | Exists for the set-up kinds `none` and `key`; `sign-in` and `pairing` are to build. Three of today's extensions are still written into the screen by hand |
 | One private folder per extension | Exists for extensions under this contract; each of today's extensions picks its own files |
-| Hooks and nudges list | To build; about thirty separately written points today |
-| Record types | To build; the four Task types are a fixed list in the backend and the dashboard |
+| Hooks and nudges list | Exists for extensions. Qorqbot's own points, about thirty, are still written separately |
+| Record types | Exist. A record is a Task of the type's base with `record_type` set and its extra values as custom fields. The Type editor, the CRM row form, `tasks_create`, `tasks_update` and `crm_entries_add` take it, and `tasks_list` filters by it. No table |
 | The index of downloadable extensions | Qorqbot reads the file next to the app, and a tool writes it from the extension folders and their bundles. No release step runs that tool yet, so no release carries an index |
 | The checker | Exists in part ([section 12](#12-the-checker)); Qorqbot runs it at start, at a bundle build and on a downloaded bundle |
 
@@ -510,10 +529,14 @@ All dates are 26 November 2026.
     `summary`, and a shortest `every`; they are removed. Limits that Qorqbot already applies are named as such.
 14. Bringing today's extensions under the contract is a separate job.
 15. An agent created later, of a role the extension is on for by default, has the extension from its first session.
-16. The approval card for an install or update is short: name, version, the one-line summary, and that Qorqbot restarts
+16. A record type from an extension can be used in every project. There is no scoping.
+17. Where the texts due at one point do not fit, the rest goes to a file and the agent is pointed to it.
+18. A `stop` text holds only a turn that a message started.
+19. A timed nudge wakes an agent that is asleep.
+20. The approval card for an install or update is short: name, version, the one-line summary, and that Qorqbot restarts
     once.
-17. The approval card for a removal has two buttons: "Remove", and "Remove and delete its data".
-18. An app update goes ahead when an installed extension no longer fits the new version. That extension stays installed
+21. The approval card for a removal has two buttons: "Remove", and "Remove and delete its data".
+22. An app update goes ahead when an installed extension no longer fits the new version. That extension stays installed
     and shows as `unsupported`.
 
 **Built and put to the owner, who has not answered yet**
@@ -545,12 +568,13 @@ The owner's word changes any of these.
 10. A folder that breaks the contract shows in the list as needing attention, with the reason. Nothing of it reaches an
     agent.
 11. A switch made before the extension is ready is kept. The agent gets nothing of the extension until it is ready.
-12. The list and the Connections card drawn from the manifest show extensions under this contract only. Today's
+12. A record of an extension's type can be created by hand in the dashboard and by agents, and its type can be changed
+    afterwards. The extra values stay on the record.
+13. The plural of a record type is carried for agents. The dashboard has no new list by type.
+14. The list and the Connections card drawn from the manifest show extensions under this contract only. Today's
     extensions keep their own cards until they are brought under it.
 
 **Not decided**
 
-1. What happens when the texts of switched-on extensions do not fit the limits Qorqbot already has
-   ([section 8](#8-hooks-and-nudges)).
-2. How the app build takes the built-in extensions from the extensions repository.
-3. Which helpers of Qorqbot's code an extension may import.
+1. How the app build takes the built-in extensions from the extensions repository.
+2. Which helpers of Qorqbot's code an extension may import.

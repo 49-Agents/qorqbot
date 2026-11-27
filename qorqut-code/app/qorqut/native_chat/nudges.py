@@ -259,6 +259,15 @@ class NudgeBackend:
         self._wake = threading.Event()
         self._thread: threading.Thread | None = None
         self._memo: dict[str, tuple] = {}
+        # The ``timed`` entries of extensions (``qorqut.extension_hooks``), only when an extension was found at start.
+        self.timed = None
+        extensions = getattr(runtime, "extension_registry", None)
+        # Whether an extension was found at start: only then may a notice carry the message mark (``_carries_message``).
+        self.extensions_found = bool(extensions is not None and extensions.found)
+        if self.extensions_found:
+            from types import SimpleNamespace
+            from qorqut.extension_hooks import TimedNudges
+            self.timed = TimedNudges(runtime, SimpleNamespace(probe=probe, registry=registry, arbiter=arbiter, opener=opener))
 
     @classmethod
     def build(cls, runtime, inbox, *, interval: float = PASS_SECONDS, reconcile=None) -> "NudgeBackend":
@@ -339,6 +348,18 @@ class NudgeBackend:
                     FAILURES.failed(subject, error)
                 except Exception:
                     LOG.debug('Attention reminder deferred for %s', profile['agent_id'], exc_info=True)
+            if self.timed is not None:
+                subject = "Extension nudge for " + profile["agent_id"]
+                try:
+                    with self.runtime.application.writer_admission.writer():
+                        self.timed.send_due(profile)
+                    FAILURES.passed(subject)
+                except DomainError as error:
+                    if error.code in PASS_STOPPERS:
+                        raise
+                    FAILURES.failed(subject, error)
+                except Exception:
+                    LOG.debug("Extension nudge deferred for %s", profile["agent_id"], exc_info=True)
             if profile["agent_id"] not in due:
                 self._memo.pop(profile["agent_id"], None)
                 continue
@@ -474,6 +495,21 @@ class NudgeBackend:
             LOG.debug("Waking %s for its inbox failed", profile["agent_id"], exc_info=True)
             return False
 
+    def _carries_message(self, reservation: Reservation) -> bool:
+        """Whether the notice covers a message Ordubashy sent this worker (``agents_message_send``): the turn it starts is then a
+        message turn. Reminders, other inbox events and timed nudges are not."""
+        events = tuple(reservation.event_ids)
+        if not events:
+            return False
+        from qorqut.management.identity import configured_ordubashy
+        with self.database.read() as uow:
+            coordinator = configured_ordubashy(uow)
+            if coordinator is None or coordinator == reservation.agent_id:
+                return False
+            return uow.connection.execute(
+                "SELECT 1 FROM inbox_events WHERE source_type='agent_messages' AND actor_id=? AND id IN ("
+                + ",".join("?" * len(events)) + ") LIMIT 1", (coordinator, *events)).fetchone() is not None
+
     def _send(self, session: dict, reservation: Reservation) -> str:
         stale: dict[str, bool] = {}
         reservation = replace(reservation, text=self.runtime.resolver.require_agentic_view()
@@ -486,9 +522,12 @@ class NudgeBackend:
                 stale["now"] = True
                 raise StaleSession()
 
+        metadata = {"nudge_attempt": reservation.attempt_id, "nudge_kind": reservation.kind}
+        if self.extensions_found and self._carries_message(reservation):
+            metadata["message_turn"] = True
         result = self.arbiter.admit_nudge(
             reservation.agent_id, reservation.source_key, reservation.text, expected_binding=session["id"],
-            metadata={"nudge_attempt": reservation.attempt_id, "nudge_kind": reservation.kind}, on_checkpoint=checkpoint)
+            metadata=metadata, on_checkpoint=checkpoint)
         if stale:
             return "stale"
         outcome = outcome_of(result, reservation.binding)

@@ -1,4 +1,4 @@
-// Voice input for the Chat composer, and the owner's sign-in with OpenRouter that turns it on.
+// Voice input for the Chat composer and the Focus notes, and the owner's sign-in with OpenRouter that turns it on.
 // `voiceInputModel` is pure (unit tested with `node --test dashboard/tests/*.test.js`). `openrouterConnect` starts the
 // sign-in and finishes it when OpenRouter sends the browser back. `voiceInput.attach` adds the microphone button to one
 // composer; the recording goes to the OpenRouter extension's own route and its text is inserted where the cursor is.
@@ -116,8 +116,9 @@ const voiceInput = (() => {
   const refresh = () => readStatus();
   const say = text => { if (typeof toast === 'function') toast(text); };
 
-  // options: {form, input, before, maxLength, onChange}. The button is inserted before `before` inside `form`; `onChange` is
-  // called whenever the recording state changes.
+  // options: {form, input, before, maxLength, onChange, insertText}. The button is inserted before `before` inside `form`;
+  // `onChange` is called whenever the recording state changes. `insertText(text)`, for a field that is not a textarea (the
+  // Focus notes), puts the words in itself and returns whether it could.
   function attach(options) {
     const {form, input} = options;
     const button = document.createElement('button');
@@ -197,6 +198,7 @@ const voiceInput = (() => {
           {method: 'POST', headers: {'Content-Type': voiceInputModel.mediaType(type) || 'audio/webm'}, body: blob}));
         if (disposed) return;
         if (!String(data.text || '').trim()) say('Nothing was heard. Try again a little closer to the microphone.');
+        else if (options.insertText) { if (!options.insertText(data.text)) say('Your words could not be put in. Try again.'); }
         else {
           const next = voiceInputModel.insert(input.value, input.selectionStart, input.selectionEnd, data.text, options.maxLength);
           input.value = next.value; input.setSelectionRange(next.cursor, next.cursor);

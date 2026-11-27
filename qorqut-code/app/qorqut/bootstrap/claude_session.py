@@ -18,8 +18,9 @@ from .client import (BOOTSTRAP_TIMEOUT, REQUEST_TIMEOUT, STARTUP_INSTRUCTIONS, B
                      load_registration, path_has_symlink, write_json_private, write_text_private)
 from .transcript_snapshot import run as snapshot_transcript
 from .environment import bootstrap_environment_context
-from qorqut_agentic.behavior.instructions import (ALWAYS_SKILLS, BOOTSTRAP_BUDGET, FIRST_CONVERSATION_SKILLS, from_prepared,
-                                                  bootstrap_failure, render_skill_discovery)
+from qorqut_agentic.behavior.instructions import (ALWAYS_SKILLS, BOOTSTRAP_BUDGET, EXTENSION_REST_FILE,
+                                                  FIRST_CONVERSATION_SKILLS, from_prepared, bootstrap_failure,
+                                                  extension_notes, render_skill_discovery)
 
 LIFECYCLE_EVENTS = frozenset({"startup", "resume", "clear", "compact", "fork"})
 
@@ -54,6 +55,48 @@ def keep_instructions(workspace: Path, rules: str) -> str:
         return ""
     write_text_private(path, rules)
     return INSTRUCTIONS_CHANGED
+
+
+def extension_texts(response, point, own, limit, instructions, workspace, client):
+    """``own`` followed by the texts the bootstrap answer carries for ``point`` (``extension_hooks``), within ``limit``.
+    What does not fit goes to the point's rest file, which the text points to. The delivered entries wait on ``client``
+    until the output is written. Without such texts ``own`` comes back as it is."""
+    items = (response.get("extension_hooks") or {}).get(point) if isinstance(response.get("extension_hooks"), dict) else None
+    if not isinstance(items, list) or not items:
+        return own
+    items = [item for item in items if isinstance(item, dict) and all(
+        isinstance(item.get(key), str) and item[key] for key in ("extension_id", "entry_id", "name", "text"))]
+    if not items:
+        return own
+    rest_file = EXTENSION_REST_FILE.format(point=point)
+    try:
+        text, rest, count = extension_notes(instructions, own, [(item["name"], item["text"]) for item in items], limit,
+                                            rest_file)
+    except KeyError:
+        return own  # A prepared snapshot from before these messages existed has nothing to frame them with.
+    if rest is not None:
+        write_text_private(workspace / rest_file, rest)
+    delivered = [{"extension_id": item["extension_id"], "entry_id": item["entry_id"],
+                  "place": "shown" if index < count else "rest_file",
+                  "text_sha256": hashlib.sha256(item["text"].encode("utf-8")).hexdigest()}
+                 for index, item in enumerate(items)]
+    client.extension_deliveries = [*(getattr(client, "extension_deliveries", None) or ()), (point, delivered)]
+    return text
+
+
+def message_turn(hook, workspace, runtime) -> bool:
+    """Whether this prompt is a message from the owner (the activity hook's ``owner_prompt``; Ordubashy's message to a
+    worker is not one here), judged against the session's checkpoint receipt so the checkpoint's own continuation is not
+    one."""
+    from .activity_hook import checkpoint_receipt, owner_prompt
+    session_id = hook.get("session_id")
+    state = {}
+    if isinstance(session_id, str) and session_id.replace("-", "").replace("_", "").isalnum():
+        try:
+            state = checkpoint_receipt(workspace / ".qorqut/activity" / (session_id + ".checkpoint.json"))
+        except (OSError, ValueError):
+            state = {}
+    return owner_prompt(hook.get("prompt"), state, runtime=runtime)
 
 
 def prepare_with_retry(client, body):
@@ -174,10 +217,18 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
         from .always_skills import handle as skills_hook
         extra = FIRST_CONVERSATION_SKILLS if first else ()
         skills = skills_hook(hook, registration_path, runtime, force=recovering, extra=extra).get('hookSpecificOutput', {}).get('additionalContext', '')
+    workspace = Path(registration["workspace"])
+    hook_limit = CLAUDE_HOOK_LIMIT if runtime == "claude-code" else BOOTSTRAP_BUDGET
+    # Only an answer that carries owner-message texts makes the hook look at the prompt.
+    message = (event == "UserPromptSubmit" and isinstance(response.get("extension_hooks"), dict)
+               and bool(response["extension_hooks"].get("owner_message")) and message_turn(hook, workspace, runtime))
     if event == "UserPromptSubmit" and last_id == config_id and not response.get("refresh_required") and not recovering:
         prompt_context = '\n\n'.join(filter(None, (first, skills, reminder)))
         if len(prompt_context) > BOOTSTRAP_BUDGET:
             raise DomainError("invalid_bootstrap", "Combined bootstrap exceeds its character budget")
+        if message:
+            prompt_context = extension_texts(response, "owner_message", prompt_context, hook_limit, instructions,
+                                             workspace, client)
         return ({"hookSpecificOutput": {"hookEventName": event, "additionalContext": prompt_context}} if prompt_context else {}), None, client
     context = response.get("mandatory_context")
     rules = facts = None
@@ -187,7 +238,6 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
     if not isinstance(context, str) or not context.strip() or len(context) > MAX_CONTEXT_CHARACTERS:
         raise DomainError("invalid_bootstrap", "Mandatory bootstrap is missing or exceeds its character budget")
     configuration_hash = content_hash(context.encode())
-    workspace = Path(registration["workspace"])
     notice = ""
     if isinstance(rules, str) and isinstance(facts, str):
         if runtime == "claude-code":
@@ -218,6 +268,11 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
         max_chars=min(2400, BOOTSTRAP_BUDGET - len(context) - reminder_size - 2))
     if inventory:
         context += "\n\n" + inventory
+    if event == "SessionStart":
+        # The start texts of the agent's extensions follow Qorqbot's own start context; on Claude Code they go into the
+        # startup file with it when the whole is too long to show.
+        context = extension_texts(response, "start", context, BOOTSTRAP_BUDGET - reminder_size, instructions, workspace,
+                                  client)
     if reminder:
         context += "\n\n" + reminder
     if len(context) > BOOTSTRAP_BUDGET:
@@ -241,6 +296,8 @@ def handle_hook(hook: dict, registration_path: Path, *, runtime="claude-code", c
             candidate = shown(inline, body)
         write_text_private(workspace / STARTUP_CONTEXT, body)
         context = candidate
+    if message:
+        context = extension_texts(response, "owner_message", context, hook_limit, instructions, workspace, client)
     output = {"hookSpecificOutput": {"hookEventName": event, "additionalContext": context}}
     if event == "SessionStart" and runtime == "claude-code":
         output["hookSpecificOutput"]["reloadSkills"] = bool(response.get("reload_skills", True))
@@ -302,6 +359,16 @@ def run(hook: dict, registration_path: Path, *, stream=sys.stdout, diagnostics=s
                     client.post("/api/agent/bootstrap/receipt", receipt)
             except (DomainError, OSError, ValueError):
                 diagnostics.write("Qorqut emitted context; its delivery receipt could not be recorded.\n")
+        for point, delivered in getattr(client, 'extension_deliveries', None) or ():
+            body = {'registration_id': registration['registration_id'], 'session_id': hook.get('session_id'),
+                    'point': point, 'deliveries': delivered}
+            try:
+                if prepared:
+                    handoff.queue(registration, prepared, '/api/agent/extension-deliveries', body)
+                else:
+                    client.post('/api/agent/extension-deliveries', body)
+            except (DomainError, OSError, ValueError):
+                diagnostics.write("Qorqut emitted the notes of extensions; their delivery could not be recorded.\n")
         snapshot_transcript(hook, registration_path, runtime=runtime, diagnostics=diagnostics)
         return 0
     except (DomainError, OSError, ValueError) as exc:

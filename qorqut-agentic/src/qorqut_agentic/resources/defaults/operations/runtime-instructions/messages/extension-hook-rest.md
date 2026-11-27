@@ -1,0 +1,1 @@
+The rest of the notes from your extensions is in {{FILE}}, so read that whole file before you go on.

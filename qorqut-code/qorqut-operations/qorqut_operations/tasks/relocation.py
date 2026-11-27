@@ -232,7 +232,7 @@ class TaskRelocation:
                                     (destination,)).fetchone()
         fields = stored_fields(json.loads(config["config_json"]) if config else DEFAULT_CONFIG)
         material["destination_config"] = [config["revision"], digest([[config["config_json"]]])] if config else None
-        rewritten = {}
+        rewritten, types = {}, self.operations.record_types.active(uow)
         for identity in ordered:
             row = dict(rows[identity])
             row["fields_json"] = json.loads(row["fields_json"]) if isinstance(row["fields_json"], str) else row["fields_json"]
@@ -248,7 +248,7 @@ class TaskRelocation:
                 # edit of older data); a value the destination defines differently is still refused.
                 stored = dict(rows[identity])
                 stored["fields_json"] = json.loads(stored["fields_json"]) if isinstance(stored["fields_json"], str) else stored["fields_json"]
-                validate_task(row, fields, stored)
+                validate_task(row, fields, stored, types=types)
             except DomainError as error:
                 if error.code != "validation_error":
                     raise

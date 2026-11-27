@@ -621,6 +621,65 @@ function recordSection(title, className) {
   return {section, body, tools};
 }
 
+// The record type of a Story or Customer opened as a dashboard (`ctx.typeEditor`): the Task detail's own Type editor
+// (`taskTypeFields`, `taskTypeMount`), offering only the record's base type and the record types on it, with its own Save
+// and Discard. The values the chosen type does not draw, an inactive type's leftover values included, are listed read-only
+// by field id. With no record type active for its base there is nothing to choose, so only those values are shown; with
+// none on the record either the section is not shown.
+function recordTypeSection(ctx) {
+  const section = recordNode('section', 'record-section record-type-section');
+  let shown = null, editor = null, actions = null, saver = null;
+  const types = () => typeof taskRecordTypes !== 'undefined' ? taskRecordTypes : [];
+  const relevant = task => !!task.record_type || types().some(item => item.based_on === (task.task_type || 'task'));
+  const dirty = () => !!editor?.dirty();
+  function paint(task = ctx.task) {
+    editor?.dispose?.(); editor = actions = saver = null;
+    shown = task;
+    section.hidden = !relevant(task);
+    if (section.hidden) { section.replaceChildren(); return; }
+    const leftover = task.record_type ? taskFieldsLeftOver(task) : [];
+    const list = leftover.length ? `<dl class="record-type-leftover" aria-label="Other values">${leftover.map(([id, value]) => `<dt>${esc(id)}</dt><dd>${esc(String(value))}</dd>`).join('')}</dl>` : '';
+    if (!types().some(item => item.based_on === (task.task_type || 'task'))) {
+      section.hidden = !list;
+      section.innerHTML = list;
+      return;
+    }
+    section.innerHTML = `<div class="task-type-detail">${taskTypeFields(task, {sameBase: true})}${efActionsHtml({save: 'data-record-type-save', discard: 'data-record-type-discard'})}</div>
+      ${list}
+      <div class="record-actions"><button type="button" class="quiet" data-record-type-latest hidden>Use latest revision</button></div><p class="ferr" role="alert" data-record-type-error hidden></p>`;
+    const box = section.querySelector('.task-type-detail');
+    editor = taskTypeMount(box, ctx.project, task, {saved: true, sameBase: true});
+    const discard = () => { saver.show(''); editor.reset(); actions.sync(); };
+    const save = () => {
+      const changes = taskTypeChanges(shown, editor.values());
+      if (!Object.keys(changes).length) { saver.show('There are no type changes to save.'); return; }
+      saver.run(changes, () => { paint(); ctx.typeShown?.(); });
+    };
+    actions = efActions(box.querySelector('.ef-actions'), {isDirty: dirty, onSave: save, onDiscard: discard});
+    saver = recordSaver(ctx, {error: section.querySelector('[data-record-type-error]'), latest: section.querySelector('[data-record-type-latest]'),
+      setBusy: busy => { for (const control of section.querySelectorAll('input,select,button')) control.disabled = busy; }});
+    section.querySelector('[data-record-type-latest]').onclick = () => saver.adoptLatest(fresh => adopt(fresh, {force: true}));
+    efMount(box, {onChange: () => actions.sync(), onEscape: discard});
+    box.addEventListener('change', () => actions.sync());
+    actions.sync();
+  }
+  // A newer snapshot redraws the section unless it holds unsaved edits (or the owner chose the latest revision).
+  function adopt(fresh, {force = false} = {}) {
+    if (!('record_type' in fresh) && !('fields' in fresh)) return;
+    if (dirty() && !force) return;
+    paint({...shown, ...fresh});
+    ctx.typeShown?.();
+  }
+  paint();
+  // The type list read when the page opened may have changed: a section without unsaved edits is drawn again from it.
+  if (typeof taskRecordTypesLoad === 'function') taskRecordTypesLoad().then(() => {
+    if (!ctx.current()) return;
+    if (!dirty()) paint(shown);
+    ctx.typeShown?.();
+  });
+  return {section, dirty, adopt, dispose() { editor?.dispose?.(); editor = null; }};
+}
+
 function recordStoryMount(el, ctx) {
   const parts = {};
   const overview = recordNode('section', 'record-section record-story-overview');
@@ -655,7 +714,9 @@ function recordStoryMount(el, ctx) {
   const children = recordSection('Child tasks'), links = recordSection('Linked tasks');
   const signoffs = recordSection('Signoffs'), actions = recordSection('Actions');
   const emails = recordSection('Historical email references'), activity = recordSection('Recent activity');
-  el.replaceChildren(overview, children.section, links.section, signoffs.section, actions.section, emails.section, activity.section);
+  const type = ctx.typeEditor ? recordTypeSection(ctx) : null;
+  el.replaceChildren(overview, ...(type ? [type.section] : []), children.section, links.section, signoffs.section, actions.section, emails.section, activity.section);
+  if (type) parts.type = type;
   parts.children = recordChildren(children.body, ctx);
   parts.links = recordTaskLinks(links, ctx);
   parts.signoffs = recordAssociated(signoffs.section, signoffs.body, ctx, 'signoff');
@@ -663,10 +724,10 @@ function recordStoryMount(el, ctx) {
   parts.emails = recordRelated(emails.body, ctx, 'email');
   parts.activity = recordActivity(activity.body, ctx);
   return {
-    dirty: () => field.value !== base,
-    hasUnsaved: () => field.value !== base,
+    dirty: () => field.value !== base || !!type?.dirty(),
+    hasUnsaved: () => field.value !== base || !!type?.dirty(),
     save: saveOverview,
-    adopt,
+    adopt: fresh => { adopt(fresh); type?.adopt(fresh); },
     // Reopening refreshes what others can change; the overview keeps any unsaved text.
     onShow() { parts.children.refresh(); parts.links.refresh(); parts.signoffs.refresh(); parts.actions.refresh(); parts.emails.refresh(); parts.activity.refresh(); },
     dispose() { for (const part of Object.values(parts)) part.dispose(); },
@@ -777,15 +838,17 @@ function recordCustomerMount(el, ctx) {
   form.querySelector('[data-customer-latest]').onclick = () => saver.adoptLatest(adopt);
   const parts = {};
   const tasks = recordSection('Linked tasks'), emails = recordSection('Email conversations'), context = recordSection('Context'), activity = recordSection('Recent activity');
-  el.replaceChildren(form, tasks.section, emails.section, context.section, activity.section);
+  const type = ctx.typeEditor ? recordTypeSection(ctx) : null;
+  el.replaceChildren(form, ...(type ? [type.section] : []), tasks.section, emails.section, context.section, activity.section);
+  if (type) parts.type = type;
   states.load();
   parts.links = recordTaskLinks(tasks, ctx);
   parts.emails = recordRelated(emails.body, ctx, 'email');
   parts.context = recordRelated(context.body, ctx, 'context');
   parts.activity = recordActivity(activity.body, ctx);
   return {
-    dirty: () => Object.keys(detailChanges()).length > 0 || customerNormalizeState(input.state.value) !== base.customer_state,
-    adopt,
+    dirty: () => Object.keys(detailChanges()).length > 0 || customerNormalizeState(input.state.value) !== base.customer_state || !!type?.dirty(),
+    adopt: fresh => { adopt(fresh); type?.adopt(fresh); },
     onShow() { parts.links.refresh(); parts.emails.refresh(); parts.context.refresh(); parts.activity.refresh(); states.load(); },
     dispose() { states.dispose(); for (const part of Object.values(parts)) part.dispose(); },
   };
