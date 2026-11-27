@@ -66,6 +66,11 @@ function sgItemStatus(s, labels) {
 function sgIsDraftReview(s) { return s.category === 'input_request' && s.input?.kind === 'draft_review'; }
 // A report or document to read: one Acknowledge button and no answer. Its conversation is the thread of the Task it belongs to.
 function sgIsAcknowledge(s) { return s.category === 'input_request' && s.input?.kind === 'acknowledge'; }
+// Agent-written text (explanations, rationale, purpose, question notes) in the chat's markdown: bold, lists, headings,
+// links. Without the chat renderer it falls back to plain text with links.
+function sgRichText(text) {
+  return typeof chatViewMarkdown === 'function' ? `<div class="sg-rich">${chatViewMarkdown(text)}</div>` : `<p>${renderSafeLinks(text)}</p>`;
+}
 function sgReportHtml(text) {
   return typeof chatViewMarkdown === 'function' ? `<div class="sg-report">${chatViewMarkdown(text)}</div>` : sgInputExplanation(text);
 }
@@ -149,7 +154,7 @@ function sgPlatformPreview(s) {
   const line = (label, value) => value == null || value === "" || Array.isArray(value) && !value.length ? "" : `<div class="sg-platform-field"><strong>${esc(label)}</strong><span>${esc(Array.isArray(value) ? value.join(", ") : String(value))}</span></div>`;
   const message = (subject, body) => `${subject ? `<h3>${esc(subject)}</h3>` : ""}<pre class="sg-message">${esc(body)}</pre>`;
   const content = line("From", p.from_address) + line("To", p.to) + line("CC", p.cc) + line("BCC", p.bcc) + sgEmailTextHtml(p.subject, p.body);
-  return `<div class="sg-platform">${sub.why ? `<div class="sg-rationale"><h3>Purpose</h3><p>${renderSafeLinks(sub.why)}</p></div>` : ""}
+  return `<div class="sg-platform">${sub.why ? `<div class="sg-rationale"><h3>Purpose</h3>${sgRichText(sub.why)}</div>` : ""}
     ${content}${line("Attachments", p.media)}${line("Scheduled after", sub.not_before)}${line("Window ends", sub.window_end)}</div>`;
 }
 
@@ -186,7 +191,7 @@ function sgValue(v) {
 // Overseer binds its exact saved delta/plan into the explanation. Present that
 // frozen material without rewriting the Signoff or fetching a newer revision.
 function sgInputExplanation(explanation) {
-  const fallback = () => `<div class="sg-rationale"><p>${renderSafeLinks(explanation)}</p></div>`;
+  const fallback = () => `<div class="sg-rationale">${sgRichText(explanation)}</div>`;
   const marker = '\n\nBound material:\n';
   if (typeof explanation !== 'string' || !explanation.includes(marker)) return fallback();
   const split = explanation.lastIndexOf(marker);
@@ -231,7 +236,7 @@ function sgInputExplanation(explanation) {
   for (const [key, item] of Object.entries(material)) {
     if (key !== 'targets' && key !== 'delta') content += section(sgLabel(key), item);
   }
-  return `<div class="sg-rationale"><p>${renderSafeLinks(explanation.slice(0, split))}</p></div>
+  return `<div class="sg-rationale">${sgRichText(explanation.slice(0, split))}</div>
     <div class="sg-content sg-bound-material">${content}<details class="sg-bound-record"><summary>Saved record</summary>${sgTextBlock(JSON.stringify(material, null, 2), 'Exact saved approval record')}</details></div>`;
 }
 function sgChangeRows(changes) {
@@ -552,7 +557,7 @@ function sgCreateView(options) {
         // A single question that only repeats the card's title: Chat shows the title once (css/signoffs.css).
         if (s.input.questions.length === 1 && q.required && q.prompt.trim() === String(s.input.title || s.title || '').trim()) group.classList.add('sg-question-titled');
         const legend = document.createElement('legend'); legend.id = id; legend.textContent = q.required ? q.prompt : `${q.prompt} (optional)`;
-        const explanation = document.createElement('p'); explanation.className = 'sg-question-explanation'; explanation.innerHTML = q.explanation ? renderSafeLinks(q.explanation) : ''; explanation.hidden = !q.explanation;
+        const explanation = document.createElement('div'); explanation.className = 'sg-question-explanation'; explanation.innerHTML = q.explanation ? sgRichText(q.explanation) : ''; explanation.hidden = !q.explanation;
         const guidance = document.createElement('p'); guidance.className = 'sg-notice';
         // The choices and the answer box explain themselves; only a written-details requirement is said.
         guidance.textContent = q.notes_required && q.selection_mode !== 'none' ? 'Add a few words with your choice.' : '';
@@ -809,7 +814,7 @@ function sgCreateView(options) {
     if (s.category === "platform_action" && s.platform?.available !== false) return sgPlatformPreview(s);
     const preview = s.preview;
     if (s.platform?.available === false) return '<p class="sg-notice">This action’s integration is no longer installed. This is saved history; execution is disabled.</p>'
-      + (preview?.rationale ? `<div class="sg-rationale"><p>${renderSafeLinks(preview.rationale)}</p></div>` : '')
+      + (preview?.rationale ? `<div class="sg-rationale">${sgRichText(preview.rationale)}</div>` : '')
       + (Array.isArray(preview?.changes) ? sgChangesHtml(preview) : '');
     // A daily report shows the timeline of its day under the text, so the text need not retell what was done.
     if (s.input) return sgIsAcknowledge(s) ? sgReportHtml(s.input.explanation) + (s.request_key === 'daily-report' && typeof ownerTimelineReportMount === 'function'
@@ -819,7 +824,7 @@ function sgCreateView(options) {
     const effects = (preview.effects || []).map(effect => typeof effect === "string" ? effect : effect && effect.description).filter(effect => typeof effect === "string");
     const proposal = sgProposal(s, effects);
     const content = proposal ? proposal.html + (proposal.ok ? sgChangesHtml({ ...preview, changes: preview.changes.filter(c => !(c && c.resource && (proposal.hiddenResources || []).includes(c.resource.resource_type))) }) : "") : sgChangesHtml(preview);
-    return `${s.legacy_review_routing ? '<p class="sg-notice">Created under previous review routing.</p>' : ""}${preview.rationale ? `<div class="sg-rationale${proposal ? " sg-message-rationale" : ""}"><h3>${s.proposer_agent_id ? "Agent's explanation" : "Proposer's explanation"}</h3><p>${renderSafeLinks(preview.rationale)}</p></div>` : ""}${content}`;
+    return `${s.legacy_review_routing ? '<p class="sg-notice">Created under previous review routing.</p>' : ""}${preview.rationale ? `<div class="sg-rationale${proposal ? " sg-message-rationale" : ""}"><h3>${s.proposer_agent_id ? "Agent's explanation" : "Proposer's explanation"}</h3>${sgRichText(preview.rationale)}</div>` : ""}${content}`;
   }
   function completePreview(s) {
     if (s.input && Object.hasOwn(s.input, 'schema_version')) return !!s.preview && sgQuestionFormValid(s)
