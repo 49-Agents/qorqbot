@@ -2,7 +2,7 @@
 
 Project processes can rename their writable directories concurrently. A path
 check followed by ordinary path I/O cannot enforce a host filesystem boundary.
-Walk every component with O_NOFOLLOW and keep the parent descriptor through the
+Walk every component without following a link and keep the parent descriptor through the
 effect, including temporary-file creation, rename, cleanup and directory fsync.
 """
 
@@ -15,6 +15,7 @@ import secrets
 import stat
 
 from qorqut_operations.errors import DomainError
+from qorqut_system import private_files
 
 _ANY = object()
 # New atomic replacements use Qorqut names. Recovery must also exclude interrupted
@@ -32,21 +33,19 @@ def _parts(path):
 
 @contextmanager
 def directory(path, *, create=False):
-    descriptor = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    descriptor = private_files.open_folder("/").descriptor
     try:
         for component in _parts(path):
             try:
-                child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
-                                dir_fd=descriptor)
+                child = private_files.open_child_folder(descriptor, component).descriptor
             except FileNotFoundError:
                 if not create:
                     raise
                 try:
-                    os.mkdir(component, 0o700, dir_fd=descriptor)
+                    private_files.make_folder(descriptor, component)
                 except FileExistsError:
                     pass
-                child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
-                                dir_fd=descriptor)
+                child = private_files.open_child_folder(descriptor, component).descriptor
             os.close(descriptor)
             descriptor = child
         yield descriptor
@@ -70,7 +69,7 @@ def parent(path, *, create=False):
 @contextmanager
 def _file(descriptor, name, *, private=False):
     try:
-        file = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=descriptor)
+        file = private_files.open_read(descriptor, name, nonblock=True)
     except OSError as exc:
         if exc.errno == errno.ELOOP:
             raise DomainError("forbidden", "Managed target is a symbolic link") from None
@@ -79,7 +78,7 @@ def _file(descriptor, name, *, private=False):
         info = os.fstat(stream.fileno())
         if not stat.S_ISREG(info.st_mode):
             raise DomainError("forbidden", "Managed target is not an ordinary file")
-        if private and info.st_mode & 0o077:
+        if private and not private_files.is_private(info):
             raise DomainError("forbidden", "Private file must have mode 0600")
         yield stream
 
@@ -123,28 +122,24 @@ def atomic_write(path, content, *, mode=0o600, expected_hash=_ANY, enforce_mode=
         if expected_hash is not _ANY and _hash(before) != expected_hash:
             raise DomainError("revision_conflict", "Managed file changed before replacement")
         if before == content and (not enforce_mode or
-                stat.S_IMODE(os.stat(name, dir_fd=descriptor, follow_symlinks=False).st_mode) == mode):
+                private_files.mode_of(private_files.stat_entry(descriptor, name), mask=0o7777) == mode):
             return False
         temporary = TEMPORARY_PREFIX + secrets.token_hex(16)
-        file = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
-                       mode, dir_fd=descriptor)
+        file = private_files.create_file(descriptor, temporary, mode=mode)
         try:
             with os.fdopen(file, "wb") as stream:
                 stream.write(content)
-                os.fchmod(stream.fileno(), mode)
+                private_files.set_private(stream.fileno(), mode=mode)
                 stream.flush()
                 os.fsync(stream.fileno())
             if expected_hash is not _ANY and _hash(_existing(descriptor, name)) != expected_hash:
                 raise DomainError("revision_conflict", "Managed file changed while preparing replacement")
             # Both names resolve against the same retained directory, even if
             # its former path has been renamed and replaced with a symlink.
-            os.replace(temporary, name, src_dir_fd=descriptor, dst_dir_fd=descriptor)
-            os.fsync(descriptor)
+            private_files.rename_entry(descriptor, temporary, name)
+            private_files.sync_folder(descriptor)
         finally:
-            try:
-                os.unlink(temporary, dir_fd=descriptor)
-            except FileNotFoundError:
-                pass
+            private_files.remove_entry(descriptor, temporary, missing_ok=True)
     return True
 
 
@@ -153,8 +148,8 @@ def unlink(path, *, expected_hash=_ANY, missing_ok=False):
         with parent(path) as (descriptor, name):
             if expected_hash is not _ANY and _hash(_existing(descriptor, name)) != expected_hash:
                 raise DomainError("revision_conflict", "Managed file changed before deletion")
-            os.unlink(name, dir_fd=descriptor)
-            os.fsync(descriptor)
+            private_files.remove_entry(descriptor, name)
+            private_files.sync_folder(descriptor)
     except FileNotFoundError:
         if not missing_ok:
             raise
@@ -168,16 +163,15 @@ def mkdir(path):
 def remove_empty_tree(path):
     """Remove only empty managed directories; never follow links or delete files."""
     def clear(descriptor):
-        for name in os.listdir(descriptor):
-            child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
-                            dir_fd=descriptor)
+        for name in private_files.list_entries(descriptor):
+            child = private_files.open_child_folder(descriptor, name).descriptor
             try:
                 clear(child)
             finally:
                 os.close(child)
-            os.rmdir(name, dir_fd=descriptor)
+            private_files.remove_folder(descriptor, name)
 
     with directory(path) as descriptor:
         clear(descriptor)
     with parent(path) as (descriptor, name):
-        os.rmdir(name, dir_fd=descriptor)
+        private_files.remove_folder(descriptor, name)

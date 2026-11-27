@@ -17,6 +17,8 @@ from pathlib import Path
 import re
 import stat
 
+from qorqut_system import private_files
+
 from .engine import atomic_write
 from .schema import Conflict, ContextError, encode
 
@@ -198,8 +200,7 @@ class AttemptCalls:
         if stage not in STAGES:
             raise ContextError("Unknown model stage")
         calls = self.directory / "calls"
-        calls.mkdir(mode=0o700, exist_ok=True)
-        calls.chmod(0o700)
+        private_files.make_private_directory(calls)
         path = calls / (stage + ".json")
         if probe(path, "A call receipt") is not None:
             raise Conflict(f"This attempt already reserved its {stage} call")
@@ -248,10 +249,11 @@ def corrupt(message):
 
 
 def read_bounded(path, limit, label):
+    path = Path(path)
     try:
         if not stat.S_ISREG(os.lstat(path).st_mode):
             raise corrupt(f"{label} is not a regular file")
-        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        descriptor = private_files.open_read(path.parent, path.name)
         with os.fdopen(descriptor, "rb") as handle:
             data = handle.read(limit + 1)
     except FileNotFoundError as error:
@@ -339,7 +341,7 @@ def attempts(runs, event_id):
     if not directory_present(root, "The event run directory"):
         return []
     try:
-        names = sorted(os.listdir(root))
+        names = sorted(private_files.list_entries(root))
     except OSError as error:
         raise Unavailable("unreadable_evidence", "The event run directory cannot be listed") from error
     found = {}

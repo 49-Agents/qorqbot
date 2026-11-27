@@ -264,42 +264,9 @@
     "qorqut-code/qorqut-context/qorqut_context/claude_tools.py": {
       "local_socket": 1
     },
-    "qorqut-code/qorqut-context/qorqut_context/integration/recovery.py": {
-      "safe_file_access": 1
-    },
-    "qorqut-code/qorqut-context/qorqut_context/pipeline.py": {
-      "permission_bits": 1
-    },
     "qorqut-code/qorqut-context/qorqut_context/runner.py": {
       "permission_bits": 1,
       "process_control": 4
-    },
-    "qorqut-code/qorqut-context/qorqut_context/usage.py": {
-      "permission_bits": 1,
-      "safe_file_access": 1
-    },
-    "qorqut-code/qorqut-operations/qorqut_operations/documents/relocation.py": {
-      "link": 1
-    },
-    "qorqut-code/qorqut-operations/qorqut_operations/history_exports/_capture.py": {
-      "permission_bits": 2,
-      "safe_file_access": 11
-    },
-    "qorqut-code/qorqut-operations/qorqut_operations/history_exports/_fs.py": {
-      "safe_file_access": 6
-    },
-    "qorqut-code/qorqut-operations/qorqut_operations/history_exports/_state.py": {
-      "safe_file_access": 9
-    },
-    "qorqut-code/qorqut-operations/qorqut_operations/storage/database.py": {
-      "link": 1,
-      "permission_bits": 1,
-      "safe_file_access": 1
-    },
-    "qorqut-code/qorqut-operations/qorqut_operations/storage/directories.py": {
-      "owner_check": 1,
-      "platform_check": 1,
-      "safe_file_access": 22
     },
     "qorqut-code/qorqut-operations/qorqut_operations/storage/executor.py": {
       "file_lock": 1,
@@ -310,10 +277,6 @@
       "file_lock": 1,
       "safe_file_access": 1,
       "system_module": 1
-    },
-    "qorqut-code/qorqut-operations/qorqut_operations/storage/safe_io.py": {
-      "permission_bits": 2,
-      "safe_file_access": 25
     },
     "qorqut-code/tools/bench-toolcalls.py": {
       "permission_bits": 1

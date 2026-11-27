@@ -17,6 +17,8 @@ import re
 import stat
 import time
 
+from qorqut_system import private_files
+
 from ._git import EXECUTABLE, REGULAR
 
 CHUNK = 1 << 20
@@ -25,8 +27,6 @@ MAX_DEPTH = 64
 # A cached file stat is trusted only when the file was already this old when it
 # was read, so a later same-tick change cannot hide behind identical timestamps.
 SETTLE_NS = 2_000_000_000
-OPEN_DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
-OPEN_FILE = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
 
 PROVIDER_CONFIG = frozenset({'.claude', '.codex', '.gemini', '.mcp.json', '.claude.json'})
 CACHES = frozenset({'__pycache__', '.cache', 'cache', '.pytest_cache', '.mypy_cache', '.ruff_cache',
@@ -100,7 +100,7 @@ def _verify(parent, name, fd, before):
     if _identity(os.fstat(fd)) != _identity(before):
         raise Changed
     try:
-        now = os.stat(name, dir_fd=parent, follow_symlinks=False)
+        now = private_files.stat_entry(parent, name)
     except OSError as error:
         raise Changed from error
     if not stat.S_ISREG(now.st_mode) or (now.st_ino, now.st_dev) != (before.st_ino, before.st_dev):
@@ -157,7 +157,7 @@ class Capture:
                 walked.append(part)
                 path = '/'.join(walked)
                 try:
-                    child = os.open(part, OPEN_DIRECTORY, dir_fd=fd)
+                    child = private_files.open_child_folder(fd, part).descriptor
                 except FileNotFoundError:
                     return
                 except OSError:
@@ -171,7 +171,7 @@ class Capture:
 
     def _open_failure(self, parent, name, path):
         try:
-            info = os.stat(name, dir_fd=parent, follow_symlinks=False)
+            info = private_files.stat_entry(parent, name)
         except OSError:
             self._incomplete(path, 'changed_during_capture')
             return
@@ -187,7 +187,7 @@ class Capture:
             self._incomplete(path, 'depth_limit')
             return
         try:
-            names = sorted(os.listdir(fd), key=os.fsencode)
+            names = sorted(private_files.list_entries(fd), key=os.fsencode)
         except OSError:
             self._incomplete(path, 'unreadable')
             return
@@ -208,7 +208,7 @@ class Capture:
                 self._exclude(child, 'generated_projection')
                 continue
             try:
-                listed = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                listed = private_files.stat_entry(fd, name)
             except FileNotFoundError:
                 self._incomplete(child, 'changed_during_capture')
                 continue
@@ -229,14 +229,14 @@ class Capture:
         if not {'head', 'objects', 'refs'} <= lowered:
             return False
         try:
-            return all(stat.S_ISDIR(os.stat(name, dir_fd=fd, follow_symlinks=False).st_mode)
+            return all(stat.S_ISDIR(private_files.stat_entry(fd, name).st_mode)
                        for name in ('objects', 'refs'))
         except OSError:
             return False
 
     def _directory(self, parent, name, path, depth):
         try:
-            fd = os.open(name, OPEN_DIRECTORY, dir_fd=parent)
+            fd = private_files.open_child_folder(parent, name).descriptor
         except FileNotFoundError:
             self._incomplete(path, 'changed_during_capture')
             return
@@ -251,7 +251,7 @@ class Capture:
     def _file(self, parent, name, path, listed):
         known = self.base.get(path)
         cached = self.cache.get(path)
-        mode = EXECUTABLE if listed.st_mode & 0o100 else REGULAR
+        mode = EXECUTABLE if private_files.mode_of(listed, mask=0o100) else REGULAR
         if cached and known and known == (mode, cached[6]) and tuple(cached[:5]) == _identity(listed):
             self.entries[path], self.fresh[path] = known, cached
             self.files, self.bytes = self.files + 1, self.bytes + listed.st_size
@@ -263,7 +263,7 @@ class Capture:
 
     def _capture_file(self, parent, name, path):
         try:
-            fd = os.open(name, OPEN_FILE, dir_fd=parent)
+            fd = private_files.open_read(parent, name, nonblock=True)
         except FileNotFoundError as error:
             raise Changed from error
         except OSError as error:
@@ -288,7 +288,7 @@ class Capture:
         if PRIVATE_KEY.search(head):
             self._exclude(path, 'private_key')
             return
-        entry = (EXECUTABLE if before.st_mode & 0o100 else REGULAR, oid)
+        entry = (EXECUTABLE if private_files.mode_of(before, mask=0o100) else REGULAR, oid)
         if self.base.get(path) != entry:
             self._store(parent, name, before, oid)
         self.entries[path] = entry
@@ -299,7 +299,7 @@ class Capture:
     def _store(self, parent, name, before, oid):
         """Stream the unchanged file into the repository and confirm the identical blob."""
         try:
-            fd = os.open(name, OPEN_FILE, dir_fd=parent)
+            fd = private_files.open_read(parent, name, nonblock=True)
         except OSError as error:
             raise Changed from error
         try:

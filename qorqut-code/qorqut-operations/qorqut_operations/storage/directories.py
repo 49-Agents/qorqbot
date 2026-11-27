@@ -24,24 +24,22 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import contextmanager
-import ctypes
 from dataclasses import dataclass
 import errno
 import os
 from pathlib import Path, PurePosixPath
 import stat
-import sys
 
 from qorqut_operations.contracts import DomainError
+from qorqut_system import private_files
+from qorqut_system.errors import UnsupportedSystem
 from . import safe_io
 from .directory_layout import checked_values, layout_hash
 from .receipts import ApplyReceipts
 
 PHASES = ("intent", "staged", "published", "abandoned")
 UNTOUCHED, STAGED, PUBLISHED, UNCERTAIN = "untouched", "staged", "published", "uncertain"
-RENAME_NOREPLACE = 1
 SCAN_LIMIT = 256
-_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 
 
 @dataclass(frozen=True)
@@ -84,13 +82,14 @@ def _occupied():
 
 
 def _identity(info) -> dict:
-    return {"dev": info.st_dev, "ino": info.st_ino, "mode": stat.S_IMODE(info.st_mode), "uid": info.st_uid,
-            "gid": info.st_gid, "nlink": info.st_nlink}
+    uid, gid = private_files.ownership_of(info)
+    return {"dev": info.st_dev, "ino": info.st_ino, "mode": stat.S_IMODE(info.st_mode), "uid": uid,
+            "gid": gid, "nlink": info.st_nlink}
 
 
 def _lstat(parent, name):
     try:
-        return os.stat(name, dir_fd=parent, follow_symlinks=False)
+        return private_files.stat_entry(parent, name)
     except FileNotFoundError:
         return None
 
@@ -101,7 +100,7 @@ def snapshot(fd) -> tuple[dict, list]:
 
     def visit(descriptor, relative):
         entries[relative] = _identity(os.fstat(descriptor))
-        for name in sorted(os.listdir(descriptor)):
+        for name in sorted(private_files.list_entries(descriptor)):
             child = name if relative == "." else relative + "/" + name
             if len(entries) + len(unexpected) >= SCAN_LIMIT:
                 unexpected.append(child)
@@ -111,7 +110,7 @@ def snapshot(fd) -> tuple[dict, list]:
                 unexpected.append(child)
                 continue
             try:
-                sub = os.open(name, _FLAGS, dir_fd=descriptor)
+                sub = private_files.open_child_folder(descriptor, name).descriptor
             except OSError:
                 unexpected.append(child)
                 continue
@@ -145,22 +144,23 @@ def matches(fd, proof) -> str:
 
 @contextmanager
 def _chain(path, *, create):
-    """An open directory descriptor for an absolute path, walked with O_NOFOLLOW; created components are made durable."""
+    """An open directory descriptor for an absolute path, walked without following a link; created components are
+    made durable."""
     path = Path(path)
-    descriptor = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    descriptor = private_files.open_folder("/").descriptor
     try:
         for component in path.parts[1:]:
             try:
-                child = os.open(component, _FLAGS, dir_fd=descriptor)
+                child = private_files.open_child_folder(descriptor, component).descriptor
             except FileNotFoundError:
                 if not create:
                     raise
                 try:
-                    os.mkdir(component, 0o700, dir_fd=descriptor)
+                    private_files.make_folder(descriptor, component)
                 except FileExistsError:
                     pass
-                os.fsync(descriptor)
-                child = os.open(component, _FLAGS, dir_fd=descriptor)
+                private_files.sync_folder(descriptor)
+                child = private_files.open_child_folder(descriptor, component).descriptor
             os.close(descriptor)
             descriptor = child
         yield descriptor
@@ -179,17 +179,14 @@ def _parent(path, *, create):
 
 
 def _rename_noreplace(source_fd, source, destination_fd, destination):
-    name, flag = ("renameatx_np", 0x00000004) if sys.platform == "darwin" else ("renameat2", RENAME_NOREPLACE)
-    function = getattr(ctypes.CDLL(None, use_errno=True), name, None)
-    if function is None:
-        raise DomainError("invalid_configuration", "This host cannot publish a directory without replacing")
-    function.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint)
-    function.restype = ctypes.c_int
-    if function(source_fd, os.fsencode(source), destination_fd, os.fsencode(destination), flag) != 0:
-        code = ctypes.get_errno()
-        if code in (errno.EINVAL, errno.ENOSYS, errno.EOPNOTSUPP, errno.ENOTSUP):
-            raise DomainError("invalid_configuration", "This filesystem cannot publish a directory without replacing")
-        raise OSError(code, os.strerror(code))
+    try:
+        private_files.rename_entry_exclusive(source_fd, source, destination, target_folder=destination_fd)
+    except UnsupportedSystem:
+        raise DomainError("invalid_configuration", "This host cannot publish a directory without replacing") from None
+    except OSError as error:
+        if error.errno in (errno.EINVAL, errno.ENOSYS, errno.EOPNOTSUPP, errno.ENOTSUP):
+            raise DomainError("invalid_configuration", "This filesystem cannot publish a directory without replacing") from None
+        raise
 
 
 def observe_directory(target: RegisteredDirectoryTarget) -> str | None:
@@ -207,7 +204,7 @@ def observe_directory(target: RegisteredDirectoryTarget) -> str | None:
                 raise DomainError("forbidden", "Registered directory target is a symbolic link")
             if not stat.S_ISDIR(info.st_mode):
                 return layout_hash((), (".",))
-            descriptor = os.open(name, _FLAGS, dir_fd=parent)
+            descriptor = private_files.open_child_folder(parent, name).descriptor
             try:
                 entries, unexpected = snapshot(descriptor)
             finally:
@@ -242,7 +239,7 @@ class DirectoryEffects:
         if not stat.S_ISDIR(info.st_mode):
             return "replaced"
         try:
-            descriptor = os.open(name, _FLAGS, dir_fd=parent)
+            descriptor = private_files.open_child_folder(parent, name).descriptor
         except OSError:
             return "replaced"
         try:
@@ -350,18 +347,18 @@ class DirectoryEffects:
             if _lstat(parent, leaf) is not None:
                 raise _occupied()
             try:
-                os.mkdir(name, 0o700, dir_fd=staging)
+                private_files.make_folder(staging, name)
             except FileExistsError:
                 raise _stuck("unproven_staging", "A staging directory already exists without a recorded identity",
                              "inspect_and_remove_staging", staging=name, destination=target.relative_path) from None
-            root = os.open(name, _FLAGS, dir_fd=staging)
+            root = private_files.open_child_folder(staging, name).descriptor
             try:
                 try:
                     self._build(root, layout)
                 except BaseException:
                     self._discard_own(staging, name, root, layout)
                     raise
-                os.fsync(staging)
+                private_files.sync_folder(staging)
                 self.phase(change.resource, "built")
                 proof = proof_from(root)
                 self._record(receipt_id, change, {"phase": "staged", "staging": name, "identity": proof,
@@ -377,10 +374,10 @@ class DirectoryEffects:
         try:
             for path in layout:
                 head, _, tail = path.rpartition("/")
-                os.mkdir(tail, 0o700, dir_fd=opened[head])
-                opened[path] = os.open(tail, _FLAGS, dir_fd=opened[head])
+                private_files.make_folder(opened[head], tail)
+                opened[path] = private_files.open_child_folder(opened[head], tail).descriptor
             for path in sorted(opened, reverse=True):
-                os.fsync(opened[path])
+                private_files.sync_folder(opened[path])
         finally:
             for path, descriptor in opened.items():
                 if path:
@@ -393,13 +390,13 @@ class DirectoryEffects:
             head, _, tail = path.rpartition("/")
             try:
                 with _opened(root, head) as holder:
-                    os.rmdir(tail, dir_fd=holder)
+                    private_files.remove_folder(holder, tail)
             except FileNotFoundError:
                 continue
             except OSError:
                 return
         try:
-            os.rmdir(name, dir_fd=staging)
+            private_files.remove_folder(staging, name)
         except OSError:
             pass
 
@@ -409,8 +406,8 @@ class DirectoryEffects:
         except FileExistsError:
             self._remove_proven(receipt_id, change, staging, name, proof, layout)
             raise _occupied() from None
-        os.fsync(parent)
-        os.fsync(staging)
+        private_files.sync_folder(parent)
+        private_files.sync_folder(staging)
         self.phase(change.resource, "renamed")
         self._record_published(receipt_id, change, parent, leaf, name, proof)
 
@@ -456,16 +453,16 @@ class DirectoryEffects:
         if self._inspect(staging, name, proof) != "match":
             raise _stuck("staging_changed", "The recorded staging directory changed; it will not be removed",
                          "inspect_and_remove_staging", staging=name)
-        root = os.open(name, _FLAGS, dir_fd=staging)
+        root = private_files.open_child_folder(staging, name).descriptor
         try:
             for path in sorted(layout, reverse=True):
                 head, _, tail = path.rpartition("/")
                 with _opened(root, head) as holder:
-                    os.rmdir(tail, dir_fd=holder)
+                    private_files.remove_folder(holder, tail)
         finally:
             os.close(root)
-        os.rmdir(name, dir_fd=staging)
-        os.fsync(staging)
+        private_files.remove_folder(staging, name)
+        private_files.sync_folder(staging)
         self._record(receipt_id, change, {"phase": "abandoned"})
         self.phase(change.resource, "abandoned")
 
@@ -483,7 +480,8 @@ class DirectoryEffects:
 
 @contextmanager
 def _opened(root, relative):
-    """A descriptor for ``relative`` below an open directory (the directory itself when empty), opened with O_NOFOLLOW."""
+    """A descriptor for ``relative`` below an open directory (the directory itself when empty), opened without
+    following a link."""
     if not relative:
         yield root
         return
@@ -491,7 +489,7 @@ def _opened(root, relative):
     try:
         descriptor = root
         for part in relative.split("/"):
-            descriptor = os.open(part, _FLAGS, dir_fd=descriptor)
+            descriptor = private_files.open_child_folder(descriptor, part).descriptor
             held.append(descriptor)
         yield descriptor
     finally:
@@ -515,5 +513,5 @@ def move_directory(source, destination) -> None:
             _rename_noreplace(source_parent, source_name, destination_parent, destination_name)
         except FileExistsError:
             raise DomainError("revision_conflict", "Something already exists where the folder would move to") from None
-        os.fsync(source_parent)
-        os.fsync(destination_parent)
+        private_files.sync_folder(source_parent)
+        private_files.sync_folder(destination_parent)

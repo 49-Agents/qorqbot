@@ -26,6 +26,7 @@ import uuid
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.relationships import relocation as edges
 from qorqut_operations.tasks.relocation import FORMAT, blocker, canonical, digest, existing_tables, marks, namespace
+from qorqut_system import private_files
 
 NOTE_KIND = "project_owned_note"
 UPLOAD_KIND = "data_upload"
@@ -219,7 +220,8 @@ class DocumentRelocation:
                 handle.write(data)
                 handle.flush()
                 os.fsync(handle.fileno())
-            os.link(staged, target)  # refuses an existing file: nothing at the destination is ever overwritten
+            # refuses an existing file: nothing at the destination is ever overwritten
+            private_files.link_entry(staged.parent, staged.name, target.name, follow_symlinks=True)
         except FileExistsError as exc:
             raise DomainError("revision_conflict", "A file appeared at the destination path; preview it again") from exc
         finally:
