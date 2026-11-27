@@ -73,15 +73,20 @@ already there, when the index has a higher version.
    and this version of Qorqbot, with every extension it requires installed. A removal is refused while another installed
    extension requires this one. Only one change waits at a time.
 2. For an install or update the bundle is downloaded, compared with the checksum and size the index gives, checked and
-   unpacked. A failure up to here changes nothing and is said in one sentence.
-3. Qorqbot restarts once. At start, before it looks for extensions, it moves the folder that is replaced or removed to a
+   unpacked. A failure up to here changes nothing and is said in one sentence; for the owner's own click that sentence
+   shows on the extension's Connections card.
+3. Qorqbot restarts once: the service stops without a signal and exits with the restart code, and whoever started it
+   starts it again. At start, before it looks for extensions, it moves the folder that is replaced or removed to a
    backup and the new folder in. A change that fails puts the old folder back.
-4. The result is one sentence. For a change Ordubashy asked for it is written on the approval card, which reaches his
-   inbox. It also shows on the extension's Connections card.
+4. The result has one form for the three changes: what was done, that Qorqbot restarted, then any note. For a change
+   Ordubashy asked for it is written on the approval card, which reaches his inbox. It also shows on the extension's
+   Connections card. The request and its result each leave one line in the service log.
 
 - An update overwrites local changes to the plugin part.
 - A removal keeps the private part unless the owner chooses to delete it. Projects, tables and records the extension
   created always stay.
+- An install that finds a private part kept by an earlier removal asks the extension's set-up for its status, so a kept
+  key that still fits is `ready` again without being typed again.
 - After an app update, an installed extension that no longer fits the new version stays installed, is not loaded and
   shows as `unsupported`. Its data stays.
 
@@ -514,6 +519,10 @@ All dates are 26 November 2026.
 **Built and put to the owner, who has not answered yet**
 
 1. The owner's own click on Install, Update or Remove on the Connections card makes no approval card.
+2. A proposal the owner changes before approving it (here: "Remove and delete its data" on Ordubashy's removal card) is
+   no longer told to its proposer as "conflicted". The proposer gets the result of the replacement. This holds for every
+   proposal the owner changes, not only for extensions.
+3. After a plain removal, installing again brings the kept set-up back without asking the owner again.
 
 **Written into the draft and shown to the owner, who did not object**
 
