@@ -4,11 +4,13 @@ An extension is installed when its folder is in ``<instance>/extensions/<id>/``;
 ``sync`` records it and copies its plugin part. So a change made while the service is stopped is only a folder move:
 
 - ``stage`` (the job behind an install or update): download the bundle of an index entry, check its checksum and the
-  bundle, unpack it into ``extensions/.staging/<sha256>/``, write ``config/extension-change.json`` and ask for the
+  bundle, unpack it into ``extensions/.staging/<sha256>/``, judge its dependency wheels against the running app and unpack
+  them into its ``deps/site/`` (``extension_deps``), write ``config/extension-change.json`` and ask for the
   restart. A failure is returned as one sentence and changes nothing.
 - ``stage_removal``: write the pending removal and ask for the restart. With ``delete_data`` the extension's private
   folder ``private/extensions/<id>/`` is deleted too; what its records created in the store belongs to the owner and stays.
-- ``apply_pending`` runs at start before the selection is read. It moves the folder that is replaced or removed to
+- ``apply_pending`` runs at start before the selection is read. It judges the staged wheels again against the app that
+  starts, moves the folder that is replaced or removed to
   ``extension-backups/<change id>/`` and moves the staged folder in, then writes the result into the change file. Each
   step is a rename that the next step can see, so a start that was interrupted finishes the change at the next one.
 - ``finish`` runs after ``sync``: it reports the result to the one who asked (``report``, or the reporter the service
@@ -40,7 +42,7 @@ import uuid
 
 from qorqut_operations.contracts import DomainError
 
-from qorqut.bootstrap import extension_bundle as bundles
+from qorqut.bootstrap import extension_bundle as bundles, extension_deps
 from qorqut.bootstrap.extension_install import _read, _save
 from qorqut.extensions import EXTENSION_ID
 from qorqut.private_files import require_private_directory
@@ -229,6 +231,11 @@ def _stage(paths, entry, bundle, requested_by, signoff_id, restart) -> Outcome:
         if header["platform"] != bundle.platform:
             raise _Refused("other_platform", f"The bundle is for {header['platform']}, not {bundle.platform}.")
         archive.unlink()
+        # The dependency wheels judged against the app that runs and made importable, before anything is written.
+        extension_deps.prepare(unpacked / entry.id)
+    except extension_deps.DepsError as exc:
+        undo()
+        return Outcome(False, str(exc), "dependencies")
     except (OSError, ValueError, tarfile.TarError) as exc:
         undo()
         return Outcome(False, str(exc) if isinstance(exc, ValueError)
@@ -285,6 +292,16 @@ def _apply(paths, change):
         if findings:
             shutil.rmtree(staged.parent)
             return failed("The staged folder breaks the contract: " + findings[0])
+        # Judged again against the app that starts now, which may be another than the one that staged it.
+        try:
+            if extension_deps.missing_site(staged):
+                extension_deps.prepare(staged)
+            problem = extension_deps.findings(staged, installed=True)
+        except extension_deps.DepsError as error:
+            problem = str(error)
+        if problem:
+            shutil.rmtree(staged.parent)
+            return failed(problem)
         if target.is_dir():
             backup.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
             os.rename(target, backup)
