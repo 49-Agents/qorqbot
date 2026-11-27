@@ -21,7 +21,8 @@ from __future__ import annotations
 import inspect
 import json
 import os
-import shlex
+
+from qorqut_system import programs as _programs
 
 PROVIDERS = ("claude", "codex")
 # Set in a terminal session for each provider whose selected copy is ours: the path of that copy. The agent shell's
@@ -233,24 +234,13 @@ def _launchers(chosen, source):
     try:
         os.makedirs(folder, mode=0o700, exist_ok=True)
         for provider, found in chosen.items():
-            command = ["exec"]
+            words = []
             if found["env"]:
-                command += ["env", *(f"{name}={shlex.quote(value)}" for name, value in found["env"].items())]
-            command += [shlex.quote(found["path"]), *(shlex.quote(argument) for argument in found["args"]), '"$@"']
-            text = ("#!/bin/sh\n# Qorqbot's own " + provider + ", started so that it does not update itself. Written by Qorqbot.\n"
-                    + " ".join(command) + "\n")
-            path = os.path.join(folder, provider)
-            try:
-                with open(path) as current:
-                    if current.read() == text and os.access(path, os.X_OK):
-                        continue
-            except OSError:
-                pass
-            temporary = f"{path}.{os.getpid()}.tmp"
-            with open(temporary, "w") as output:
-                output.write(text)
-            os.chmod(temporary, 0o755)
-            os.replace(temporary, path)
+                words += ["env", *(f"{name}={_programs.quote(value)}" for name, value in found["env"].items())]
+            words += [_programs.quote(found["path"]), *(_programs.quote(argument) for argument in found["args"]), '"$@"']
+            _programs.write_launcher(
+                os.path.join(folder, provider), words, mode=0o755, quoted=True, keep_unchanged=True,
+                header="# Qorqbot's own " + provider + ", started so that it does not update itself. Written by Qorqbot.\n")
     except OSError:
         return []
     return [folder]

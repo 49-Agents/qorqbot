@@ -23,7 +23,6 @@ import json
 from pathlib import Path
 import platform
 import re
-import shlex
 import sys
 import tomllib
 
@@ -32,6 +31,8 @@ import tomli_w
 from qorqut import owner_sessions
 from qorqut_operations.contracts import DomainError, utc_now
 from qorqut_operations.storage import safe_io
+from qorqut_system import programs as _programs
+
 from .client import path_has_symlink, service_url
 
 DIRECTORY = ".qorqut-owner"
@@ -57,11 +58,7 @@ TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]{32,512}$")
 
 # A POSIX sh helper keeps the header command free of any Python dependency, so
 # a prepared root works without this installation's interpreter or checkout.
-HEADERS_SCRIPT = """#!/bin/sh
-# Prints the Qorqut owner-session MCP authorization header for this root.
-set -e
-printf '{"Authorization":"Bearer %s"}' "$(tr -d '[:space:]' < "$(dirname "$0")/credential")"
-"""
+HEADERS_SCRIPT = _programs.headers_launcher()
 
 REQUIRED_TEXT = (
     "You act on behalf of {owner} in this project. Other sessions are independent. "
@@ -355,7 +352,7 @@ def build_projection(*, project, endpoint, roots, label, prepared_at=None, owner
     block = instruction_block(project, endpoint, owner_name)
     files = {}
     for index, root in enumerate(roots):
-        helper = shlex.quote(str(root / HEADERS))
+        helper = _programs.quote(str(root / HEADERS))
         _managed_directory_conflict(root, project)
         for name in (CREDENTIAL, HEADERS, REGISTRATION):
             if path_has_symlink(root / name):
@@ -500,8 +497,8 @@ def install_bundle(bundle, *, code_root, nested=(), outside_roots=()) -> dict:
 
 
 def launch_instructions(roots) -> dict:
-    return {"claude": [f"cd {shlex.quote(str(root))} && claude" for root in roots],
-            "codex": [f"cd {shlex.quote(str(root))} && codex" for root in roots]}
+    return {"claude": [f"cd {_programs.quote(str(root))} && claude" for root in roots],
+            "codex": [f"cd {_programs.quote(str(root))} && codex" for root in roots]}
 
 
 def prepare(database, *, project, code_root, nested=(), outside_roots=(), endpoint, label=None) -> dict:
@@ -541,7 +538,7 @@ def _remove_mcp_entry(root: Path) -> None:
         return
     entry = servers[SERVER]
     if (not isinstance(entry, dict) or entry.get("type") != "http"
-            or entry.get("headersHelper") != shlex.quote(str(root / HEADERS))):
+            or entry.get("headersHelper") != _programs.quote(str(root / HEADERS))):
         return
     servers = {name: value for name, value in servers.items() if name != SERVER}
     if not servers and set(document) == {"mcpServers"}:
