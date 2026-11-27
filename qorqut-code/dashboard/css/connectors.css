@@ -112,3 +112,6 @@ button.cx-link:hover { background: none; color: var(--fg); transform: none; }
 .cx-ext-agent { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--fg-2); }
 .cx-ext-agent input { margin: 0; accent-color: var(--accent); }
 .cx-ext-wait { font-size: 11px; color: var(--fg-3); }
+.cx-note code { font: .92em var(--mono); padding: 0 4px; border-radius: 4px; background: var(--hover); }
+/* The set-up button is not offered again while its form is open. */
+[data-cx-card]:has([data-ext-form]:not([hidden])) [data-ext-action="key"] { display: none; }

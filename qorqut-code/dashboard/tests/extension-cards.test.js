@@ -12,7 +12,7 @@ const esc = value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<'
 const ORDUBASHY = {agent_id: 'agent-1', name: 'Ordubashy', role: 'ordubashy', on: true, in_effect: false};
 const WORKER = {agent_id: 'agent-2', name: 'Researcher', role: 'global-worker', on: false, in_effect: false};
 const entry = (status, extra = {}) => ({id: 'keyed', kind: 'contract', name: 'Keyed', summary: 'Tells its agents whether a token is saved.',
-  version: '1.0.0', delivery: 'downloadable', status, note: null,
+  version: '1.0.0', delivery: 'downloadable', status, note: null, can_set_up: !['unsupported', 'not_installed'].includes(status),
   setup: {kind: 'key', fields: [{id: 'token', label: 'Token', secret: true}, {id: 'account', label: 'Account', secret: false}]},
   agents: [ORDUBASHY, WORKER], ...extra});
 const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
@@ -35,6 +35,25 @@ test('a key is set up on the card: Set up, Cancel while setting up, Try again af
   assert.deepEqual(cards.note(entry('needs_attention', {note: 'Keyed did not accept this token.'})),
     {text: 'Keyed did not accept this token.', tone: 'warn'});
   assert.equal(cards.note(entry('ready')), null);
+});
+
+test('a refused folder or code part shows only its note: no set-up step, no form and no switches', () => {
+  const finding = 'Its code could not be loaded: its tool names must start with \'keyed_\'.';
+  const refused = entry('needs_attention', {note: finding, can_set_up: false});
+  assert.deepEqual(cards.steps(refused), []);
+  assert.deepEqual(cards.switches(refused), []);
+  const html = cards.render(refused, {rows: true, esc});
+  assert.match(html, /Its code could not be loaded/);
+  assert.doesNotMatch(html, /data-ext-action|data-ext-form|data-ext-switch|Try again/);
+  // The server decides; a note alone does not take the step away.
+  assert.deepEqual(cards.steps(entry('needs_attention', {note: finding})), [{kind: 'key', label: 'Try again'}]);
+});
+
+test('a word in backticks in the note is shown as inline code, and the note stays text', () => {
+  const html = cards.render(entry('needs_attention', {can_set_up: false,
+    note: '`version` must be three numbers, not `<img src=x onerror=alert(1)>`.'}), {rows: true, esc});
+  assert.match(html, /<code>version<\/code> must be three numbers, not <code>&lt;img src=x onerror=alert\(1\)(&gt;|>)<\/code>\./);
+  assert.doesNotMatch(html, /`|<img/);
 });
 
 test('no set-up step for kind none, and sign-in and pairing say they are not available yet', () => {
@@ -64,7 +83,7 @@ test('the card is drawn from the entry: name, summary, status, the fields form a
   assert.match(html, /On once it is ready/);
   assert.doesNotMatch(cards.render(entry('ready'), {rows: true, esc}), /data-ext-form/, 'a set-up extension has no form');
   assert.match(cards.render(entry('ready'), {esc}), /^<article class="cx-card" data-cx-card="keyed" data-cx-contract/);
-  assert.match(cards.render(entry('unsupported'), {rows: true, esc}), /data-agent-id="agent-1" checked disabled>/);
+  assert.doesNotMatch(cards.render(entry('unsupported'), {rows: true, esc}), /data-ext-switch|data-ext-action|data-ext-form/);
   assert.match(cards.render(entry('ready', {name: '<b>', summary: '"x"'}), {rows: true, esc}), /&lt;b>.*&quot;x&quot;/s);
 });
 

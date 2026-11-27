@@ -14,7 +14,8 @@ const extensionCards = (() => {
   const NOT_YET = 'Setting this up from Qorqbot is not available yet.';
   const status = item => STATUS[item.status] || UNKNOWN;
   const kind = item => item.setup?.kind || null;
-  const usable = item => !!item.setup && !['unsupported', 'not_installed'].includes(item.status);
+  // Whether set-up can work, decided by the server (`can_set_up`): a refused folder or code part only shows its note.
+  const usable = item => !!item.setup && item.can_set_up === true;
   // The requests the card sends (the shapes of qorqut.extension_connections.parse_action).
   const path = id => `/root/connections/${encodeURIComponent(id)}`;
   const request = {
@@ -35,11 +36,15 @@ const extensionCards = (() => {
     if (usable(item) && ['sign-in', 'pairing'].includes(kind(item)) && item.status !== 'ready') return {text: NOT_YET, tone: 'info'};
     return null;
   }
-  // One switch per agent the extension may be on for. `waiting` says it takes effect once the extension is ready.
+  // One switch per agent the extension may be on for, none while set-up cannot work (they would do nothing). `waiting`
+  // says it takes effect once the extension is ready.
   function switches(item) {
+    if (!usable(item)) return [];
     return (item.agents || []).map(agent => ({agentId: agent.agent_id, name: agent.name, on: !!agent.on,
-      waiting: !!agent.on && !agent.in_effect, disabled: !usable(item)}));
+      waiting: !!agent.on && !agent.in_effect}));
   }
+  // The note is text: escaped first, then a word in backticks is shown as inline code, as elsewhere in the dashboard.
+  const noteHtml = (text, esc) => esc(text).replace(/`([^`]+)`/g, '<code>$1</code>');
 
   function form(item, esc) {
     if (kind(item) !== 'key' || !usable(item) || item.status === 'ready') return '';
@@ -53,7 +58,7 @@ const extensionCards = (() => {
     const rows = switches(item);
     if (!rows.length) return '';
     return `<div class="cx-ext-agents" data-ext-agents>${rows.map(row => `<label class="cx-ext-agent">
-        <input type="checkbox" data-ext-switch data-cx-id="${esc(item.id)}" data-agent-id="${esc(row.agentId)}"${row.on ? ' checked' : ''}${row.disabled ? ' disabled' : ''}>
+        <input type="checkbox" data-ext-switch data-cx-id="${esc(item.id)}" data-agent-id="${esc(row.agentId)}"${row.on ? ' checked' : ''}>
         <span>${esc(row.name)}</span>${row.waiting ? '<span class="cx-ext-wait">On once it is ready</span>' : ''}</label>`).join('')}</div>`;
   }
   // The card; `rows` draws it as a Settings row, otherwise as a grid card. `esc` is the dashboard's escaping function.
@@ -61,7 +66,7 @@ const extensionCards = (() => {
     const shown = status(item), told = note(item);
     const buttons = steps(item).map(step => `<button type="button" class="${step.quiet ? 'quiet' : ''}" data-ext-action="${esc(step.kind)}" data-cx-id="${esc(item.id)}">${esc(step.label)}</button>`).join('');
     const title = `<h3>${esc(item.name)}</h3><span class="cx-status" data-tone="${shown.tone}">${esc(shown.label)}</span>`;
-    const body = `${told ? `<p class="cx-note" data-tone="${told.tone}">${esc(told.text)}</p>` : ''}${form(item, esc)}${agentRows(item, esc)}`;
+    const body = `${told ? `<p class="cx-note" data-tone="${told.tone}">${noteHtml(told.text, esc)}</p>` : ''}${form(item, esc)}${agentRows(item, esc)}`;
     const search = [item.name, item.summary, shown.label].join(' ').toLowerCase();
     if (rows) return `<div class="cx-row" data-cx-card="${esc(item.id)}" data-cx-contract data-tone="${shown.tone}" data-search="${esc(search)}">
       <span class="cx-icon">${icon}</span>
@@ -71,6 +76,6 @@ const extensionCards = (() => {
       <div class="cx-card-head"><span class="cx-icon">${icon}</span><div class="cx-card-title">${title}</div>${buttons}</div>
       <p class="cx-does">${esc(item.summary)}</p>${body}</article>`;
   }
-  return {STATUS, NOT_YET, status, steps, note, switches, path, request, render};
+  return {STATUS, NOT_YET, status, steps, note, noteHtml, switches, path, request, render};
 })();
 if (typeof module !== 'undefined') module.exports = extensionCards;

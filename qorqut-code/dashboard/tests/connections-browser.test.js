@@ -237,11 +237,11 @@ test('a contract extension gets the generic card: the key is posted once, the fo
       window.esc = value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
       window.coreData = value => value;
       window.keyed = {id: 'keyed', kind: 'contract', name: 'Keyed', summary: 'Tells its agents whether a token is saved.', version: '1.0.0',
-        delivery: 'downloadable', status: 'not_set_up', note: null,
+        delivery: 'downloadable', status: 'not_set_up', note: null, can_set_up: true,
         setup: {kind: 'key', fields: [{id: 'token', label: 'Token', secret: true}]},
         agents: [{agent_id: 'agent-1', name: 'Ordubashy', role: 'ordubashy', on: true, in_effect: false}]};
       window.paired = {id: 'linked', kind: 'contract', name: 'Linked', summary: 'Paired by a code.', version: '1.0.0', delivery: 'built-in',
-        status: 'not_set_up', note: null, setup: {kind: 'pairing', fields: []}, agents: []};
+        status: 'not_set_up', note: null, can_set_up: true, setup: {kind: 'pairing', fields: []}, agents: []};
       window.sent = [];
       window.api = async url => url === '/root/browser-setup' ? {kind: 'built_in', tool_installed: true, chrome_installed: true, ready: true, state: 'healthy', explanation: '', agents: []}
         : url === '/root/browser-accounts' ? {sites: []}
@@ -264,6 +264,12 @@ test('a contract extension gets the generic card: the key is posted once, the fo
     await card.locator('.cx-status').getByText('Not set up').waitFor();
     assert.deepEqual(await page.locator('[data-cx-list] [data-cx-card]').evaluateAll(cards => cards.map(card => card.dataset.cxCard)), ['whatsapp', 'keyed', 'linked']);
     assert.match(await card.textContent(), /On once it is ready/);
+    // Set up is not offered again while its form is open; Close brings it back.
+    await card.getByRole('button', {name: 'Set up'}).click();
+    assert.equal(await card.locator('[data-ext-form]').isVisible(), true);
+    assert.equal(await card.getByRole('button', {name: 'Set up'}).isVisible(), false);
+    await card.getByRole('button', {name: 'Close'}).click();
+    assert.equal(await card.getByRole('button', {name: 'Set up'}).isVisible(), true);
     // A refused token: the card says why and offers Try again.
     await card.getByRole('button', {name: 'Set up'}).click();
     await card.locator('input[name="token"]').fill('wrong');
@@ -284,6 +290,15 @@ test('a contract extension gets the generic card: the key is posted once, the fo
     assert.deepEqual(await page.evaluate(() => window.sent.at(-1)), {url: '/root/connections/keyed', body: {action: 'switch', agent_id: 'agent-1', on: false}});
     await card.getByRole('button', {name: 'Disconnect'}).click();
     await card.locator('.cx-status').getByText('Not set up').waitFor();
+    // A refused code part: the note with its backticked word as code, and nothing to click that would do nothing.
+    await page.evaluate(() => {
+      window.keyed = {...window.keyed, status: 'needs_attention', can_set_up: false,
+        note: 'Its code could not be loaded: its tool names must start with `keyed_`.'};
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await card.locator('.cx-status').getByText('Needs attention').waitFor();
+    assert.equal(await card.locator('.cx-note code').textContent(), 'keyed_');
+    assert.equal(await card.locator('button, input, form').count(), 0);
     // Pairing is not set up here yet: status and the sentence, no button and no image.
     const linked = page.locator('[data-cx-card="linked"]');
     assert.match(await linked.textContent(), /Setting this up from Qorqbot is not available yet\./);

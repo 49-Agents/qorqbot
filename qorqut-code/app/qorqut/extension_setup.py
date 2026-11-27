@@ -116,6 +116,13 @@ NOT_LOADED = "The extension's code is not loaded, so it cannot be set up."
 PNG = b"\x89PNG\r\n\x1a\n"     # the pairing image is a PNG: its first eight bytes
 
 
+def can_set_up(entry) -> bool:
+    """Whether set-up can work for an ``InstalledExtension``: its manifest was read, neither its folder nor its code was
+    refused, and it can run here. Set-up cannot cure any of these, so the card offers no set-up step without it."""
+    return (entry.manifest is not None and not entry.refused_findings
+            and entry.status not in ("unsupported", "not_installed"))
+
+
 class ExtensionSetups:
     """Runs the set-up of the installed extensions. ``registry`` is the ``ExtensionRegistry``; ``handler(ext_id)`` gives
     the loaded extension's ``setup_handler()``, or None when its code is not loaded.
@@ -139,7 +146,7 @@ class ExtensionSetups:
 
     def _usable(self, ext_id):
         entry = self.registry.get(ext_id)
-        if entry.refused_findings or entry.status == "unsupported" or entry.manifest is None:
+        if not can_set_up(entry):
             raise DomainError("invalid_transition", f"The extension {ext_id!r} cannot be set up: {entry.note}")
         return entry
 

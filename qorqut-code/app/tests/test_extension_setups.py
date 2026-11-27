@@ -220,7 +220,7 @@ class ConnectionsTest(KeyedCase):
         self.assertEqual(entry, {
             "id": "keyed", "kind": "contract", "name": "Keyed",
             "summary": "A test extension that is set up with a token and then tells its agents whether the token is saved.",
-            "version": "1.0.0", "delivery": "downloadable", "status": "not_set_up", "note": None,
+            "version": "1.0.0", "delivery": "downloadable", "status": "not_set_up", "note": None, "can_set_up": True,
             "setup": {"kind": "key", "fields": [{"id": "token", "label": "Token", "secret": True}]},
             # The Learning Applier's role is not allowed, so it has no row.
             "agents": [{"agent_id": ORDUBASHY, "name": "ordubashy", "role": "ordubashy", "on": True, "in_effect": False}]})
@@ -230,6 +230,30 @@ class ConnectionsTest(KeyedCase):
         self.write(lambda uow: found.switch("keyed", ORDUBASHY, False, uow=uow))
         [entry] = self.read(lambda connection: extension_connections.items(found, connection))
         self.assertEqual((entry["agents"][0]["on"], entry["agents"][0]["in_effect"]), (False, False))
+
+    def test_an_agent_is_named_as_the_dashboard_shows_it(self):
+        self.place_keyed()
+        found = self.start()
+        self.write(lambda uow: uow.connection.execute(
+            "UPDATE agent_profiles SET profile_json=? WHERE agent_id=?",
+            (json.dumps({"role": {"id": "ordubashy"}, "display_name": "Ordubashy"}), ORDUBASHY)))
+        [entry] = self.read(lambda connection: extension_connections.items(found, connection))
+        self.assertEqual([agent["name"] for agent in entry["agents"]], ["Ordubashy"])
+
+    def test_set_up_is_offered_only_when_it_can_work(self):
+        # A code part refused at start: the note says why, and set-up cannot cure it.
+        self.place_keyed()
+        found = self.start()
+        found.refuse_code("keyed", "Its code could not be loaded: its tool names must start with 'keyed_'.")
+        [entry] = self.read(lambda connection: extension_connections.items(found, connection))
+        self.assertEqual((entry["status"], entry["can_set_up"]), ("needs_attention", False))
+        self.assertIsNotNone(entry["setup"])
+        shutil.rmtree(self.downloaded / "keyed")
+        # A folder the checker refused whose manifest is still read.
+        self.place_keyed(lambda data: data.update(version="1.0"))
+        found = self.start()
+        [entry] = self.read(lambda connection: extension_connections.items(found, connection))
+        self.assertEqual((entry["status"], entry["can_set_up"]), ("needs_attention", False))
 
     def test_the_connectors_view_adds_contract_entries_after_todays(self):
         runtime = SimpleNamespace(selection=SimpleNamespace(extensions=()), database=self.database,

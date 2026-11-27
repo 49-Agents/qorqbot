@@ -5,11 +5,13 @@ hand-written cards (WhatsApp, treg, OpenRouter) keep their own entries in ``qorq
 one entry of ``kind`` ``contract`` after them:
 
     {"id": "keyed", "kind": "contract", "name": "Keyed", "summary": "...", "version": "1.0.0",
-     "delivery": "downloadable", "status": "not_set_up", "note": null,
+     "delivery": "downloadable", "status": "not_set_up", "note": null, "can_set_up": true,
      "setup": {"kind": "key", "fields": [{"id": "token", "label": "Token", "secret": true}]},
      "agents": [{"agent_id": "...", "name": "Ordubashy", "role": "ordubashy", "on": true, "in_effect": false}]}
 
-``setup`` is None for a folder that is refused before its manifest could be read. ``agents`` are the agents that exist
+``setup`` is None for a folder that is refused before its manifest could be read. ``can_set_up`` is false when set-up
+cannot work (``extension_setup.can_set_up``: the folder or its code was refused, or it cannot run here); the card then
+shows the note with no set-up step and no switches. ``name`` of an agent is the name the dashboard shows for it. ``agents`` are the agents that exist
 whose role the manifest allows; ``on`` is the switch somebody made, or with none whether the role is in
 ``agents.on_after_setup``; ``in_effect`` is ``on`` while the extension is ``ready``. Nothing in an entry is a value the
 owner typed, an image or a private path.
@@ -33,7 +35,9 @@ from collections.abc import Mapping
 from qorqut_operations.contracts import DomainError
 
 from qorqut.agents.roles import profile_role
+from qorqut.extension_setup import can_set_up
 from qorqut.extensions import SetupStart
+from qorqut.native_chat.store import profile_label
 
 KIND = "contract"
 ACTIONS = ("start", "accept", "cancel", "disconnect", "switch")
@@ -41,8 +45,8 @@ _AGENTS = "SELECT agent_id, name, profile_json FROM agent_profiles WHERE status=
 
 
 def agents(connection) -> list[dict]:
-    """The agents that exist (as the owner's agents list shows them), each with its name and role."""
-    return [{"agent_id": row["agent_id"], "name": row["name"], "role": profile_role(row)}
+    """The agents that exist (as the owner's agents list shows them), each with its shown name and role."""
+    return [{"agent_id": row["agent_id"], "name": profile_label(row), "role": profile_role(row)}
             for row in connection.execute(_AGENTS)]
 
 
@@ -61,7 +65,7 @@ def item(entry, existing) -> dict:
                 rows.append({**agent, "on": on, "in_effect": on and entry.status == "ready"})
     return {"id": entry.id, "kind": KIND, "name": manifest.name if manifest else entry.id,
             "summary": manifest.summary if manifest else "", "version": entry.version, "delivery": entry.delivery,
-            "status": entry.status, "note": entry.note, "setup": setup, "agents": rows}
+            "status": entry.status, "note": entry.note, "can_set_up": can_set_up(entry), "setup": setup, "agents": rows}
 
 
 def items(registry, connection) -> list[dict]:
