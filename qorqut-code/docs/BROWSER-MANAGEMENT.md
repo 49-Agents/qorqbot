@@ -28,7 +28,7 @@ endpoint, flag, port, service name or shell argument either: the host derives al
 | Action | Effect |
 | --- | --- |
 | `status` | Reports `missing`, `healthy`, `stopped`, `busy`, `target_missing`, `conflict`, `invalid` or `unsupported`, the next action, each permanent agent's connection, and what this computer has for the browser (below). |
-| `ensure` | What the Settings card's **Retry setup** does. Starts the download of [Qorqbot's own Chrome](#qorqbots-own-chrome) when it is missing; creates the Shared browser when there is none; starts it when it is stopped; connects every permanent agent to it (its record and its generated `browser.json`); leaves a healthy browser untouched. Repeating it never duplicates a browser. |
+| `ensure` | What the Settings card's **Retry setup** does. Starts the download of [Qorqbot's own Chrome](#qorqbots-own-chrome) when it is missing and needed (no Google Chrome is installed, or the browser runs on it); creates the Shared browser when there is none; starts it when it is stopped; connects every permanent agent to it (its record and its generated `browser.json`); leaves a healthy browser untouched. Repeating it never duplicates a browser. |
 | `repair` | As `ensure`; also writes the browser's own target file again when it is missing, unreadable or differs from the ownership record, reserves the browser again when the ownership record cannot be read (the profile and its sign-ins are kept), and restarts the browser when it does not answer. A healthy browser is a no-op. |
 | `restart` | Restarts the Shared browser, for every agent. Refused with `browser_in_use` while a browser command is running. |
 | `stop` | Stops the Shared browser, for every agent. Same refusal while a command runs. Automatic setup leaves a browser stopped this way off until `ensure`. |
@@ -40,10 +40,11 @@ connect an agent by replacing whatever `browser.json` its workspace had, so an a
 is moved to the Shared browser too; that other browser is not stopped and its profile is not touched.
 
 Through MCP the answer also carries `setup`, the facts the Settings card shows: `tool_installed`, `chrome_installed`,
-`own_chrome` (`state` and what it means: `ready`, `downloading`, `waiting`, `failed`, `unusable`, `unsupported` or
-`not_used`), and `last_failure` when the last setup failed. Ordubashy asks the owner only for what these say needs them:
-installing Google Chrome where Qorqbot's own cannot run, or restarting the computer when an unidentifiable browser
-process holds the profile (`browser_state_unverified`).
+`own_chrome` (`state` and what it means: `ready`, `downloading`, `waiting`, `failed`, `unusable`, `unsupported`,
+`not_needed` or `not_used`), and `last_failure` when the last setup failed. Ordubashy asks the owner only for what these
+say needs them: installing Google Chrome where Qorqbot's own cannot run, installing again the Chrome the browser was
+created on when it is gone (`browser_chrome_missing`), or restarting the computer when an unidentifiable browser process
+holds the profile (`browser_state_unverified`).
 
 A receipt names the action, whether anything changed, the resulting state, that the profile was preserved, a bounded
 diagnostic and the verification result. The browser is reported `healthy` only when a real, bounded CDP health check
@@ -63,9 +64,12 @@ inactive workers are not.
 The first `ensure` creates the Shared browser, a **headless managed browser**:
 
 * one persistent headless Chrome (normal sandbox — never `--no-sandbox`), loopback CDP only, starting on `about:blank`.
-  It is [Qorqbot's own Chrome](#qorqbots-own-chrome) when that is installed and starts on this computer, otherwise the
-  installed Google Chrome (`/usr/bin/google-chrome-stable`). The choice is made when the browser is created and saved in
-  its ownership record;
+  It is the first of: the installation's explicit Chrome (`QORQUT_CHROME_EXECUTABLE`, or a runtime that bundles Chrome,
+  `QORQUT_NATIVE_ROOT`); the installed Google Chrome (`google-chrome-stable` or `google-chrome` on `PATH`, on a Mac
+  `/Applications/Google Chrome.app`); [Qorqbot's own Chrome](#qorqbots-own-chrome) when that is installed and starts on
+  this computer; otherwise `/usr/bin/google-chrome-stable` (on a Mac or a folder installation, an installed Chromium when
+  there is one). Chromium does not count as Google Chrome: it reports the same brand as Qorqbot's own build and is no
+  closer to what websites expect. The choice is made when the browser is created and saved in its ownership record;
 * the user agent of a visible Chrome. Left alone, a headless Chrome writes `HeadlessChrome` where a visible one writes
   `Chrome`, and websites refuse it for that word: sign-up pages that turned this browser away on 2026-11-22 opened in the
   same browser without it. The supervisor asks the Chrome it is about to start for its version
@@ -203,27 +207,37 @@ the sites recorded for the browser.
 
 ## Qorqbot's own Chrome
 
-Qorqbot downloads one pinned [Chrome for Testing](https://googlechromelabs.github.io/chrome-for-testing/) build, so an
-installed Google Chrome is not required (`qorqut/browser/managed_chrome.py`).
+Where no Google Chrome is installed, Qorqbot downloads one pinned
+[Chrome for Testing](https://googlechromelabs.github.io/chrome-for-testing/) build, so an installed Google Chrome is not
+required (`qorqut/browser/managed_chrome.py`). Where Google Chrome is installed, new browsers run on it and the build is
+not downloaded: Google Chrome updates itself and reports itself as Google Chrome, where Chrome for Testing reports
+Chromium and stays at its pin.
 
 * **Where.** `operations/.runtime/chrome/<version>-<platform>/` holds a build (the archive's own folder plus
   `installed.json`); `operations/.runtime/chrome/current` is a symbolic link to the build in use. Platforms: `linux64`,
   `mac-arm64`, `mac-x64`, the ones Qorqbot is packaged for.
 * **When.** The automatic browser setup loop (`setup.ensure_all`, every two minutes, and the owner's Retry setup) starts
-  the download in a background thread and does not wait for it. A failure is retried with the same growing wait as an
+  the download in a background thread and does not wait for it, when it is needed (`managed_chrome.needed`): no Google
+  Chrome is installed, or a browser's ownership record runs on the build (then it is kept at the pin as before), or a
+  record cannot be read. A computer with Google Chrome and no browser on the build downloads nothing, starts no check and
+  shows no failure for it; if Google Chrome is later removed, the next pass starts the download. A failure is retried with the same growing wait as an
   agent's browser (4 minutes doubling to one hour); Retry setup tries at once.
 * **Checks.** The archive's SHA-256 must equal the pin before anything is extracted. Extraction writes only folders,
   regular files and links that stay inside the build, each file created new and never through a link. The finished build
   is published by one rename, so an interrupted download or extraction leaves only a `.staging-*` folder that the next
   run removes. The build is then started once, headless with its normal sandbox and a throwaway profile, and `current`
   is set only when that works. Running again with the pinned build in use does nothing.
-* **Which Chrome a browser uses.** A browser created from then on records `.../chrome/current/...`. A browser that
+* **Which Chrome a browser uses.** A browser created from then on on a computer without Google Chrome records
+  `.../chrome/current/...`. A browser that
   already exists keeps the Chrome in its ownership record: a profile last opened by a newer Chrome can lose data in an
   older one (measured: local storage written by Chrome 158 was gone after Chrome 153 opened the profile; cookies
-  survived), and the installed Chrome updates itself past the pin. `QORQUT_CHROME_EXECUTABLE` and a runtime that
-  bundles Chrome (`QORQUT_NATIVE_ROOT`) are explicit choices: nothing is downloaded and nothing replaces them.
-* **When it cannot start.** A build that does not start here stays on disk unselected and the installed Chrome stays in
-  use. Settings then says why in plain words when no Chrome is installed either. Two known causes on Linux: missing
+  survived), and the installed Chrome updates itself past the pin. So a browser on Qorqbot's own build stays on it when
+  Google Chrome is installed later, and a browser on Google Chrome is not moved to the build when Google Chrome is
+  removed: its start then fails with `browser_chrome_missing`, Settings asks the owner to install that Chrome again, and
+  the profile and its sign-ins are kept. `QORQUT_CHROME_EXECUTABLE` and a runtime that bundles Chrome
+  (`QORQUT_NATIVE_ROOT`) are explicit choices: nothing is downloaded and nothing replaces them.
+* **When it cannot start.** A build that does not start here stays on disk unselected and is not used for a new
+  browser. Settings then says why in plain words when no Chrome is installed either. Two known causes on Linux: missing
   system libraries, and Ubuntu 23.10 or later, where AppArmor denies user namespaces to programs outside the system
   folders, so the downloaded build reports `No usable sandbox!` while `/usr/bin/google-chrome-stable` works.
   `--no-sandbox` is never added.
@@ -239,9 +253,10 @@ installed Google Chrome is not required (`qorqut/browser/managed_chrome.py`).
 * **Differences from Google Chrome.** In a visible window it shows a banner that it is for automated
   testing. It honours `--load-extension` (with `--disable-extensions-except`), which Google Chrome 137 and later ignore.
 
-Settings reports `managed_chrome` in `/api/root/browser-setup`: `state` is `ready`, `downloading`, `waiting`, `failed`
-(download or install; retried), `unusable` (does not start here), `unsupported` (no build for this computer) or
-`not_used` (explicit Chrome), with an `explanation` for the owner and a `diagnostic`.
+Settings reports `managed_chrome` in `/api/root/browser-setup`: `state` is `ready` (installed and started here),
+`downloading`, `waiting`, `failed` (download or install; retried), `unusable` (does not start here), `unsupported` (no
+build for this computer), `not_needed` (Google Chrome is installed, so it is not downloaded) or `not_used` (explicit
+Chrome), with an `explanation` for the owner and a `diagnostic`.
 
 ### Changing the pinned version
 
@@ -251,7 +266,8 @@ Settings reports `managed_chrome` in `/api/root/browser-setup`: `state` is `read
    compare the sizes and, when in doubt, download on a second network.
 3. Set `VERSION` and `ARCHIVES` in `managed_chrome.py`, run `tests.test_managed_chrome`, and check the pinned
    `agent-browser` against the new build (open, snapshot, click).
-4. After the release each installation downloads the new build by itself; the old one stays in use until then.
+4. After the release each installation that uses the build downloads the new one by itself; the old one stays in use
+   until then.
 
 ## Idle tabs and cookie banners
 
@@ -311,8 +327,8 @@ signs in again through Ordubashy.
 
 ## Installation requirements
 
-* A Chrome: [Qorqbot's own](#qorqbots-own-chrome), downloaded by itself, or Google Chrome installed at
-  `/usr/bin/google-chrome-stable`; and the installation's pinned browser runtime prepared. Without them `status` reports
+* A Chrome: Google Chrome installed (`/usr/bin/google-chrome-stable`), or where there is none
+  [Qorqbot's own](#qorqbots-own-chrome), downloaded by itself; and the installation's pinned browser runtime prepared. Without them `status` reports
   `unsupported` and `ensure` returns `browser_capability_missing`. On Ubuntu 23.10 or later Qorqbot's own Chrome cannot
   start with its sandbox, so an installed Google Chrome is still needed there.
 * User namespaces available to the application user so Chrome's normal sandbox works.

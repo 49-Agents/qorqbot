@@ -611,10 +611,12 @@ class AgentBrowserManager:
         return "missing" if capable else "unsupported"
 
     def _new_chrome(self):
-        """The Chrome a browser created now runs on: Qorqbot's own downloaded build once it is installed and has started
-        here, else the installed one. A browser that exists keeps the Chrome in its ownership record."""
+        """The Chrome a browser created now runs on, first that applies: the installation's explicit choice
+        (``managed_chrome.external_choice``: both lookups below are None then, so it is ``self.chrome``); the installed Google
+        Chrome; Qorqbot's own downloaded build once it is installed and has started here; else ``self.chrome``. A browser that
+        exists keeps the Chrome in its ownership record."""
         from . import managed_chrome
-        return managed_chrome.preferred(self.paths.runtime) or self.chrome
+        return managed_chrome.google_chrome() or managed_chrome.preferred(self.paths.runtime) or self.chrome
 
     def _capable(self):
         chrome = self._new_chrome()
@@ -717,9 +719,16 @@ class AgentBrowserManager:
         if state["state"] == "unverified":
             raise DomainError("browser_state_unverified", "A process holds this browser's lock but its identity cannot be "
                               "verified; nothing was started or stopped")
-        if not (Path(meta["managed"]["chrome"]).is_file() and os.access(meta["managed"]["chrome"], os.X_OK)):
-            raise DomainError("browser_capability_missing", "This browser's Chrome is missing at " + meta["managed"]["chrome"]
-                              + ". Qorqbot's own Chrome is downloaded again by itself; an installed one has to be installed again")
+        chrome = meta["managed"]["chrome"]
+        if not (Path(chrome).is_file() and os.access(chrome, os.X_OK)):
+            from . import managed_chrome
+            if managed_chrome.is_own(chrome, self.paths.runtime):
+                raise DomainError("browser_capability_missing", "This browser's Chrome is missing at " + chrome
+                                  + ". Qorqbot's own Chrome is downloaded again by itself")
+            # The browser is not moved to another Chrome: its profile may have been opened by a newer one (see
+            # ``managed_chrome.preferred``), so only the same Chrome installed again brings it back.
+            raise DomainError("browser_chrome_missing", "This browser's Chrome is missing at " + chrome
+                              + ". It has to be installed there again; the browser keeps its profile and sign-ins meanwhile")
         unit = meta["managed"]["unit"]
         if state["state"] == "starting" or self.launcher.active(unit):
             ctx.effect = True          # an earlier start is still in flight: wait for it, never launch a second browser

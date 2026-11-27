@@ -12,12 +12,12 @@ not need Homebrew or Apple's developer tools. Setting `QORQUT_PYTHON` still
 selects another Python 3.12 for the launcher itself.
 Qorqbot downloads Claude Code and Codex itself; you sign in to your own account
 from the dashboard, in your browser.
-Agents' web browsing needs no installed Chrome. Once the app runs, Qorqbot
-downloads its own Chrome (a pinned Chrome for Testing build, about 200 MB) in the
-background, checks it against its pinned checksum, and uses it for new agent
-browsers after it has started once on this Mac. Until then, or if it cannot start
-here, an installed `/Applications/Google Chrome.app` is used. An existing agent
-browser keeps the Chrome it was created with. An explicit
+Agents' web browsing needs no installed Chrome. New agent browsers run on
+`/Applications/Google Chrome.app` when it is installed. On a Mac without it,
+Qorqbot downloads its own Chrome (a pinned Chrome for Testing build, about
+200 MB) in the background once the app runs, checks it against its pinned
+checksum, and uses it for new agent browsers after it has started once on this
+Mac. An existing agent browser keeps the Chrome it was created with. An explicit
 `QORQUT_CHROME_EXECUTABLE` overrides both, and Qorqbot then downloads no Chrome;
 `QORQUT_AGENT_BROWSER_EXECUTABLE` replaces the shipped browser tool. Browser
 sandboxing remains enabled.
@@ -34,8 +34,8 @@ cd qorqbot
 Your browser opens the printed localhost address (`--no-open` skips that;
 `--port` picks another port and later starts reuse it). First launch checks the
 shipped programs against the package's checksums and creates your records; it
-builds nothing, and downloads only Qorqbot's own Chrome (above), in the
-background after the app starts. The shipped programs come before your own on the
+builds nothing, and downloads only Qorqbot's own Chrome (above, and only on a
+Mac without Google Chrome), in the background after the app starts. The shipped programs come before your own on the
 PATH Qorqbot and its agents use.
 Application files are in `runtime/`; records/work are in `instance/operations/`.
 Keep the initialized folder at the same path. Roughly 50 bytes or fewer is

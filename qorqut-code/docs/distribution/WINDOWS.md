@@ -53,9 +53,9 @@ Qorqbot downloads the Linux Claude Code and Codex clients **inside Ubuntu** itse
 you sign in from the dashboard. Optional desktop tools used by agents must be
 installed inside Ubuntu.
 Agents' web browsing works as in the Linux guide: the package ships the
-`agent-browser` tool, and inside Ubuntu Qorqbot downloads its own Chrome once
-the app runs. If Settings says that Chrome cannot start here, install Google Chrome
-inside Ubuntu. The Windows browser displays the dashboard; it does not
+`agent-browser` tool, agents use Google Chrome when it is installed inside
+Ubuntu, and otherwise Qorqbot downloads its own Chrome there once the app runs. If
+Settings says that Chrome cannot start here, install Google Chrome inside Ubuntu. The Windows browser displays the dashboard; it does not
 replace the agent's Linux automation browser. Accounts are user-managed.
 WhatsApp is built in, as in the Linux download, and stays dormant until set up by
 asking Ordubashy or from Settings > Connections. Fastmail and Telegram use the same

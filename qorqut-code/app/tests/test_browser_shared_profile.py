@@ -67,8 +67,11 @@ class SharedProfileTest(unittest.TestCase):
         self.manager._authorize = lambda _principal, owner_control=False: list(self.agents)
         self.manager._stop_managed = self.stop
         self.manager._supervisor = self.supervisor
+        # A computer without Google Chrome unless a test installs one: a new browser runs on ``self.manager.chrome``.
+        from qorqut import native_paths
         for owner, name, value in ((agent_browsers, "supervisor_state", self.supervisor),
                                    (agent_browsers, "port_free", lambda _port: True),
+                                   (native_paths, "installed_google_chrome", lambda: None),
                                    (browser, "runtime_executable", lambda runtime: Path(runtime) / "agent-browser")):
             patcher = mock.patch.object(owner, name, value)
             patcher.start()

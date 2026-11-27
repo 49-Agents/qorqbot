@@ -2,7 +2,8 @@
 
 There is one browser, the Shared browser, and every permanent agent is connected to it. The card and Ordubashy read the same
 state and start the same setup: the card's Retry setup button and Ordubashy's ``ensure`` both start the download of Qorqbot's
-own Chrome when it is missing and set the browser up without waiting out an earlier failure."""
+own Chrome when it is missing and needed (``managed_chrome.needed``: no Google Chrome is installed, or the browser runs on
+that build) and set the browser up without waiting out an earlier failure."""
 
 import logging
 import time
@@ -29,6 +30,8 @@ RETRY_AFTER = "press Retry setup."
 RESTART = "If it keeps happening, restart Qorqbot."
 FAILURE_TEXT = {
     "browser_capability_missing": "Chrome or the browser tool wasn't ready on this computer. Qorqbot tries again by itself, or " + RETRY_AFTER,
+    "browser_chrome_missing": "The Chrome the agents' browser was set up with is no longer installed on this computer. Install it "
+                              "again (Google Chrome: google.com/chrome), then " + RETRY_AFTER + " Website sign-ins are kept.",
     "browser_not_ready": "Chrome started but didn't respond in time. " + RETRY + " " + RESTART,
     "browser_management_busy": "Browser setup is already running. This card updates by itself.",
     "browser_in_use": "An agent is using the browser right now. Press Retry setup when it finishes.",
@@ -81,7 +84,9 @@ def targets(runtime):
     return owner, sorted(result, key=lambda item: (item["role"] != ORDUBASHY_ROLE, item["name"]))
 
 
-INSTALLED_CHROME_USED = ("Qorqbot's own browser can't be used on this computer, so agents use the installed Google Chrome. "
+# Reached where a Chrome is installed (Google Chrome or Chromium) but Qorqbot's own build cannot be used. Where Google Chrome
+# is installed the build is normally not downloaded at all (``managed_chrome.view``'s ``not_needed``).
+INSTALLED_CHROME_USED = ("Qorqbot's own browser can't be used on this computer, so agents use the Chrome installed on it. "
                          "Nothing to do.")
 
 
@@ -92,7 +97,7 @@ def host(runtime):
     own_chrome = managed_chrome.view(runtime.paths.runtime)
     chrome = installed_chrome() is not None or own_chrome["state"] == "ready"
     if installed_chrome() is not None and own_chrome["state"] in {"unusable", "unsupported"}:
-        # Its own text asks the owner to install Google Chrome, which this computer already has and agents already use.
+        # Its own text asks the owner to install Google Chrome, where a Chrome is already installed and agents use it.
         own_chrome = {**own_chrome, "explanation": INSTALLED_CHROME_USED}
     try:
         browser.runtime_executable(runtime.browser_access.runtime_directory())
@@ -131,10 +136,12 @@ def _wait_longer(backoff, key, clock):
 
 
 def prepare_chrome(runtime, backoff=None, clock=time.monotonic):
-    """Start installing Qorqbot's own Chrome in the background when it is not installed yet, and return at once.
+    """Start installing Qorqbot's own Chrome in the background when it is not installed yet and is needed, and return at once.
+    Where Google Chrome is installed and the browser does not run on Qorqbot's own build, nothing is downloaded
+    (``managed_chrome.start`` decides).
 
-    Nothing waits for it: the browser is set up on the installed Chrome meanwhile, and where there is none, on the first pass
-    after the download. A failure waits longer each time like the browser's; an explicit retry (no ``backoff``) does not wait.
+    Nothing waits for it: where there is no Google Chrome, the browser is set up on the first pass after the download. A
+    failure waits longer each time like the browser's; an explicit retry (no ``backoff``) does not wait.
     """
     failure = backoff.get(CHROME_BACKOFF) if backoff is not None else None
     if failure is not None and clock() < failure["next_attempt"]:
@@ -188,7 +195,8 @@ def agent_manage(runtime, principal_id, arguments, idempotency_key=None):
     """Ordubashy's ``agent_browser_manage``: one action on the browser, answered with what the Settings card knows too.
 
     ``ensure`` and ``repair`` are the card's Retry setup and more: they start the download of Qorqbot's own Chrome when it is
-    missing and do not wait out an earlier failure. Who may call this is decided by the manager, before anything starts."""
+    missing and needed, and do not wait out an earlier failure. Who may call this is decided by the manager, before anything
+    starts."""
     manager, action = runtime.browser_manager, arguments.get("action")
     if action != "status":
         manager.manage(principal_id, {"action": "status"})        # refuses anyone but Ordubashy before any effect

@@ -1,6 +1,7 @@
 """Built-in browser setup converges the one browser and connects eligible agents without altering a healthy one."""
 
 from contextlib import ExitStack, nullcontext
+import os
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -12,6 +13,8 @@ from qorqut_operations.contracts import DomainError
 from qorqut.bootstrap.browser import BrowserError
 from qorqut.browser import setup
 from qorqut.browser.agent_browsers import AgentBrowserManager
+
+REAL_START = setup.managed_chrome.start              # before any test replaces it
 
 
 class BrowserSetupTest(unittest.TestCase):
@@ -201,13 +204,58 @@ class BrowserSetupTest(unittest.TestCase):
         finished()(None)
         self.assertNotIn(setup.CHROME_BACKOFF, backoff)
 
-    def computer(self, tool=True, chrome='/chrome'):
-        """What this computer has: the browser tool or not, and an installed Chrome or none."""
+    def computer(self, tool=True, chrome='/chrome', google=None):
+        """What this computer has: the browser tool or not, an installed Chrome or none, and whether that is Google Chrome."""
         stack = ExitStack()
         stack.enter_context(mock.patch('qorqut.bootstrap.browser.runtime_executable',
                                        mock.Mock(side_effect=None if tool else BrowserError('missing'))))
         stack.enter_context(mock.patch('qorqut.native_paths.installed_chrome', return_value=chrome))
+        stack.enter_context(mock.patch('qorqut.native_paths.installed_google_chrome', return_value=google))
         return stack
+
+    def real_download_start(self):
+        """``managed_chrome.start`` as it is, with the thread it would download in recorded and never run."""
+        stack = ExitStack()
+        stack.enter_context(mock.patch.object(setup.managed_chrome, 'start', REAL_START))
+        thread = stack.enter_context(mock.patch.object(setup.managed_chrome.threading, 'Thread'))
+        stack.enter_context(mock.patch.object(setup.managed_chrome, 'platform_key', return_value='linux64'))
+        stack.enter_context(mock.patch.dict(os.environ))
+        for name in ('QORQUT_CHROME_EXECUTABLE', 'QORQUT_NATIVE_ROOT'):
+            os.environ.pop(name, None)
+        setup.managed_chrome._RUNS.clear()
+        stack.callback(setup.managed_chrome._RUNS.clear)
+        return stack, thread
+
+    def test_where_google_chrome_is_installed_setup_downloads_nothing_and_says_nothing_is_to_do(self):
+        self.runtime.browser_manager.manage.side_effect = lambda *_a, **_k: {'state': 'healthy', 'diagnostic': 'Ready.',
+                                                                           'agents': []}
+        stack, thread = self.real_download_start()
+        google = '/usr/bin/google-chrome-stable'
+        with stack, self.computer(chrome=google, google=google):
+            for backoff in ({}, None):                       # the background loop, then the owner's Retry setup
+                view = setup.ensure_all(self.runtime, backoff)
+                thread.assert_not_called()
+            facts = setup.agent_manage(self.runtime, 'lead', {'action': 'ensure'}, 'key-1')['setup']
+        self.assertTrue(view['chrome_installed'])
+        self.assertEqual(view['managed_chrome']['state'], 'not_needed')
+        self.assertEqual(view['managed_chrome']['explanation'], setup.managed_chrome.GOOGLE_CHROME_USED)
+        self.assertNotRegex(view['managed_chrome']['explanation'], '(?i)download|install google|retry|200 MB')
+        self.assertEqual(facts['own_chrome'], {'state': 'not_needed', 'explanation': setup.managed_chrome.GOOGLE_CHROME_USED})
+        thread.assert_not_called()
+
+    def test_without_google_chrome_setup_starts_the_download_as_before(self):
+        self.runtime.browser_manager.manage.side_effect = lambda *_a, **_k: {'state': 'unsupported', 'diagnostic': 'x',
+                                                                           'agents': []}
+        stack, thread = self.real_download_start()
+        with stack, self.computer(chrome=None, google=None):
+            view = setup.ensure_all(self.runtime)
+            thread.assert_called_once()
+            self.assertEqual(view['managed_chrome']['state'], 'downloading')
+            self.assertFalse(view['chrome_installed'])          # the card says "Downloading" until it is ready
+        stack, thread = self.real_download_start()
+        with stack, self.computer(chrome='/usr/bin/chromium', google=None):
+            setup.ensure_all(self.runtime)
+            thread.assert_called_once()                         # a Chromium is no reason to skip it
 
     def read_view(self, status, tool=True, chrome='/chrome'):
         self.runtime.browser_manager.manage.side_effect = status
@@ -232,6 +280,7 @@ class BrowserSetupTest(unittest.TestCase):
         text = "This computer's security settings don't let Qorqbot's own browser start safely. Install Google Chrome."
         with mock.patch.object(setup.managed_chrome, 'view', return_value={'state': 'unusable', 'explanation': text}):
             self.assertEqual(self.read_view(status)['managed_chrome']['explanation'], setup.INSTALLED_CHROME_USED)
+            self.assertNotIn('Google Chrome', setup.INSTALLED_CHROME_USED, 'the installed one may be Chromium')
             self.assertEqual(self.read_view(status, chrome=None)['managed_chrome']['explanation'], text)
 
     def test_ready_requires_a_healthy_browser_its_agents_and_the_tool(self):

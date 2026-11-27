@@ -239,8 +239,8 @@ const connectorsPanel = (() => {
       const retry = root.querySelector('[data-cx-browser-retry]');
       if (!browserView) return;
       const ready = browserView.ready;
-      // Qorqbot downloads its own Chrome. Until it is there (and no Chrome is installed) the card says what the download
-      // is doing; "Chrome needed" is left for a computer where Qorqbot's own Chrome cannot be used.
+      // Where no Chrome is installed Qorqbot downloads its own. Until it is there the card says what the download is doing;
+      // "Chrome needed" is left for a computer where Qorqbot's own Chrome cannot be used.
       const ownChrome = browserView.managed_chrome || {};
       const downloading = chromeDownloading();
       status.textContent = ready ? 'Ready' : !browserView.tool_installed ? 'Tool missing' :

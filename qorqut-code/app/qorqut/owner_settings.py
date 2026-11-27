@@ -25,8 +25,9 @@ def _payload_version(root):
 
 def about_view(environ=None, runtime_directory=None) -> dict:
     """The Qorqbot version, where it keeps its program, data and logs (folder installs set QORQUT_FOLDER_ROOT), and whether
-    the owner has to install Google Chrome. The agents' browsers run on Chrome; Qorqbot downloads its own, so
-    ``chrome_installed`` is false only when no Chrome is installed and Qorqbot's own cannot be used on this computer."""
+    the owner has to install Google Chrome. The agents' browsers run on the installed Google Chrome, and where there is none
+    on Qorqbot's own downloaded build, so ``chrome_installed`` is false only when no Chrome is installed and Qorqbot's own
+    cannot be used on this computer."""
     from qorqut.connectors import host_platform
     from qorqut.native_paths import installed_chrome
     from qorqut.browser import managed_chrome

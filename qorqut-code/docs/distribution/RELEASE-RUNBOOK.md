@@ -31,8 +31,8 @@ For a local build:
    wheelhouse and archive. Python and Git stay external; Claude Code and Codex are
    downloaded by Qorqbot itself. The
    build downloads the pinned agent-browser tool, checks its checksum and ships it
-   in `runtime/tools`. The installed app downloads its own pinned Chrome for
-   Testing build while it runs.
+   in `runtime/tools`. Where no Google Chrome is installed, the installed app
+   downloads its own pinned Chrome for Testing build while it runs.
 6. Run `python3 qorqut-code/tools/distribution/check_native.py --archive BUILD/ARCHIVE.tar.gz --output NEW_ACCEPTANCE_DIRECTORY`.
    The exact archive runs as a nonroot user with networking disabled. Check fresh
    setup, missing-tool messages, restart, supported repeated updates and retained

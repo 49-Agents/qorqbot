@@ -14,14 +14,15 @@ tools. These programs are not included or installed by Qorqbot. Git 2.43
 is the Ubuntu baseline; Python must be 3.12 for this wheel set.
 
 Agents' web browsing needs Google Chrome installed on Ubuntu 24.04. The package
-ships the `agent-browser` tool (`runtime/tools/agent-browser`). Qorqbot also
-downloads its own Chrome (a pinned Chrome for Testing build, about 200 MB) in the
-background once the app runs, and verifies its checksum before use. Ubuntu 24.04
+ships the `agent-browser` tool (`runtime/tools/agent-browser`). Agents' browsers
+run on the installed Google Chrome. Only where none is installed does Qorqbot
+download its own Chrome (a pinned Chrome for Testing build, about 200 MB) in the
+background once the app runs, and verify its checksum before use. Ubuntu 24.04
 as installed does not let a program outside the system folders use Chrome's
-sandbox, so that Chrome does not start there and Settings says so; agents then
-use the installed Google Chrome. Qorqbot never turns the sandbox off. Where its
-own Chrome can start, nothing needs installing. If the computer is offline,
-Qorqbot tries the Chrome download again by itself while the app runs.
+sandbox, so that Chrome does not start there and Settings asks for Google Chrome.
+Qorqbot never turns the sandbox off. Where its own Chrome can start, nothing
+needs installing. If the computer is offline, Qorqbot tries the Chrome download
+again by itself while the app runs.
 
 ## Install and run
 
@@ -45,8 +46,8 @@ closes them or starts them by itself, and the updater refuses while they run. St
 in `runtime/`; your records/work live in `instance/operations/`. The browser
 tool is part of `runtime/` and is replaced with it; a folder first installed
 from an older release keeps the copy it downloaded in `tools/` until then.
-Qorqbot's own Chrome is in `instance/operations/.runtime/chrome/`, so updates
-keep it. Qorqbot's own
+Qorqbot's own Chrome, where it is downloaded, is in
+`instance/operations/.runtime/chrome/`, so updates keep it. Qorqbot's own
 configuration, profiles, logs and caches stay here. So do the folders Claude Code
 and Codex keep their sign-in and settings in (`instance/home/claude` and
 `instance/home/codex`): Qorqbot has its own sign-in for each, apart from the one
@@ -68,10 +69,11 @@ with explicit executable paths. `QORQUT_AGENT_BROWSER_EXECUTABLE` replaces the
 shipped browser tool. `QORQUT_CHROME_EXECUTABLE` makes agents use that Chrome,
 and Qorqbot then does not download its own.
 
-Without it, a new agent browser uses Qorqbot's own Chrome once it is downloaded
-and has started once on this computer. Until then, or when it cannot start here,
-it uses an installed Chrome found on your PATH (`google-chrome-stable`,
-`google-chrome`, `chromium` or `chromium-browser`). An existing agent browser
+Without it, a new agent browser uses the Google Chrome found on your PATH
+(`google-chrome-stable` or `google-chrome`). Where there is none, it uses
+Qorqbot's own Chrome once that is downloaded and has started once on this
+computer; until then, or when it cannot start here, an installed Chromium
+(`chromium` or `chromium-browser`) when there is one. An existing agent browser
 keeps the Chrome it was created with. Qorqbot's own Chrome does not update itself;
 it changes only with a Qorqbot update. Every Chrome runs with its normal sandbox;
 Qorqbot neither changes AppArmor nor disables the browser sandbox.

@@ -15,10 +15,12 @@ import uuid
 import zipfile
 
 from qorqut_operations.contracts import DomainError
+from qorqut import native_paths
 from qorqut.browser import managed_chrome as mc
 from tests.test_browser_shared_profile import SharedProfileTest
 
 TOP = "chrome-linux64"
+REAL_GOOGLE_CHROME_LOOKUP = native_paths.installed_google_chrome      # before any test replaces it
 PAGE = "#!/bin/sh\necho '<html><head></head><body></body></html>'\n"
 
 
@@ -51,6 +53,13 @@ class Download:
         return hashlib.sha256(self.data).hexdigest()
 
 
+def program_file(path):
+    """An executable file standing in for an installed Chrome."""
+    Path(path).write_text("#!/bin/sh\n")
+    Path(path).chmod(0o755)
+    return str(path)
+
+
 class ManagedChromeTest(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory()
@@ -60,9 +69,11 @@ class ManagedChromeTest(unittest.TestCase):
         self.root = mc.chrome_root(self.runtime)
         self.download = Download()
         self.checked = []
+        self.google_chrome = None                # a computer without Google Chrome unless a test installs one
         for target, name, value in ((mc, "platform_key", lambda *_a: "linux64"),
                                     (mc, "ARCHIVES", {"linux64": hashlib.sha256(self.download.data).hexdigest()}),
-                                    (mc, "_running_programs", lambda: [])):
+                                    (mc, "_running_programs", lambda: []),
+                                    (native_paths, "installed_google_chrome", lambda: self.google_chrome)):
             patcher = mock.patch.object(target, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -361,6 +372,115 @@ class RecordedBuildTest(ManagedChromeTest):
         self.assertIn(old, self.entries())
 
 
+class GoogleChromeFirstTest(ManagedChromeTest):
+    """Where Google Chrome is installed, Qorqbot's own build is not downloaded unless a browser already runs on it."""
+
+    record = RecordedBuildTest.record
+
+    def google(self):
+        self.google_chrome = program_file(self.runtime.parent / "google-chrome-stable")
+        return self.google_chrome
+
+    def test_nothing_is_downloaded_or_asked_for_where_google_chrome_is_installed(self):
+        self.google()
+        self.assertFalse(mc.needed(self.runtime))
+        for automatic in (True, False):                                           # the background loop and Retry setup
+            self.assertFalse(mc.start(self.runtime, run=self.fail, automatic=automatic))
+        self.assertEqual(mc.view(self.runtime), {"state": "not_needed", "version": mc.VERSION,
+                                                 "explanation": mc.GOOGLE_CHROME_USED, "diagnostic": ""})
+        self.assertEqual(self.entries(), [], "no Chrome folder, no download")
+
+    def test_a_browser_on_google_chrome_does_not_bring_the_download_back(self):
+        self.record("atlas", self.google())
+        self.record("operator", "/unused", mode="legacy")
+        self.assertFalse(mc.needed(self.runtime))
+        self.assertFalse(mc.start(self.runtime, run=self.fail))
+
+    def test_a_browser_already_on_qorqbots_own_build_keeps_it_at_the_pin_where_google_chrome_is_installed(self):
+        self.converge()
+        self.record("atlas", self.root / "current" / TOP / "chrome")
+        self.google()
+        self.pin("200.0.0.1")
+        self.assertTrue(mc.needed(self.runtime))
+        self.assertTrue(mc.start(self.runtime, run=lambda runtime: self.converge()))
+        mc._RUNS[str(self.root)]["thread"].join(10)
+        self.assertIn("200.0.0.1", mc.current_program(self.runtime).read_text())
+
+    def test_a_record_that_cannot_be_read_does_not_rule_the_build_out(self):
+        self.record("atlas", self.google())
+        (self.runtime / "agent-browsers/atlas/meta.json").write_text("{damaged")
+        self.assertTrue(mc.needed(self.runtime))
+
+    def test_the_download_starts_once_google_chrome_is_gone(self):
+        self.record("atlas", self.google())
+        self.assertFalse(mc.start(self.runtime, run=self.fail))
+        self.google_chrome = None
+        self.assertEqual(mc.view(self.runtime)["state"], "waiting")
+        self.assertTrue(mc.start(self.runtime, run=lambda runtime: None))
+
+    def test_a_build_installed_before_google_chrome_is_still_reported_ready(self):
+        self.converge()
+        self.google()
+        self.assertEqual(mc.view(self.runtime)["state"], "ready")
+        self.assertFalse(mc.start(self.runtime, run=self.fail), "nothing to do: the pin is in use")
+
+    def test_an_explicit_choice_comes_before_google_chrome(self):
+        self.google()
+        for name in ("QORQUT_CHROME_EXECUTABLE", "QORQUT_NATIVE_ROOT"):
+            with self.subTest(name=name), mock.patch.dict(os.environ, {name: "/opt/chosen"}):
+                self.assertIsNone(mc.google_chrome())
+                self.assertFalse(mc.start(self.runtime, run=self.fail))
+                self.assertEqual(mc.view(self.runtime)["state"], "not_used")
+
+
+class GoogleChromeLookupTest(unittest.TestCase):
+    """``native_paths.installed_google_chrome`` finds Google Chrome only; ``installed_chrome`` answers as it always has."""
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.bin = Path(folder.name).resolve()
+        patcher = mock.patch.dict(os.environ, {"PATH": str(self.bin)})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        os.environ.pop("QORQUT_CHROME_EXECUTABLE", None)
+        patcher = mock.patch.object(native_paths, "sys", SimpleNamespace(platform="linux"))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def lookup(self):
+        return REAL_GOOGLE_CHROME_LOOKUP()
+
+    def test_chromium_is_not_google_chrome(self):
+        chromium = program_file(self.bin / "chromium")
+        program_file(self.bin / "chromium-browser")
+        self.assertIsNone(self.lookup())
+        self.assertEqual(native_paths.installed_chrome(), chromium)
+
+    def test_google_chrome_is_found_by_either_name_stable_first(self):
+        chrome = program_file(self.bin / "google-chrome")
+        program_file(self.bin / "chromium")
+        self.assertEqual(self.lookup(), chrome)
+        stable = program_file(self.bin / "google-chrome-stable")
+        self.assertEqual(self.lookup(), stable)
+        self.assertEqual(native_paths.installed_chrome(), stable)
+
+    def test_an_explicit_chrome_path_is_not_taken_for_google_chrome(self):
+        with mock.patch.dict(os.environ, {"QORQUT_CHROME_EXECUTABLE": "/opt/chosen/chrome"}):
+            self.assertIsNone(self.lookup())
+            self.assertEqual(native_paths.installed_chrome(), "/opt/chosen/chrome")
+
+    def test_on_a_mac_the_google_chrome_application_is_found(self):
+        application = program_file(self.bin.parent / (self.bin.name + "-Google Chrome"))
+        with mock.patch.object(native_paths, "MAC_CHROME", application):
+            self.assertIsNone(self.lookup(), "only on a Mac")
+            with mock.patch.object(native_paths, "sys", SimpleNamespace(platform="darwin")):
+                self.assertEqual(self.lookup(), application)
+                self.assertEqual(native_paths.installed_chrome(), application)
+                program_file(self.bin / "chromium")
+                self.assertEqual(self.lookup(), application, "a Chromium on PATH is not taken instead")
+
+
 class StartCheckTest(unittest.TestCase):
     """The real check against stand-in programs that behave like a Chrome that starts, lacks a library, or has no sandbox."""
 
@@ -603,7 +723,7 @@ class BackgroundTest(ManagedChromeTest):
         self.assertIn("google.com/chrome", view["explanation"])
 
     def test_every_explanation_is_written_for_the_owner(self):
-        for text in [*mc.FAILURE_TEXT.values(), mc.DOWNLOADING]:
+        for text in [*mc.FAILURE_TEXT.values(), mc.DOWNLOADING, mc.GOOGLE_CHROME_USED]:
             with self.subTest(text=text):
                 self.assertNotRegex(text, r"action=|[a-z]+_[a-z]+|docs/|QORQUT|sandbox|namespace|SHA|hash")
 
@@ -642,7 +762,7 @@ class NewAndExistingBrowsersTest(SharedProfileTest):
         self.addCleanup(patcher.stop)
         for name in ("QORQUT_CHROME_EXECUTABLE", "QORQUT_NATIVE_ROOT"):
             os.environ.pop(name, None)
-        self.install = lambda: mc.converge(self.paths.runtime, download=Download(data), check=lambda *_a: None)
+        self.install = lambda check=lambda *_a: None: mc.converge(self.paths.runtime, download=Download(data), check=check)
         # The permanent agents the one browser serves; who they are does not matter to which Chrome it runs on.
         agents = []
         for name in ("Atlas", "Scout"):
@@ -726,9 +846,85 @@ class NewAndExistingBrowsersTest(SharedProfileTest):
 
     def test_an_explicitly_chosen_chrome_is_never_replaced(self):
         self.install()
+        self.google()
         with mock.patch.dict(os.environ, {"QORQUT_CHROME_EXECUTABLE": self.manager.chrome}):
             self.manage("ensure")
         self.assertEqual(self.chrome(), self.manager.chrome)
+
+    def google(self):
+        """Google Chrome installed on this computer from now on."""
+        program = program_file(self.root / "google-chrome-stable")
+        patcher = mock.patch.object(native_paths, "installed_google_chrome", lambda: program)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return program
+
+    def test_a_new_browser_takes_the_first_chrome_in_order(self):
+        self.assertEqual(self.manager._new_chrome(), self.manager.chrome, "nothing else: the installation's Chrome")
+        managed = str(self.install())
+        self.assertEqual(self.manager._new_chrome(), managed, "Qorqbot's own build, installed and started here")
+        google = self.google()
+        self.assertEqual(self.manager._new_chrome(), google, "Google Chrome before Qorqbot's own build")
+        for name in ("QORQUT_CHROME_EXECUTABLE", "QORQUT_NATIVE_ROOT"):
+            with self.subTest(name=name), mock.patch.dict(os.environ, {name: "/opt/chosen"}):
+                self.assertEqual(self.manager._new_chrome(), self.manager.chrome, "the explicit choice before all")
+
+    def test_a_new_browser_runs_on_the_installed_google_chrome(self):
+        self.install()
+        google = self.google()
+        self.assertEqual(self.manage("ensure")["state"], "healthy")
+        self.assertEqual(self.chrome(), google)
+
+    def test_a_build_that_does_not_start_here_is_not_used_where_google_chrome_is_not_installed_either(self):
+        def refuse(*_a):
+            raise DomainError("chrome_sandbox_unavailable", "Chrome has no usable sandbox here")
+        with self.assertRaises(DomainError):
+            self.install(refuse)
+        self.assertEqual(self.manager._new_chrome(), self.manager.chrome)
+
+    def test_an_existing_browser_on_qorqbots_own_build_stays_there_when_google_chrome_appears(self):
+        managed = str(self.install())
+        self.manage("ensure")
+        (self.profile() / "Cookies").write_text("signed in")
+        self.google()
+        for action in ("ensure", "restart", "repair", "stop", "ensure"):
+            self.manage(action)
+        self.assertEqual(self.chrome(), managed)
+        self.assertEqual((self.profile() / "Cookies").read_text(), "signed in")
+
+    def test_a_linux_service_with_google_chrome_and_an_own_build_that_cannot_start_stays_on_google_chrome(self):
+        google = self.google()
+        def refuse(*_a):
+            raise DomainError("chrome_sandbox_unavailable", "Chrome has no usable sandbox here")
+        with self.assertRaises(DomainError):
+            self.install(refuse)                     # downloaded earlier, but it does not start here
+        self.manage("ensure")
+        (self.profile() / "Cookies").write_text("signed in")
+        before = self.chrome()
+        for action in ("ensure", "restart", "repair", "stop", "ensure"):
+            self.manage(action)
+        self.assertEqual((before, self.chrome()), (google, google))
+        self.assertEqual((self.profile() / "Cookies").read_text(), "signed in")
+        self.assertFalse(mc.start(self.paths.runtime, run=self.fail), "no download and no start check")
+        self.assertEqual(mc.view(self.paths.runtime)["state"], "not_needed")
+
+    def test_a_browser_whose_google_chrome_is_gone_is_told_to_install_it_again(self):
+        from qorqut.browser import setup
+        google = self.google()
+        self.manage("ensure")
+        (self.profile() / "Cookies").write_text("signed in")
+        self.manage("stop")
+        os.remove(google)
+        with mock.patch.object(native_paths, "installed_google_chrome", lambda: None):
+            with self.assertRaises(DomainError) as raised:
+                self.manage("ensure")
+            self.assertEqual(raised.exception.code, "browser_chrome_missing")
+            self.assertIn(google, str(raised.exception))
+            self.assertIn("installed there again", str(raised.exception))
+            self.assertTrue(mc.needed(self.paths.runtime), "Qorqbot's own build is downloaded for new browsers")
+        self.assertEqual(self.chrome(), google, "the browser is not moved to another Chrome")
+        self.assertEqual((self.profile() / "Cookies").read_text(), "signed in")
+        self.assertIn("google.com/chrome", setup.explanation("stopped", failure_code="browser_chrome_missing"))
 
 
 del SharedProfileTest          # its own tests run from their module, not again from here
