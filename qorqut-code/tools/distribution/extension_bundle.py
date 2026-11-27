@@ -5,6 +5,7 @@
 ``qorqut/bootstrap/extension_bundle.py``). It needs the app on the import path, as the checker does.
 """
 import argparse
+import functools
 import gzip
 import importlib.util
 import io
@@ -18,6 +19,15 @@ import zipfile
 spec = importlib.util.spec_from_file_location('native_extension', Path(__file__).with_name('native_extension.py'))
 contract = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(contract)
+
+
+@functools.cache
+def _names():
+    """The release's name rules (``extension_names.py``) beside this builder: the code part is refused by rule (b)."""
+    spec = importlib.util.spec_from_file_location('extension_bundle_names', Path(__file__).with_name('extension_names.py'))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _build(extension_id, wheels, output):
@@ -129,7 +139,7 @@ def build_folder(folder, platform, output, wheels=()):
     folder = Path(folder).absolute()
     found = check_folder(folder)
     # Its code part is loaded as a start loads it, in a process of its own (``extension_contract --load``).
-    found = found or load_findings(folder)
+    found = found or load_findings(folder, names=_names())
     if found:
         raise ValueError('The extension folder breaks the contract: ' + ' '.join(found))
     manifest = load_manifest(folder)

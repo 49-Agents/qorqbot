@@ -1,5 +1,6 @@
 """The extension checker finds every way a folder breaks the extension contract (docs/EXTENSION-CONTRACT.md)."""
 import contextlib
+import importlib.util
 import io
 import os
 from pathlib import Path
@@ -925,7 +926,13 @@ class CommandLineTest(Case):
     def test_with_load_an_id_that_a_name_qorqbot_can_put_into_a_database_starts_with_is_refused(self):
         from test_extension_tables_runtime import rename
         folder = rename(self.root / "variants", "agent", "agent_x")
-        status, lines = self.run_main("--load", folder)
+        # The name rules of the checkout these tests are in, also where the app under test is an installed copy.
+        spec = importlib.util.spec_from_file_location(
+            "contract_test_names", REPOSITORY / "qorqut-code" / "tools" / "distribution" / "extension_names.py")
+        names = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(names)
+        with mock.patch.object(contract, "_names_tool", lambda: names):
+            status, lines = self.run_main("--load", folder)
         self.assertEqual(status, 1)
         self.assertTrue(lines[0].startswith("agent: The new extension id agent cannot be used, as the name agent_"), lines)
         self.assertEqual(self.run_main(folder)[0], 0)

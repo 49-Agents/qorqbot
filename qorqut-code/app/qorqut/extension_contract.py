@@ -810,17 +810,20 @@ def _names_tool():
     return module
 
 
-def load_findings(folder: Path) -> list[str]:
+def load_findings(folder: Path, names=None) -> list[str]:
     """The findings of loading the code part of a folder that passes the file rules, as a start loads it, in a process
     of its own (``qorqut.bootstrap.extension_tables.declared``): its factory, the parts it uses, its tool names and the
     tables it declares (``tables()``, whose statements are checked as a recorded row is). A folder without
-    ``code.factory`` has none. Nothing of its code is imported into this process."""
+    ``code.factory`` has none. Nothing of its code is imported into this process.
+
+    ``names`` is the release's name rules (``extension_names.py``), given by the bundle builder beside it; without it
+    they are the checkout's (``_names_tool``), and rule (b) is not checked where there is none."""
     from qorqut_operations.contracts import DomainError
     from qorqut.bootstrap.extension_tables import declared
     from qorqut.composition.extension_tables import contribution_of
     from qorqut.extension_registry import tables_note
     manifest = load_manifest(folder)
-    names = _names_tool()
+    names = names or _names_tool()
     if names is not None:
         # Rule (b): no name Qorqbot can put into a database may start with the id followed by _.
         taken = names.taken_prefix(manifest.id)
