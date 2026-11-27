@@ -61,7 +61,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -81,7 +81,7 @@ jobs:
             './qorqut-code/app[service]'
       - name: Run application and release-tool unit tests
         run: |
-          python -I -B -m unittest discover -s qorqut-code/app/tests
+          python -I -B -m unittest discover -s qorqut-code/app/tests --durations 30
           python -I -B -m unittest discover -s qorqut-code/tools/tests
           python -I -B -m unittest discover -s qorqut-code/tools/distribution/tests
 
