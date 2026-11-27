@@ -360,7 +360,10 @@ declaration, as described in [EXTENSIONS.md](EXTENSIONS.md). On top of that, eve
 
 10. Keys and data go under `private/extensions/<id>/`, written through Qorqbot's private-file helpers.
 11. Database tables are allowed. Their names start with `<id>_`. An install or update only creates new tables; it never
-    changes or drops an existing one.
+    changes or drops an existing one. An extension's statements may create only tables, indexes and triggers named
+    `<id>_...`; an index, a trigger or a foreign key may reach only the extension's own tables. A trigger body may only
+    insert into, update, delete from and select from the extension's own tables, with SQLite's built-in scalar
+    functions; table-valued functions such as `json_each`, other tables and `sqlite_master` are refused.
 12. Removing an extension keeps its private part and its tables unless the owner asks for them to be deleted.
 
 **Dashboard**
@@ -457,6 +460,7 @@ files hold, it reports a problem and never fails.
 | The plugin part copied into the agentic layer, kept in its history | Exists |
 | On and off per agent, with the session restart | Exists; switched by the owner or by Ordubashy |
 | The code part of an extension loaded from its folder | Exists for tools, services and the set-up handler. A code part that declares database tables, or any other part of the declaration, is refused until that is built |
+| Tables of an extension's own | The reading side exists: the check of an extension's statements, and the database's own record of extension tables, read wherever the database is opened (start, upgrade, app update, recovery). Nothing makes tables yet, so no database holds that record and a code part that declares tables is still refused. To build: declaring and making tables at start, at install and at update |
 | Skill discovery line and the skill-read gate | Exist |
 | Approved Learning Applier proposals being applied | To build; nothing is applied today |
 | The manifest and the generated files | The manifest is read and checked. The agentic-layer package manifest is generated, the Connections card is drawn from it, and the bundle and the index entry are built from the folder |
