@@ -310,6 +310,7 @@ DATABASES = {("composition/assembly.py", "open_database"): 1, ("composition/asse
              ("bootstrap/agentic_migration.py", "_publish_backup"): 1,
              ("bootstrap/agentic_migration.py", "apply_extension_storage"): 1,
              ("bootstrap/extension_install.py", "install"): 2,
+             ("storage/recovery.py", "snapshot_database"): 1,
              # Already fails on every installation: it passes no assembly at all.
              ("storage/routine_cost_repair.py", "main"): 1}
 
@@ -331,20 +332,31 @@ def _calls(tree):
     return found
 
 
+def _running_database(node):
+    """``database`` or ``<anything>.database``: the running store's ``Database``."""
+    return (isinstance(node, ast.Name) and node.id == "database") or (isinstance(node, ast.Attribute)
+                                                                      and node.attr == "database")
+
+
 def _name(call):
     return call.func.id if isinstance(call.func, ast.Name) else getattr(call.func, "attr", None)
 
 
 class EveryOpenerReadsTheRecordTest(unittest.TestCase):
     """Fails when a ``host_assembly(`` / ``host_contributions(`` call without ``tables=``, a literal ``tables=()``, an
-    ``open_database(`` whose assembly is not such a call, or a new ``Database(`` is added to the package. ``chain``,
-    ``require_selected_storage``, ``_transition_for`` and ``extension_transition`` take ``tables`` as a required keyword,
-    so Python itself refuses a call that forgets it.
+    ``open_database(`` whose assembly is not such a call, a new ``Database(``, or a saved store verified or restored with
+    the running database (``database.validate_snapshot(`` / ``database.restore(``, instead of ``snapshot_database``) is
+    added to the package. ``chain``, ``require_selected_storage``, ``_transition_for`` and ``extension_transition`` take
+    ``tables`` as a required keyword, and ``BackupStore``, ``FullRecoveryStore``, ``NightlyMaintenance`` and
+    ``RecoveryAdministration`` take ``extensions``, so Python itself refuses a call that forgets it. The app update's
+    check (``native_update_check``) opens through ``open_database`` and is covered by that rule.
 
-    It does not catch: an opener outside the package (the native updater, tools); a ``tables=`` value that was not read
-    from the store being opened (read from another store, kept from earlier, or built by hand); a ``Database`` made
-    indirectly, as ``functools.partial(Database, ...)``, ``type(database)(...)`` or under another name; a store read with
-    ``sqlite3`` directly, as the native updater compares identities; or an assembly reused from an open ``Database``."""
+    It does not catch: an opener outside the package (``tools/distribution/native_update.py``, which only looks for the
+    record table with ``sqlite3`` and leaves the record to the new runtime's check; other tools); a ``tables=`` value
+    that was not read from the store being opened (read from another store, kept from earlier, or built by hand); a
+    ``Database`` made indirectly, as ``functools.partial(Database, ...)``, ``type(database)(...)`` or under another name;
+    a store read with ``sqlite3`` directly; a running database reached under another name than ``database``; or an
+    assembly reused from an open ``Database``."""
 
     def test_no_composition_opens_a_store_without_its_record(self):
         databases = {}
@@ -366,6 +378,8 @@ class EveryOpenerReadsTheRecordTest(unittest.TestCase):
                         missing.append(place)
                 if name == "Database":
                     databases[(relative, function)] = databases.get((relative, function), 0) + 1
+                if name in ("validate_snapshot", "restore") and _running_database(call.func.value):
+                    missing.append(place + f" checks a saved store with the running database ({name})")
         self.assertEqual(missing, [], "compose with tables=recorded(...) of the store being opened")
         self.assertEqual(databases, DATABASES)
 

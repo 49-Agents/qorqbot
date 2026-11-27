@@ -142,13 +142,13 @@ class GitVersioner:
 
 
 class NightlyMaintenance:
-    def __init__(self, database, paths, *, locks, backup_destination=None, git_enabled=False,
+    def __init__(self, database, paths, *, locks, extensions, backup_destination=None, git_enabled=False,
                  git_runner=None, clock=utc_now, wall_clock=time.time):
         if type(git_enabled) is not bool:
             raise ValueError("Git versioning must be explicitly enabled or disabled")
         self.database, self.paths, self.root = database, paths, paths.operations
         self.locks = locks
-        self.backups = BackupStore(database, paths, backup_destination, clock=clock)
+        self.backups = BackupStore(database, paths, backup_destination, extensions=extensions, clock=clock)
         self.git_enabled = git_enabled
         self.versioner = GitVersioner(self.root, runner=git_runner)
         self.wall_clock = wall_clock

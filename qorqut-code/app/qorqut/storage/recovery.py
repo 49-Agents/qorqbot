@@ -18,7 +18,11 @@ from qorqut.migration.snapshots import (SourceManifest, _digest, _fsync_director
     restore_snapshot, verify_snapshot)
 from qorqut_operations.storage.paths import registered_path
 from qorqut_operations.storage.safe_io import TEMPORARY_PREFIXES, atomic_write
+from qorqut.composition.assembly import host_assembly
+from qorqut.composition.extension_tables import RECORD_OWNER, recorded
 from qorqut.composition.locations import project_root, document_root
+from qorqut.service.changes import ChangeFeed
+from qorqut_operations.storage.database import Database
 from qorqut_context.integration.recovery import CAPTURE_DIRECTORY, ContextRecovery
 from .exports import build_exports, snapshot_connection
 from qorqut_operations.storage.repositories import decode_row
@@ -192,9 +196,44 @@ def _capture_authored(manifest, destination, check):
     _fsync_directory(destination)
 
 
+def snapshot_database(database, extensions, snapshot):
+    """The ``Database`` a saved store is verified and restored with: composed from that store's own record of extension
+    tables and the running selection ``extensions``, not from the running store's.
+
+    So a generation saved before an extension made its tables verifies and restores after they were made, and one saved
+    with them restores after the extension was removed. When neither the saved store nor the running one records
+    anything, or the saved store composes exactly the running target, it is the running ``database`` itself, as before
+    the record existed. The saved store is read once, read-only, as its validation then reads it; a store that cannot be
+    read is left to that validation to report. A recorded row that is refused refuses the generation
+    (``invalid_backup``) before anything composes or compiles it."""
+    try:
+        path = Path(snapshot).resolve(strict=True)
+        connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
+    except (OSError, sqlite3.Error):
+        return database
+    try:
+        connection.execute("PRAGMA query_only = ON")
+        tables = recorded(connection)
+    except sqlite3.Error:
+        return database
+    except DomainError as exc:
+        raise DomainError("invalid_backup", exc.message) from None
+    finally:
+        connection.close()
+    if not tables and RECORD_OWNER not in database.assembly.owners:
+        return database
+    assembly = host_assembly(ChangeFeed(), extensions, tables=tables)
+    if assembly.target == database.assembly.target:
+        return database
+    return Database(path, assembly=assembly, busy_timeout=database.busy_timeout)
+
+
 class BackupStore:
-    def __init__(self, database, paths, destination=None, *, clock=utc_now):
+    def __init__(self, database, paths, destination=None, *, extensions, clock=utc_now):
+        """``extensions`` is the running selection, the one ``database`` was opened with; each generation is composed
+        with it and with that generation's own record of extension tables (``snapshot_database``)."""
         self.database, self.paths, self.root = database, paths, paths.operations
+        self.extensions = extensions
         self.private = paths.runtime / "backups"
         self.destination = Path(destination).absolute() if destination else self.private
         if any(path.is_symlink() for path in (self.destination, *self.destination.parents)):
@@ -292,7 +331,7 @@ class BackupStore:
             database = directory / "state.sqlite3"
             if database.is_symlink() or _digest(database) != metadata["database"]["checksum"]:
                 raise ValueError
-            db = self.database.validate_snapshot(database)
+            db = snapshot_database(self.database, self.extensions, database).validate_snapshot(database)
             if db != {key: metadata["database"][key] for key in ("schema_version", "record_counts")}:
                 raise ValueError
             authored = verify_snapshot(directory / "authored")
@@ -332,8 +371,9 @@ class BackupStore:
         temporary = Path(tempfile.mkdtemp(prefix=".restore-", dir=destination.parent))
         try:
             restore_snapshot(directory / "authored", temporary)
-            restored = self.database.restore(directory / "state.sqlite3", registered_path(temporary, self.database_relative),
-                                             expected_checksum=metadata["database"]["checksum"])
+            saved = snapshot_database(self.database, self.extensions, directory / "state.sqlite3")
+            restored = saved.restore(directory / "state.sqlite3", registered_path(temporary, self.database_relative),
+                                     expected_checksum=metadata["database"]["checksum"])
             with restored.transaction() as uow:
                 repo, row = uow.repository("maintenance_state"), uow.repository("maintenance_state").get("service")
                 values = {"state": "closed", "message": "Isolated restore rehearsal; original root bindings retained. Do not activate here."}
@@ -341,7 +381,7 @@ class BackupStore:
                     repo.update("service", values, expected_revision=row["revision"])
                 else:
                     repo.insert({"id": "service", **values})
-            parity = self.database.validate_snapshot(restored.path)
+            parity = saved.validate_snapshot(restored.path)
             expected = dict(metadata["database"]["record_counts"])
             expected["maintenance_state"] = max(1, expected["maintenance_state"])
             if parity["record_counts"] != expected:

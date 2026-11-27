@@ -124,7 +124,8 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="
                             extensions=extensions)
     if nightly_maintenance is _DEFAULT_MAINTENANCE:
         from qorqut.storage.versioning import NightlyMaintenance
-        nightly_maintenance = NightlyMaintenance(runtime.database, runtime.paths, locks=runtime.locks, git_enabled=True)
+        nightly_maintenance = NightlyMaintenance(runtime.database, runtime.paths, locks=runtime.locks,
+                                                 extensions=runtime.selection, git_enabled=True)
     local = LocalFiles(runtime)
     from qorqut_context.integration.reading import PublishedContextText
     published_context = PublishedContextText(runtime.domains.shared_context)
@@ -169,7 +170,8 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="
         from qorqut.storage.recovery_admin import RecoveryAdminConfig, RecoveryAdministration
         selected = RecoveryAdminConfig.load(recovery_config, paths=paths)
         runtime.recovery_admin = RecoveryAdministration(runtime.database, selected,
-            lambda: runtime.recovery_quiescence(timeout=60), background_worker=runtime.background)
+            lambda: runtime.recovery_quiescence(timeout=60), extensions=runtime.selection,
+            background_worker=runtime.background)
     # The managed runtime and the terminal side both exist now: finish what a service that died mid-switch left behind.
     recover_switch(runtime)
     compatibility = DashboardCompatibility(runtime, terminals=terminals, background=runtime.background, local_files=local)
