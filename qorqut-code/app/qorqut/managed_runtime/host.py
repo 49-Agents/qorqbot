@@ -8,7 +8,7 @@ speaking ``protocol.py``, and the event log, so a service restart or release doe
 
 It holds ``host.lock`` for its whole life (a second copy exits 75, after retrying for about a second so that a probe holding the
 lock for an instant does not count as a second host), binds the control socket (0600), and refuses any connection
-whose peer is not this user (SO_PEERCRED / LOCAL_PEERCRED) or whose request lacks the token. ``status`` and ``pending`` are state,
+whose peer is not this user (the layer's caller check) or whose request lacks the token. ``status`` and ``pending`` are state,
 re-read after a service restart; the event log (monotonic ``seq``, bounded) is for latency and history. Every accepted message
 uuid is kept in a ledger, so a client that lost an answer asks ``lookup`` and, if the host has not seen the uuid, fences it
 ("never accept") so a late arrival cannot be typed after the client gave up on it.
@@ -35,7 +35,6 @@ from __future__ import annotations
 
 import argparse
 import collections
-import hmac
 import importlib
 import json
 import os
@@ -46,6 +45,9 @@ import threading
 import time
 import uuid
 from pathlib import Path
+
+from qorqut_system import channel, locks, private_files, processes
+from qorqut_system.errors import PrivateFileError
 
 from . import clients as table
 from . import protocol, state as layout
@@ -99,8 +101,7 @@ class EventLog:
         self._stream = self._open("wb")
 
     def _open(self, mode):
-        descriptor = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | (os.O_TRUNC if mode == "wb" else os.O_APPEND), 0o600)
-        return os.fdopen(descriptor, "ab" if mode != "wb" else "wb")
+        return private_files.open_private_file(self.path.parent, self.path.name, append=mode != "wb")
 
     def append(self, kind: str, fields: dict) -> dict:
         self.seq += 1
@@ -141,8 +142,7 @@ class EventLog:
 
     def _compact(self):
         temporary = self.path.with_name(self.path.name + ".tmp")
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
-        with os.fdopen(descriptor, "wb") as stream:
+        with private_files.open_private_file(temporary.parent, temporary.name) as stream:
             for entry in self.items:
                 stream.write(json.dumps(entry, ensure_ascii=False, separators=(",", ":"), default=str).encode("utf-8") + b"\n")
         os.replace(temporary, self.path)
@@ -170,8 +170,7 @@ class Ledger:
         self.path, self.limit = path, limit
         self.entries: collections.OrderedDict = collections.OrderedDict()
         self._lines = 0
-        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
-        self._stream = os.fdopen(descriptor, "wb")
+        self._stream = private_files.open_private_file(path.parent, path.name)
 
     def get(self, message_uuid):
         return self.entries.get(message_uuid)
@@ -214,7 +213,7 @@ class ManagedHost:
     def __init__(self, state, *, driver_class=None, peer_credentials=None):
         self.state_dir = Path(state)
         self._driver_class = driver_class
-        self._peer_credentials = peer_credentials or layout.peer_credentials
+        self._peer_credentials = peer_credentials
         self._lock = threading.RLock()
         self._cond = threading.Condition(self._lock)
         self._publish_lock = threading.Lock()
@@ -254,22 +253,18 @@ class ManagedHost:
     def run(self, stop: threading.Event) -> int:
         state = self.state_dir
         try:
-            if not state.is_absolute() or state.is_symlink() or not state.is_dir():
-                raise ValueError("state directory")
-            info = state.lstat()
-            if info.st_uid != os.geteuid() or info.st_mode & 0o077:
-                raise ValueError("state directory is not private")
-            descriptor = os.open(state / LOCK_FILE, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
-        except (OSError, ValueError):
+            private_files.require_private_directory(state)
+            handle = locks.open_lock(state, LOCK_FILE)
+        except (OSError, ValueError, PrivateFileError):
             log("invalid state directory; nothing was started")
             return EXIT_CONFIG
-        if not layout.acquire_lock(descriptor):
-            os.close(descriptor)
+        if not layout.acquire_lock(handle.descriptor):
+            handle.close()
             return EXIT_BUSY
         try:
             return self._run_locked(stop)
         finally:
-            os.close(descriptor)
+            handle.close()
 
     def _run_locked(self, stop):
         self._stop = stop
@@ -375,21 +370,7 @@ class ManagedHost:
     def _bind(self, path: Path) -> None:
         if not layout.socket_fits(path):
             raise RuntimeError("socket path too long")
-        try:
-            if path.is_socket():
-                path.unlink()                  # a stale socket from a host that is gone (the lock proves nobody holds it)
-        except OSError:
-            pass
-        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        previous = os.umask(0o177)
-        try:
-            server.bind(str(path))
-        finally:
-            os.umask(previous)
-        os.chmod(path, 0o600)
-        server.listen(16)
-        server.settimeout(0.25)
-        self._server = server
+        self._server = channel.listen(path, backlog=16, mode=0o600, timeout=0.25)
 
     def _accept_loop(self):
         while self._serving:
@@ -408,8 +389,7 @@ class ManagedHost:
         try:
             with connection:
                 connection.settimeout(CONNECTION_TIMEOUT)
-                _pid, uid = self._peer_credentials(connection)
-                if uid is None or uid != os.geteuid():
+                if not channel.check_caller(connection, read_peer=self._peer_credentials):
                     return                     # not this user (or the platform cannot say): not even an answer
                 reader = protocol.LineReader(connection)
                 while self._serving:
@@ -446,7 +426,7 @@ class ManagedHost:
     def _handle(self, message: dict) -> dict:
         request_id = message.get("id") if isinstance(message.get("id"), (str, int)) else None
         token = message.get("token")
-        if not isinstance(token, str) or not hmac.compare_digest(token.encode("utf-8"), self._token.encode("utf-8")):
+        if not channel.token_matches(self._token, token):
             return protocol.error(request_id, protocol.ERROR_UNAUTHORIZED)
         try:
             request_id, op, arguments = protocol.validate_request(message)
@@ -713,23 +693,7 @@ class ManagedHost:
     def _escalate(self):
         """The Claude process this host started is still there after the wait: terminate, then kill, its own process group. Only
         that exact pid (identity checked), never a name or a port."""
-        pid, identity = self.claude_pid, self.claude_identity
-        if pid is None or identity is None or not layout.process_alive(pid, identity):
-            return
-        for sig, wait in ((signal.SIGTERM, 3.0), (signal.SIGKILL, 2.0)):
-            try:
-                group = os.getpgid(pid)
-                if group == pid and group != os.getpgrp():
-                    os.killpg(group, sig)
-                else:
-                    os.kill(pid, sig)
-            except (ProcessLookupError, PermissionError, OSError):
-                return
-            deadline = time.monotonic() + wait
-            while time.monotonic() < deadline:
-                if not layout.process_alive(pid, identity):
-                    return
-                time.sleep(0.05)
+        processes.stop_identified_process(self.claude_pid, self.claude_identity)
 
     def _finish(self, code, reason, detail):
         """Record how this host ended, stop serving, remove what must not outlive it. The lock is released by the caller."""
@@ -1092,7 +1056,7 @@ def main(argv=None) -> int:
     stop = threading.Event()
     for number in (signal.SIGTERM, signal.SIGINT):
         signal.signal(number, lambda *_: stop.set())
-    signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    processes.ignore_hangup()
     return ManagedHost(arguments.state).run(stop)
 
 

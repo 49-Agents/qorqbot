@@ -182,17 +182,6 @@
       "platform_check": 4,
       "process_control": 8
     },
-    "qorqut-code/app/qorqut/managed_runtime/client.py": {
-      "local_socket": 1,
-      "owner_check": 1
-    },
-    "qorqut-code/app/qorqut/managed_runtime/host.py": {
-      "local_socket": 3,
-      "owner_check": 3,
-      "permission_bits": 5,
-      "process_control": 4,
-      "safe_file_access": 4
-    },
     "qorqut-code/app/qorqut/managed_runtime/launcher.py": {
       "owner_check": 1,
       "platform_check": 2,
@@ -205,17 +194,6 @@
     },
     "qorqut-code/app/qorqut/managed_runtime/options.py": {
       "permission_bits": 2
-    },
-    "qorqut-code/app/qorqut/managed_runtime/state.py": {
-      "file_lock": 2,
-      "local_socket": 3,
-      "owner_check": 9,
-      "permission_bits": 3,
-      "platform_check": 2,
-      "proc_read": 1,
-      "process_control": 3,
-      "safe_file_access": 3,
-      "system_module": 1
     },
     "qorqut-code/app/qorqut/migration/managed_cutover.py": {
       "link": 2,
@@ -297,12 +275,6 @@
     },
     "qorqut-code/app/qorqut/storage/recovery.py": {
       "permission_bits": 3
-    },
-    "qorqut-code/app/qorqut/storage/recovery_admin.py": {
-      "local_socket": 3,
-      "permission_bits": 4,
-      "proc_read": 2,
-      "safe_file_access": 7
     },
     "qorqut-code/app/qorqut/transport/agent_terminal_control.py": {
       "platform_check": 13,
@@ -388,11 +360,6 @@
     "qorqut-code/extensions/whatsapp/tools/source_archive.py": {
       "permission_bits": 1,
       "shell_script": 1
-    },
-    "qorqut-code/qorqut-context/qorqut_context/claude_runner.py": {
-      "local_socket": 1,
-      "permission_bits": 2,
-      "process_control": 3
     },
     "qorqut-code/qorqut-context/qorqut_context/claude_tools.py": {
       "local_socket": 1

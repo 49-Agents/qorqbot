@@ -11,24 +11,21 @@ Layout, ``<runtime>/managed-agents/<agent_id>/`` (0700). the host owns the files
     host.log      the host's own diagnostics (never a token, an env value or message text)
     launch.json   transient (0600): written by the launcher, read and unlinked by the host at once
 
-This module imports nothing from the rest of the application except the process helpers, so the host, the client and the
+This module imports nothing from the rest of the application except the system layer, so the host, the client and the
 launcher can all use it, and it can run in the detached host process.
 """
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import os
-import signal
-import socket
 import stat
-import sys
-import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+
+from qorqut_system import channel, locks, places, private_files, processes
 
 SCHEMA_VERSION = 1
 PROTOCOL = 1
@@ -73,9 +70,9 @@ def private_directory(path) -> Path:
     path = Path(path)
     if path.is_symlink():
         raise ValueError("state path is a symlink")
-    path.mkdir(parents=True, exist_ok=True, mode=0o700)
-    info = path.lstat()
-    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+    private_files.make_folder_path(path, mode=0o700, parents=True)
+    info = private_files.stat_folder(path)
+    if not stat.S_ISDIR(info.st_mode) or not private_files.is_mine(info) or not private_files.is_private(info):
         raise ValueError("state directory is not private to this user")
     return path
 
@@ -83,19 +80,8 @@ def private_directory(path) -> Path:
 def write_private(path, data: bytes) -> None:
     """Atomic: a temporary file created 0600 with O_EXCL, fsynced, then renamed over ``path``."""
     path = Path(path)
-    temporary = path.with_name("." + path.name + "." + str(os.getpid()) + "." + os.urandom(4).hex() + ".tmp")
-    try:
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-        with os.fdopen(descriptor, "wb") as stream:
-            stream.write(data)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-    finally:
-        try:
-            temporary.unlink()
-        except FileNotFoundError:
-            pass
+    private_files.replace_entry(path.parent, path.name, data, prefix=f".{path.name}.{os.getpid()}.",
+                                suffix=".tmp", token_bytes=4, chmod=False)
 
 
 def write_json_private(path, value) -> None:
@@ -104,10 +90,11 @@ def write_json_private(path, value) -> None:
 
 def read_private(path, limit: int) -> bytes:
     """The bytes of a regular file that this user owns and nobody else can read. ``OSError`` or ``ValueError`` otherwise."""
-    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0))
+    path = Path(path)
+    descriptor = private_files.open_read(path.parent, path.name)
     try:
         info = os.fstat(descriptor)
-        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+        if not stat.S_ISREG(info.st_mode) or not private_files.is_mine(info) or not private_files.is_private(info):
             raise ValueError("not a private file")
         if info.st_size > limit:
             raise ValueError("file too large")
@@ -169,20 +156,26 @@ def read_events_file(state, since: int = 0, limit: int = 1000) -> list:
 
 # -- the lock ----------------------------------------------------------------------------------------------------------------
 
-def lock_held(path) -> bool:
-    """Someone holds the host lock. A missing file means nobody does; this never creates it.
+class _OpenedLockFile:
+    """A lock file the caller opened itself, handed to the layer's lock operations, which take an open file."""
 
-    The probe takes a *shared* non-blocking lock, which conflicts with the host's exclusive one (so a held lock is seen) but not
-    with another probe (two probes never report each other as the holder). It still conflicts for an instant with a host that
-    is taking the exclusive lock right now, which is why ``acquire_lock`` retries."""
+    def __init__(self, descriptor):
+        self._descriptor = descriptor
+
+    def fileno(self):
+        return self._descriptor
+
+
+def lock_held(path) -> bool:
+    """Someone holds the host lock. A missing file means nobody does; this never creates it."""
     try:
-        descriptor = os.open(path, os.O_RDWR | os.O_NOFOLLOW)
+        descriptor = locks.open_descriptor(Path(path).parent, Path(path).name)
     except FileNotFoundError:
         return False
     except OSError:
         return True            # cannot tell: treat as held, never as free
     try:
-        fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        locks.acquire(_OpenedLockFile(descriptor), exclusive=False, wait=False)
         return False
     except BlockingIOError:
         return True
@@ -194,9 +187,10 @@ def acquire_lock(descriptor, attempts: int = 20, delay: float = 0.05) -> bool:
     """Take the exclusive host lock on an open descriptor, retrying for about ``attempts * delay`` seconds: a probe
     (``lock_held``, which the service runs at 20 Hz while it waits for a host) holds a shared lock for microseconds and must not
     make a starting host think another host is running. ``False`` when someone really holds it."""
+    stream = _OpenedLockFile(descriptor)
     for attempt in range(max(1, attempts)):
         try:
-            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            locks.acquire(stream, wait=False)
             return True
         except BlockingIOError:
             if attempt + 1 < attempts:
@@ -207,8 +201,7 @@ def acquire_lock(descriptor, attempts: int = 20, delay: float = 0.05) -> bool:
 # -- processes ---------------------------------------------------------------------------------------------------------------
 
 def process_identity(pid):
-    from qorqut.browser.control import process_identity as identity
-    return identity(pid)
+    return processes.identity(pid)
 
 
 def process_alive(pid, identity) -> bool:
@@ -216,10 +209,7 @@ def process_alive(pid, identity) -> bool:
     try:
         if process_identity(pid) != identity:
             return False
-        if sys.platform == "darwin":
-            from qorqut import process_info
-            return not process_info.is_zombie(pid)
-        return Path(f"/proc/{int(pid)}/stat").read_text().rsplit(")", 1)[1].split()[0] not in ("Z", "X")
+        return not processes.is_zombie(pid)
     except (OSError, ValueError, IndexError, TypeError):
         return False
 
@@ -228,25 +218,7 @@ def terminate_process(pid, identity, term_wait: float = 3.0, kill_wait: float = 
     """Stop exactly the process ``pid`` whose boot identity and start time are ``identity``: SIGTERM, then SIGKILL, to its process
     group when it leads one other than ours, otherwise to the process. The identity is checked again before every signal, so a
     reused pid is never touched. Returns True when it was running and is gone, False when it was not (or not that process)."""
-    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 1 or not identity or not process_alive(pid, identity):
-        return False
-    for sig, wait in ((signal.SIGTERM, term_wait), (signal.SIGKILL, kill_wait)):
-        try:
-            if not process_alive(pid, identity):
-                return True
-            group = os.getpgid(pid)
-            if group == pid and group != os.getpgrp():
-                os.killpg(group, sig)
-            else:
-                os.kill(pid, sig)
-        except (ProcessLookupError, PermissionError, OSError):
-            return not process_alive(pid, identity)
-        deadline = time.monotonic() + wait
-        while time.monotonic() < deadline:
-            if not process_alive(pid, identity):
-                return True
-            time.sleep(0.05)
-    return not process_alive(pid, identity)
+    return processes.stop_identified_process(pid, identity, term_wait=term_wait, kill_wait=kill_wait)
 
 
 def process_ticks(identity) -> str:
@@ -267,8 +239,7 @@ def parse_host_owner(owner):
 
 
 def parent_of(pid):
-    from qorqut import process_info
-    return process_info.parent_pid(pid)
+    return processes.parent_pid(pid)
 
 
 def descends_from(pid, ancestor, hops: int = ANCESTOR_HOPS) -> bool:
@@ -290,8 +261,7 @@ def descends_from(pid, ancestor, hops: int = ANCESTOR_HOPS) -> bool:
 def host_command(pid):
     """The argv of ``pid``, or ``None`` when it cannot be read."""
     try:
-        from qorqut import process_info
-        argv = process_info.cmdline(pid)
+        argv = processes.cmdline(pid)
     except (OSError, ValueError, TypeError, ImportError):
         return None
     return argv
@@ -326,24 +296,20 @@ def short_socket_directory(state) -> Path:
     The user's runtime directory is private by construction; the shared temporary directory is the fallback, and there the
     directory must be ours alone. Anything else is refused, never adopted."""
     state = Path(state)
-    runtime = Path("/run/user/%d" % os.getuid())
-    try:
-        private = not runtime.is_symlink() and runtime.is_dir() and runtime.stat().st_uid == os.geteuid()
-    except OSError:
-        private = False
+    runtime = places.run_folder()
     digest = hashlib.sha256(os.fsencode(str(state))).hexdigest()[:12]
-    for base in ([runtime] if private else []) + [Path(tempfile.gettempdir()), Path("/tmp")]:
+    for base in ([runtime] if runtime else []) + [places.temporary_folder(), Path("/tmp")]:
         directory = base / ("qorqut-managed-" + digest)
         if not socket_fits(directory / SOCKET_FILE):
             continue
         try:
-            directory.mkdir(mode=0o700)
+            private_files.make_folder_path(directory, mode=0o700)
         except FileExistsError:
             pass
         except OSError:
             continue
-        info = directory.lstat()
-        if stat.S_ISDIR(info.st_mode) and info.st_uid == os.geteuid() and not info.st_mode & 0o077:
+        info = private_files.stat_folder(directory)
+        if stat.S_ISDIR(info.st_mode) and private_files.is_mine(info) and private_files.is_private(info):
             return directory
     raise RuntimeError("socket_directory_unsafe")
 
@@ -357,21 +323,8 @@ def socket_path_for(state):
 
 
 def peer_credentials(connection):
-    """``(pid, uid)`` of the other end of a connected Unix socket; either is ``None`` when the platform cannot say.
-
-    Linux: SO_PEERCRED. macOS: LOCAL_PEERPID and LOCAL_PEERCRED (not run on a Mac here)."""
-    pid = uid = None
-    try:
-        if sys.platform == "darwin":
-            pid = int.from_bytes(connection.getsockopt(0, 0x002, 4)[:4], sys.byteorder, signed=True)
-            credential = connection.getsockopt(0, 0x001, 76)           # struct xucred: version, uid, ngroups, groups
-            uid = int.from_bytes(credential[4:8], sys.byteorder)
-        else:
-            import struct
-            pid, uid, _gid = struct.unpack("3i", connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i")))
-    except (OSError, AttributeError, ValueError):
-        pass
-    return pid, uid
+    """``(pid, uid)`` of the other end of a connected Unix socket; either is ``None`` when the platform cannot say."""
+    return channel.peer(connection)
 
 
 def clean_stale(state) -> bool:

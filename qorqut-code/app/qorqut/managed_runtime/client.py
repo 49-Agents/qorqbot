@@ -14,10 +14,11 @@ needs to decide between "nothing happened" and "ask ``lookup``".
 
 from __future__ import annotations
 
-import os
 import socket
 import time
 from pathlib import Path
+
+from qorqut_system import channel, processes
 
 from . import protocol, state as layout
 
@@ -112,19 +113,18 @@ class HostClient:
                 raise socket.timeout()
             return left
 
-        connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        connection = channel.new_socket()
         sent = False
         try:
             try:
-                connection.settimeout(remaining())
-                connection.connect(path)
+                channel.connect_socket(connection, path, timeout=remaining())
             except socket.timeout:
                 raise HostUnavailable("timeout", "connecting timed out") from None
             except OSError:
                 raise HostUnavailable("unreachable", "cannot connect to the host") from None
             if self.verify_peer:
                 pid, uid = layout.peer_credentials(connection)
-                if uid != os.geteuid() or pid != record["host_pid"]:
+                if uid != processes.effective_user_id() or pid != record["host_pid"]:
                     raise HostUnavailable("unverified", "the socket is not held by the recorded host")
             request_id = protocol.new_request_id()
             try:
@@ -150,7 +150,8 @@ class HostClient:
             except OSError:
                 raise HostUnavailable("connection_lost", "the connection to the host was lost", sent=True) from None
         finally:
-            connection.close()
+            if connection is not None:
+                connection.close()
         if reply["status"] == protocol.STATUS_ERROR:
             code = reply.get("error")
             raise HostUnavailable("refused" if code == protocol.ERROR_UNAUTHORIZED else "protocol",

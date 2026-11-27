@@ -15,10 +15,9 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import socket
 import stat
-import re
-import struct
 import threading
 from typing import Any, Callable
 from uuid import UUID
@@ -27,6 +26,8 @@ from qorqut_operations.contracts import DomainError
 from qorqut.storage.full_recovery import FullRecoveryStore, ResticBinary
 from qorqut.posix_files import require_descriptor_socket_paths
 from qorqut_operations.storage import safe_io
+from qorqut_system import channel, private_files
+from qorqut_system.errors import PathChanged, UnsafePath
 
 _MAX_REQUEST = 4096
 _MAX_RESPONSE = 8192
@@ -65,6 +66,13 @@ def _path(value: object, *, name: str) -> Path:
     if not candidate.is_absolute() or ".." in candidate.parts:
         raise DomainError("invalid_configuration", "Recovery administration configuration is invalid")
     return _absolute(candidate)
+
+
+def _require_private_parent(descriptor: int) -> None:
+    """Refuse a socket folder that this user does not keep to itself."""
+    info = private_files.stat_folder(descriptor)
+    if not stat.S_ISDIR(info.st_mode) or not private_files.is_private(info):
+        raise DomainError("invalid_configuration", "Recovery socket directory must be private")
 
 
 def _integer(value: object, *, lower: int, upper: int) -> int:
@@ -177,15 +185,8 @@ class RecoveryAdministration:
     def _socket_parent(self):
         """Retain the checked parent descriptor through bind/connect/unlink."""
         with safe_io.directory(self.config.socket_path.parent) as descriptor:
-            info = os.fstat(descriptor)
-            if not stat.S_ISDIR(info.st_mode) or info.st_mode & 0o077:
-                raise DomainError("invalid_configuration", "Recovery socket directory must be private")
+            _require_private_parent(descriptor)
             yield descriptor
-
-    def _socket_address(self, descriptor: int) -> str:
-        # Linux resolves this retained descriptor, not a path that a writer could
-        # replace with a symlink after validation.
-        return f"/proc/self/fd/{descriptor}/{self.config.socket_path.name}"
 
     def _build_store(self) -> FullRecoveryStore:
         return FullRecoveryStore(
@@ -202,31 +203,17 @@ class RecoveryAdministration:
             raise RuntimeError("Recovery administration is already started")
         self.config.validate()
         self._store = self._build_store()
-        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        try:
-            with self._socket_parent() as descriptor:
-                try:
-                    os.lstat(self.config.socket_path.name, dir_fd=descriptor)
-                except FileNotFoundError:
-                    pass
-                else:
-                    # Never unlink a pre-existing FIFO, socket, symlink, or regular file.
-                    raise DomainError("invalid_configuration", "Recovery socket path already exists")
-                listener.bind(self._socket_address(descriptor))
-                bound = os.stat(self.config.socket_path.name, dir_fd=descriptor, follow_symlinks=False)
-                self._started_socket = (bound.st_dev, bound.st_ino)
-                os.chmod(self.config.socket_path.name, _SOCKET_MODE, dir_fd=descriptor, follow_symlinks=False)
-                info = os.stat(self.config.socket_path.name, dir_fd=descriptor, follow_symlinks=False)
-                if not stat.S_ISSOCK(info.st_mode) or stat.S_IMODE(info.st_mode) != _SOCKET_MODE:
-                    raise DomainError("invalid_configuration", "Recovery socket could not be secured")
-                if (info.st_dev, info.st_ino) != self._started_socket:
-                    raise DomainError("invalid_configuration", "Recovery socket changed while being secured")
-            listener.listen(8)
-            listener.settimeout(0.2)
-        except BaseException:
-            listener.close()
-            self._unlink_owned_socket()
-            raise
+        with self._socket_parent() as descriptor:
+            try:
+                listener, self._started_socket = channel.listen_in_directory(
+                    descriptor, self.config.socket_path.name, mode=_SOCKET_MODE, backlog=8, timeout=0.2)
+            except FileExistsError as error:
+                # Never unlink a pre-existing FIFO, socket, symlink, or regular file.
+                raise DomainError("invalid_configuration", "Recovery socket path already exists") from error
+            except PathChanged as error:
+                raise DomainError("invalid_configuration", "Recovery socket changed while being secured") from error
+            except UnsafePath as error:
+                raise DomainError("invalid_configuration", "Recovery socket could not be secured") from error
         self._listener = listener
         self._stop.clear()
         self._thread = threading.Thread(target=self._serve, name="recovery-administration", daemon=True)
@@ -237,12 +224,7 @@ class RecoveryAdministration:
             return
         try:
             with self._socket_parent() as descriptor:
-                try:
-                    info = os.stat(self.config.socket_path.name, dir_fd=descriptor, follow_symlinks=False)
-                except FileNotFoundError:
-                    return
-                if (info.st_dev, info.st_ino) == self._started_socket and stat.S_ISSOCK(info.st_mode):
-                    os.unlink(self.config.socket_path.name, dir_fd=descriptor)
+                channel.remove_in_directory(descriptor, self.config.socket_path.name, self._started_socket)
         finally:
             self._started_socket = None
 
@@ -278,12 +260,7 @@ class RecoveryAdministration:
                 self._serve_connection(connection)
 
     def _peer_owner(self, connection: socket.socket) -> bool:
-        try:
-            raw = connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
-            _pid, uid, _gid = struct.unpack("3i", raw)
-        except (AttributeError, OSError, struct.error):
-            return False
-        return uid == self.config.owner_uid
+        return channel.check_caller(connection, uid=self.config.owner_uid)
 
     def _receive(self, connection: socket.socket) -> dict[str, Any]:
         connection.settimeout(2.0)
@@ -382,27 +359,22 @@ def client_request(config: RecoveryAdminConfig, request: dict[str, Any], *, time
     if len(data) > _MAX_REQUEST:
         raise DomainError("validation_error", "Recovery administration request is too large")
     try:
-        with safe_io.directory(config.socket_path.parent) as descriptor, socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-            parent_info = os.fstat(descriptor)
-            if parent_info.st_mode & 0o077:
-                raise DomainError("invalid_configuration", "Recovery socket directory must be private")
+        with safe_io.directory(config.socket_path.parent) as descriptor:
+            _require_private_parent(descriptor)
             try:
-                socket_info = os.stat(config.socket_path.name, dir_fd=descriptor, follow_symlinks=False)
-            except FileNotFoundError as exc:
-                raise DomainError("recovery_unavailable", "Recovery administration socket is unavailable") from exc
-            if not stat.S_ISSOCK(socket_info.st_mode) or stat.S_IMODE(socket_info.st_mode) != _SOCKET_MODE:
-                raise DomainError("recovery_unavailable", "Recovery administration socket is unavailable")
-            client.settimeout(timeout)
-            client.connect(f"/proc/self/fd/{descriptor}/{config.socket_path.name}")
-            client.sendall(data)
-            response = bytearray()
-            while len(response) <= _MAX_RESPONSE:
-                part = client.recv(min(1024, _MAX_RESPONSE + 1 - len(response)))
-                if not part:
-                    break
-                response.extend(part)
-                if b"\n" in part:
-                    break
+                client = channel.connect_in_directory(descriptor, config.socket_path.name, mode=_SOCKET_MODE, timeout=timeout)
+            except UnsafePath as error:
+                raise DomainError("recovery_unavailable", "Recovery administration socket is unavailable") from error
+            with client:
+                client.sendall(data)
+                response = bytearray()
+                while len(response) <= _MAX_RESPONSE:
+                    part = client.recv(min(1024, _MAX_RESPONSE + 1 - len(response)))
+                    if not part:
+                        break
+                    response.extend(part)
+                    if b"\n" in part:
+                        break
     except (OSError, TimeoutError) as exc:
         raise DomainError("recovery_unavailable", "Recovery administration socket is unavailable", retryable=True) from exc
     if len(response) > _MAX_RESPONSE or not response.endswith(b"\n") or response.count(b"\n") != 1:
