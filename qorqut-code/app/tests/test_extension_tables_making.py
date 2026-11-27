@@ -100,6 +100,48 @@ class JudgeKeepsEverySpecificationTest(unittest.TestCase):
         self.assertEqual(judge("tablenote", "0", self.declare((self.ITEMS,)), record), (SAME, None))
 
 
+class SentenceTest(unittest.TestCase):
+    """The sentence a person reads for each kind of refusal (``extension_registry.tables_note``): one plain sentence,
+    written from the kind and never from the inner text."""
+
+    def refusal(self, call, *args):
+        with self.assertRaises(DomainError) as caught:
+            call(*args)
+        return caught.exception
+
+    def test_each_kind_has_its_sentence_and_the_rest_one_general_sentence(self):
+        from qorqut.composition.extension_tables import check_statements
+        from qorqut.extension_registry import TABLES_CHANGED, TABLES_NOT_COPIED, TABLES_NOT_MADE, tables_note
+        made = record_contribution(), contribution_of(ROW)
+        other_spec = row_of("tablenote", "2", (StorageContribution("tablenote", {"tablenote_items": TableSpec(("text",))},
+                                                                   schema=tuple(contribution_of(ROW).schema)),))
+        rewritten = row_of("tablenote", "2", (StorageContribution("tablenote", schema=(
+            "CREATE TABLE tablenote_items (id TEXT PRIMARY KEY)",)),))
+        cases = (
+            (self.refusal(judge, "tablenote", "2", (contribution_of(other_spec),), made), TABLES_CHANGED),
+            (self.refusal(judge, "tablenote", "2", (contribution_of(rewritten),), made), TABLES_CHANGED),
+            (self.refusal(check_statements, "clashc", ("CREATE TABLE tasks (id TEXT)",)),
+             "Its table tasks is not named clashc_…"),
+            (self.refusal(check_statements, "clashc", ("CREATE TABLE clashc_x (id TEXT)",
+                                                       "CREATE INDEX x_by_id ON clashc_x(id)")),
+             "Its index x_by_id is not named clashc_…"),
+            (self.refusal(check_statements, "clashc", ("ATTACH DATABASE 'x.sqlite3' AS other",)), TABLES_NOT_MADE),
+            (DomainError("invalid_database", "Operations database could not be read"), TABLES_NOT_MADE),
+            (PermissionError("/a/path"), TABLES_NOT_COPIED))
+        for refusal, sentence in cases:
+            with self.subTest(sentence):
+                self.assertEqual(tables_note("clashc", refusal), sentence)
+
+    def test_no_sentence_uses_the_words_of_the_code(self):
+        from qorqut import extension_registry as registry
+        sentences = [value for name, value in vars(registry).items()
+                     if name.startswith(("TABLES_", "TABLE_", "NOT_NAMED")) and isinstance(value, str)]
+        self.assertGreaterEqual(len(sentences), 9)
+        for sentence in sentences:
+            for word in ("store", "contribution", "host", "transition", "ownership", "statement", "refused"):
+                self.assertNotIn(word, sentence.lower(), sentence)
+
+
 def failing_after_the_trial(error):
     """``_execute_additions`` as it is, except that the second call, the real transaction after the trial and the copy,
     raises ``error``: a fault after the copy."""
@@ -197,15 +239,19 @@ class TransitionTest(PlainStoreCase):
 
     def test_make_refuses_tables_that_clash_and_writes_nothing(self):
         before = objects(self.paths.database)
-        clash = row_of("agent", "1.0.0", (StorageContribution(
-            "agent", {"agent_profiles": TableSpec(("id",))}, schema=("CREATE TABLE agent_profiles (id TEXT PRIMARY KEY)",)),))
-        loaded = {"agent": Loaded(None, (), Path("/nowhere"), clash), "other": Loaded(None, (), Path("/nowhere"))}
-        self.assertEqual(making.due(loaded), {"agent": clash})
-        with self.assertLogs("qorqut.bootstrap.extension_tables", "WARNING"):
-            refused = making.make(self.paths, NO_EXTENSIONS, loaded)
-        self.assertEqual(list(refused), ["agent"])
-        self.assertIn("they do not fit the store", refused["agent"])
-        self.assertEqual((objects(self.paths.database), self.copies()), (before, []))
+        # A name the store has: the sentence names it, and the log line has the developer's text.
+        for ext_id, name, spec in (("agent", "agent_profiles", {"agent_profiles": TableSpec(("id",))}),
+                                   ("table", "table_versions", {})):
+            with self.subTest(name):
+                clash = row_of(ext_id, "1.0.0", (StorageContribution(
+                    ext_id, spec, schema=(f"CREATE TABLE {name} (id TEXT PRIMARY KEY)",)),))
+                loaded = {ext_id: Loaded(None, (), Path("/nowhere"), clash), "other": Loaded(None, (), Path("/nowhere"))}
+                self.assertEqual(making.due(loaded), {ext_id: clash})
+                with self.assertLogs("qorqut.bootstrap.extension_tables", "WARNING") as logged:
+                    refused = making.make(self.paths, NO_EXTENSIONS, loaded)
+                self.assertEqual(refused, {ext_id: f"It uses a table name that is already taken: {name}."})
+                self.assertIn("detail=they do not fit the store: ", logged.output[-1])
+                self.assertEqual((objects(self.paths.database), self.copies()), (before, []))
         # With nothing due, nothing is read, locked or written.
         with mock.patch.object(making, "make_one", side_effect=AssertionError("made")):
             self.assertEqual(making.make(self.paths, NO_EXTENSIONS, {"other": loaded["other"]}), {})
@@ -228,8 +274,8 @@ class MakingFaultsTest(PlainStoreCase):
         for _ in range(2):
             with self.assertLogs("qorqut.bootstrap.extension_tables", "WARNING") as logged:
                 refused = making.make(self.paths, NO_EXTENSIONS, due)
-            self.assertEqual(refused, {"tablenote": "Its tables could not be made: this version's changes to its "
-                                                    "tables do not fit the data already in them"})
+            self.assertEqual(refused, {"tablenote": "This version's changes to its tables do not fit the data already "
+                                                    "in them."})
             self.assertIn("code=tables_do_not_fit_rows error=DomainError", logged.output[-1])
             self.assertEqual((objects(self.paths.database), self.copies()), (before, copies))
 
@@ -252,8 +298,8 @@ class MakingFaultsTest(PlainStoreCase):
         due = {"tablenote": Loaded(None, (), Path("/nowhere"), ROW)}
         with self.assertLogs("qorqut.bootstrap.extension_tables", "WARNING") as logged:
             refused = making.make(self.paths, NO_EXTENSIONS, due)
-        self.assertEqual(refused, {"tablenote": "Its tables could not be made: the copy of the database that is made "
-                                                "first could not be written"})
+        self.assertEqual(refused, {"tablenote": "Its tables were not made, because the copy of the database that is "
+                                                "made first could not be written."})
         self.assertIn("code=os_error error=PermissionError", logged.output[-1])
         self.assertEqual(objects(self.paths.database), before)
 
@@ -268,6 +314,30 @@ class MakingFaultsTest(PlainStoreCase):
         with mock.patch.object(Database, "close", close), self.assertLogs("qorqut.bootstrap.extension_tables", "WARNING"):
             self.assertFalse(making.make_one(self.paths, NO_EXTENSIONS, "tablenote", ROW)["applied"])
         self.assertEqual(closed, [self.paths.database])
+
+
+class RemovalNoteTest(PlainStoreCase):
+    """The note of "Remove and delete its data", built in one place (``extension_change._delete_data``): it says the
+    private data was deleted only when there was a private folder, and that its tables stay when the store holds them."""
+
+    def test_the_note_says_what_was_there(self):
+        from qorqut.bootstrap import extension_change
+        from qorqut.domains.extension_tools import result_sentence
+        from qorqut.extension_private import PrivateFolder
+        private = PrivateFolder(self.paths.instance_root, "tablenote").path
+        removal = {"action": extension_change.REMOVE, "version": None, "delete_data": True}
+
+        def said():
+            note = extension_change._delete_data(self.paths, "tablenote")
+            return note, result_sentence("Table Note", {**removal, "result": {"state": "done", "note": note}})
+        self.assertEqual(said(), (None, "Removed Table Note. Qorqbot restarted."))
+        private.mkdir(parents=True)
+        self.assertEqual(said()[1], "Removed Table Note. Qorqbot restarted. Its private data was deleted.")
+        making.make_one(self.paths, NO_EXTENSIONS, "tablenote", ROW)
+        self.assertEqual(said()[1], "Removed Table Note. Qorqbot restarted. The tables it has in the database stay.")
+        private.mkdir(parents=True)
+        self.assertEqual(said()[1], "Removed Table Note. Qorqbot restarted. Its private data was deleted. The tables it "
+                                    "has in the database stay.")
 
 
 if __name__ == "__main__":

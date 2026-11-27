@@ -161,8 +161,8 @@ class StagedUpdateTest(ChangeTablesCase):
         with self.assertLogs("qorqut.bootstrap.extension_tables", "WARNING"):
             result = self.apply()
         self.assertEqual(result["state"], "failed")
-        self.assertTrue(result["note"].startswith("Its tables could not be made: "), result["note"])
-        self.assertIn("an update can only add tables, indexes and triggers", result["note"])
+        self.assertEqual(result["note"], "This version changes tables it made earlier, which an update may not do. "
+                                         "The tables it has in the database stay.")
         self.assertEqual((self.tables(), self.store("SELECT * FROM extensiontables"), self.identity(),
                           self.store("SELECT id, text FROM tablenote_items"),
                           (self.installed() / "extension.yaml").read_text()), before)

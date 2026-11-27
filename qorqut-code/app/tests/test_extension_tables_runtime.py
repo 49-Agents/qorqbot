@@ -158,7 +158,7 @@ class MakingAtStartTest(TablesRuntimeCase):
             runtime = self.start()
         entry = self.entry(runtime, "agent")
         self.assertEqual(entry["status"], "needs_attention")
-        self.assertTrue(entry["note"].startswith("Its tables could not be made: they do not fit the store"), entry["note"])
+        self.assertEqual(entry["note"], "It uses a table name that is already taken: agent_profiles.")
         self.assertEqual(self.store("SELECT type, name, sql FROM sqlite_master ORDER BY type, name"), before)
         self.assertEqual(self.copies(), [])
 

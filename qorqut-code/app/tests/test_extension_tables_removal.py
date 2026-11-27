@@ -53,7 +53,8 @@ class RemovalKeepsTest(ChangeTablesCase):
         private.mkdir(parents=True, exist_ok=True)
         (private / "kept-by-it.txt").write_text("x")
         record, identity = self.store("SELECT * FROM extensiontables"), self.identity()
-        self.assertEqual(self.remove(delete_data=True), {"state": "done", "note": None})
+        self.assertEqual(self.remove(delete_data=True), {"state": "done", "note": "Its private data was deleted. The "
+                                                                          "tables it has in the database stay."})
         self.assertFalse(private.exists())
         self.assertEqual((self.store("SELECT * FROM extensiontables"), self.identity(),
                           self.store("SELECT id, text FROM tablenote_items")), (record, identity, [("a", "kept")]))

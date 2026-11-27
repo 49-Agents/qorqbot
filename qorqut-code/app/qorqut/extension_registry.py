@@ -153,7 +153,16 @@ def discover(paths, *, selected=(), app_version, platform, shipped=None) -> tupl
 
 # -- loading the code part --------------------------------------------------------------------------------------------
 NO_TABLES = "Its code declares storage(); an extension declares the tables of its own with tables()."
-TABLES_REFUSED = "Its tables could not be made: {}"
+# The sentences a person reads when an extension's tables are refused or could not be made (``tables_note``). Each is
+# one sentence whose subject is the extension, which the card or the tool result names around it.
+TABLES_CHANGED = "This version changes tables it made earlier, which an update may not do."
+TABLE_TAKEN = "It uses {} name that is already taken: {}."
+NOT_NAMED = "Its {} {} is not named {}_…"
+TABLES_NOT_FIT_ROWS = "This version's changes to its tables do not fit the data already in them."
+TABLES_STATEMENT_FAILED = "A change to its tables failed in the database."
+TABLES_NOT_COPIED = "Its tables were not made, because the copy of the database that is made first could not be written."
+TABLES_FORM = "Its tables are declared in a form Qorqbot cannot record."
+TABLES_NOT_MADE = "Its tables could not be made, because Qorqbot does not accept the way they are declared."
 TABLES_AT_NEXT_START = "Its tables are made at Qorqbot's next start; until then it is not loaded."
 NOT_LOADED = "Its code could not be loaded: {}."
 CODE_FOLDER = "code"
@@ -175,6 +184,34 @@ class Loaded:
     tables: dict | None = None
 
 
+def tables_note(ext_id, exc) -> str:
+    """The sentence a person reads when the tables of ``ext_id`` are refused or could not be made, written from the kind
+    of the failure (``exc``: the ``DomainError``, or the ``OSError`` of a copy that could not be written) and never from
+    its text, with one general sentence for every kind not told apart here."""
+    from qorqut.composition import extension_tables as tables
+    if isinstance(exc, OSError):
+        return TABLES_NOT_COPIED
+    details = getattr(exc, "details", None) or {}
+    reason, kind, name = (details.get(key) for key in ("reason", "kind", "name"))
+    if reason == tables.CHANGES_MADE:
+        return TABLES_CHANGED
+    if reason == tables.TAKEN and kind in ("table", "index", "trigger") and isinstance(name, str):
+        return TABLE_TAKEN.format({"table": "a table", "index": "an index", "trigger": "a trigger"}[kind], name)
+    if reason == tables.NOT_NAMED and kind in ("table", "index", "trigger") and isinstance(name, str):
+        return NOT_NAMED.format(kind, name, ext_id)
+    return {"tables_do_not_fit_rows": TABLES_NOT_FIT_ROWS,
+            "tables_statement_failed": TABLES_STATEMENT_FAILED}.get(getattr(exc, "code", None), TABLES_NOT_MADE)
+
+
+def tables_refused(ext_id, exc, *, logger=LOGGER, event="extension_tables_refused") -> str:
+    """``tables_note``, after the log line for the developer: the code of the failure, its type and, for a refusal, its
+    own text (which statement, which rule); for an ``OSError`` its type only."""
+    logger.warning("%s extension=%s code=%s error=%s detail=%s", event, ext_id,
+                   getattr(exc, "code", None) or "os_error", type(exc).__name__,
+                   exc.message if isinstance(exc, DomainError) else "")
+    return tables_note(ext_id, exc)
+
+
 def declared_tables(item, extension, recorded):
     """``(row or None, finding or None)``: the extension's ``tables()`` judged against the store's record
     (``extension_tables.judge``). ``row`` is set when the declaration adds tables."""
@@ -186,7 +223,7 @@ def declared_tables(item, extension, recorded):
     try:
         verdict, row = judge(item.id, item.manifest.version, declared, recorded)
     except DomainError as refusal:
-        return None, TABLES_REFUSED.format(refusal.message)
+        return None, tables_refused(item.id, refusal)
     return (row if verdict == ADDS else None), None
 
 

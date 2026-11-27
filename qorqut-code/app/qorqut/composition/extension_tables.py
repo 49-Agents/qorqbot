@@ -61,8 +61,14 @@ _REFUSED = {
     sqlite3.SQLITE_RECURSIVE: "a recursive query"}
 
 
-def _refused(ext_id, note):
-    return DomainError("invalid_installation", f"The tables of {ext_id} are refused: {note}")
+# The reasons a refusal carries in its ``details`` (``{"reason": ..., "kind": ..., "name": ...}``), so a sentence for a
+# person can be written from them and the note itself stays the developer's.
+CHANGES_MADE, NOT_NAMED, TAKEN = "changes_made_tables", "not_named", "name_taken"
+
+
+def _refused(ext_id, note, reason=None, kind=None, name=None):
+    details = {"reason": reason, "kind": kind, "name": name} if reason else None
+    return DomainError("invalid_installation", f"The tables of {ext_id} are refused: {note}", details=details)
 
 
 def _fold(name):
@@ -114,10 +120,10 @@ def check_statements(ext_id, statements):
                                                         or kind == "index" and second in tables):
                         return sqlite3.SQLITE_OK
                     if not name.startswith(prefix) or not OBJECT_NAME.fullmatch(name):
-                        problems.append(f"the {kind} {name} is not named {prefix}...")
+                        problems.append((f"the {kind} {name} is not named {prefix}...", (NOT_NAMED, kind, name)))
                         return sqlite3.SQLITE_DENY
                     if kind != "table" and second not in tables:
-                        problems.append(f"the {kind} {name} is on {second}, which is not a table of its own")
+                        problems.append((f"the {kind} {name} is on {second}, which is not a table of its own", ()))
                         return sqlite3.SQLITE_DENY
                     named.append((kind, name))
                     return sqlite3.SQLITE_OK
@@ -130,7 +136,7 @@ def check_statements(ext_id, statements):
                     return sqlite3.SQLITE_OK
                 if action == sqlite3.SQLITE_FUNCTION:
                     return sqlite3.SQLITE_OK
-                problems.append(_refused_action(action, name, database))
+                problems.append((_refused_action(action, name, database), ()))
                 return sqlite3.SQLITE_DENY
 
             before = _objects(connection)
@@ -138,12 +144,13 @@ def check_statements(ext_id, statements):
             try:
                 connection.execute(statement)
             except (sqlite3.Error, sqlite3.Warning) as exc:
-                raise _refused(ext_id, f"statement {number}: " + (problems[0] if problems else
-                                                                  f"it does not run alone ({exc})")) from None
+                if problems:
+                    raise _refused(ext_id, f"statement {number}: {problems[0][0]}", *problems[0][1]) from None
+                raise _refused(ext_id, f"statement {number}: it does not run alone ({exc})") from None
             finally:
                 connection.set_authorizer(None)
             if problems:
-                raise _refused(ext_id, f"statement {number}: {problems[0]}")
+                raise _refused(ext_id, f"statement {number}: {problems[0][0]}", *problems[0][1])
             added = _objects(connection).keys() - before.keys()
             if len(named) != 1 or added != set(named):
                 raise _refused(ext_id, f"statement {number}: it does not create exactly the one object it names")
@@ -240,7 +247,7 @@ def judge(ext_id, version, declared, tables):
         _require_kept(ext_id, new, old, now)
         return SAME, None
     raise _refused(ext_id, "its statements are not the ones it made its tables with, followed by new ones; an update "
-                           "can only add tables, indexes and triggers")
+                           "can only add tables, indexes and triggers", CHANGES_MADE)
 
 
 def _require_kept(ext_id, new, old, statements):
@@ -253,7 +260,16 @@ def _require_kept(ext_id, new, old, statements):
     created = {_fold(name) for kind, name in check_statements(ext_id, statements) if kind == "table"}
     if any(new_specs.get(name) != old_specs.get(name) or new_fixed.get(name, frozenset()) != old_fixed.get(name, frozenset())
            for name in created):
-        raise _refused(ext_id, "it changes the specification of a table it made before")
+        raise _refused(ext_id, "it changes the specification of a table it made before", CHANGES_MADE)
+
+
+def first_taken(ext_id, statements, recorded_statements, objects):
+    """``(kind, name)`` of an object ``statements`` create beyond ``recorded_statements`` whose name the store already
+    has (``objects``, its ``(kind, name)`` pairs), as SQLite compares names, a table first; None when there is none."""
+    taken = {_fold(name) for _kind, name in objects}
+    earlier = check_statements(ext_id, recorded_statements).keys() if recorded_statements else set()
+    new = sorted(check_statements(ext_id, statements).keys() - earlier, key=lambda item: (item[0] != "table", item))
+    return next((item for item in new if _fold(item[1]) in taken), None)
 
 
 def owner_of(ext_id):

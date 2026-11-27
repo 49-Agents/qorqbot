@@ -818,7 +818,7 @@ def load_findings(folder: Path) -> list[str]:
     from qorqut_operations.contracts import DomainError
     from qorqut.bootstrap.extension_tables import declared
     from qorqut.composition.extension_tables import contribution_of
-    from qorqut.extension_registry import TABLES_REFUSED
+    from qorqut.extension_registry import tables_note
     manifest = load_manifest(folder)
     names = _names_tool()
     if names is not None:
@@ -836,7 +836,8 @@ def load_findings(folder: Path) -> list[str]:
         try:
             contribution_of(row)
         except DomainError as exc:
-            return [TABLES_REFUSED.format(exc.message)]
+            # The sentence a person reads, then the developer's: which statement, which rule.
+            return [f"{tables_note(manifest.id, exc)} ({exc.message})"]
     return []
 
 

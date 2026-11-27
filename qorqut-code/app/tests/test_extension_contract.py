@@ -911,7 +911,7 @@ class CommandLineTest(Case):
                 (original.replace('return TableNote()', 'raise ZeroDivisionError()'),
                  "Its code could not be loaded: ZeroDivisionError."),
                 (original + '\nSTATEMENTS = ("CREATE TABLE notes (id TEXT PRIMARY KEY)",)\n',
-                 "Its tables could not be made: "),
+                 "Its table notes is not named tablenote_… (The tables of tablenote are refused: statement "),
                 (original + '\nTableNote.tables = lambda self: (_ for _ in ()).throw(KeyError())\n',
                  "Its code could not be loaded: KeyError.")):
             with self.subTest(said):

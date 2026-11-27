@@ -379,7 +379,7 @@ class LoadCodeTest(FreshModuleCase):
         self.assertNotIn("qorqut_keyed", sys.modules)
 
     def test_code_that_cannot_be_loaded_refuses_the_folder(self):
-        from qorqut.extension_registry import NO_TABLES, NOT_YET, TABLES_REFUSED
+        from qorqut.extension_registry import NO_TABLES, NOT_YET, TABLES_NOT_MADE
         tables = ("\nfrom qorqut_operations.storage.assembly import StorageContribution\n"
                   "Keyed.tables = lambda self: (StorageContribution('keyed', schema=({!r},)),)\n")
         on_instance = ("\n_create = create\ndef create(config=None):\n    made = _create(config)\n"
@@ -395,10 +395,8 @@ class LoadCodeTest(FreshModuleCase):
                  (on_instance.format("global_capabilities"), NOT_YET.format("global_capabilities")),
                  (on_instance.format("storage"), NO_TABLES),
                  ("\nKeyed.tables = lambda self: 1 / 0\n", "Its code could not be loaded: ZeroDivisionError."),
-                 (tables.format("CREATE TABLE other_items (id TEXT)"), TABLES_REFUSED.format(
-                     "The tables of keyed are refused: statement 1: the table other_items is not named keyed_...")),
-                 (tables.format("ATTACH DATABASE 'x.sqlite3' AS other"), TABLES_REFUSED.format(
-                     "The tables of keyed are refused: statement 1: it holds ATTACH")),
+                 (tables.format("CREATE TABLE other_items (id TEXT)"), "Its table other_items is not named keyed_…"),
+                 (tables.format("ATTACH DATABASE 'x.sqlite3' AS other"), TABLES_NOT_MADE),
                  ("\ndef create(config=None):\n    raise RuntimeError('broken ' + TEST_TOKEN)\n",
                   "Its code could not be loaded: RuntimeError."),
                  ("\nclass Other(Keyed):\n    id = 'other'\n\ndef create(config=None):\n    return Other()\n",

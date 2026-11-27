@@ -147,7 +147,7 @@ class BuildTest(Case):
         self.assertEqual(self.build("tablenote.tar.gz", folder=folder)["bundle"]["id"], "tablenote")
         source = folder / "code" / "qorqut_tablenote" / "extension.py"
         source.write_text(source.read_text() + '\nSTATEMENTS = ("CREATE TABLE notes (id TEXT PRIMARY KEY)",)\n')
-        with self.assertRaisesRegex(ValueError, "breaks the contract: Its tables could not be made: "):
+        with self.assertRaisesRegex(ValueError, "breaks the contract: Its table notes is not named tablenote_… "):
             self.build("refused.tar.gz", folder=folder)
         self.assertFalse((self.root / "refused.tar.gz").exists())
         self.assertEqual([name for name in sys.modules if name.startswith("qorqut_tablenote")], [])

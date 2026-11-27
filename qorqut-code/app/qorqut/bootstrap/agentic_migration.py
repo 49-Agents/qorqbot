@@ -723,6 +723,7 @@ def tables_transition(selection, tables, rows):
     if not isinstance(selection, ExtensionSet):
         raise DomainError("invalid_configuration", "The tables need the explicit extension selection")
     by_owner = {item.owner: item for item in tables}
+    tables_by_owner = dict(by_owner)
     statements = [] if by_owner else [extension_tables.RECORD_DDL]
     for row in rows:
         contribution = extension_tables.contribution_of(row)
@@ -742,7 +743,16 @@ def tables_transition(selection, tables, rows):
         target = host_assembly(feed, selection, tables=target_tables)
         after = compile_target(target)
     except (AssemblyError, sqlite3.Error) as exc:
-        raise DomainError("invalid_installation", f"they do not fit the store: {exc}") from None
+        details = None
+        for row in rows:
+            contribution = extension_tables.contribution_of(row)
+            earlier = tables_by_owner.get(contribution.owner)
+            taken = extension_tables.first_taken(row["id"], contribution.schema,
+                                                 tuple(earlier.schema) if earlier is not None else (), before.objects)
+            if taken is not None:
+                details = {"reason": extension_tables.TAKEN, "kind": taken[0], "name": taken[1]}
+                break
+        raise DomainError("invalid_installation", f"they do not fit the store: {exc}", details=details) from None
     transition = _Transition(selection, predecessor, target, (_Statements(statements),), _additions(before, after),
                              before, after, name="extension-tables-1")
 

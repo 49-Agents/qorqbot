@@ -64,25 +64,11 @@ def copy_for(paths, attempt):
     return wanted
 
 
-NOT_COPIED = "the copy of the database that is made first could not be written"
-NOT_FIT_ROWS = "this version's changes to its tables do not fit the data already in them"
-STATEMENT_FAILED = "a change to its tables failed in the database"
-
-
-def note_of(exc) -> str:
-    """The sentence a person reads when tables could not be made, from the kind of the failure: never the text of an
-    inner error. ``exc`` is the ``DomainError`` or ``OSError`` raised while making them."""
-    from qorqut.extension_registry import TABLES_REFUSED
-    if isinstance(exc, OSError):
-        return TABLES_REFUSED.format(NOT_COPIED)
-    known = {"tables_do_not_fit_rows": NOT_FIT_ROWS, "tables_statement_failed": STATEMENT_FAILED}
-    return TABLES_REFUSED.format(known[exc.code]) if exc.code in known else TABLES_REFUSED.format(exc.message)
-
-
-def _not_made(ext_id, exc):
-    """The log line of tables that could not be made: the kind and the type of the fault, never its text."""
-    LOGGER.warning("extension_tables_not_made extension=%s code=%s error=%s", ext_id,
-                   getattr(exc, "code", None) or "os_error", type(exc).__name__)
+def _not_made(ext_id, exc) -> str:
+    """The sentence of tables that could not be made (``extension_registry.tables_note``), after the log line, which
+    has the kind of the failure and, for a refusal, its own text."""
+    from qorqut.extension_registry import tables_refused
+    return tables_refused(ext_id, exc, logger=LOGGER, event="extension_tables_not_made")
 
 
 def make_one(paths, selection, ext_id, row, *, attempt=AT_START, copy=None, ownership=None):
@@ -111,8 +97,7 @@ def make(paths, selection, loaded) -> dict:
         try:
             make_one(paths, selection, ext_id, row, copy=copy)
         except (DomainError, OSError) as exc:
-            _not_made(ext_id, exc)
-            refused[ext_id] = note_of(exc)
+            refused[ext_id] = _not_made(ext_id, exc)
     return refused
 
 
@@ -123,7 +108,6 @@ _CHILD = ("import json,sys; sys.path[:0]=json.loads(sys.argv[1]); "
 TABLES_FAULT, TABLES_FORM, MANIFEST = "tables_fault", "tables_form", "manifest"
 NO_ANSWER = "the process that loads it ended without an answer"
 NO_INTERPRETER = "Qorqbot knows no Python to load it with"
-TABLES_FORM_NOTE = "its tables are declared in a form Qorqbot cannot record"
 _TYPE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,79}")
 
 
@@ -196,7 +180,7 @@ def _sentence(answer, manifest) -> tuple[str | None, str | None]:
     """``(kind, finding)`` of a fault answer, written here from the kind alone; ``(None, None)`` for an answer that is
     not one the child writes."""
     from qorqut.extensions import Extension
-    from qorqut.extension_registry import LOAD_FAULTS, NOT_LOADED, TABLES_REFUSED, load_finding
+    from qorqut.extension_registry import LOAD_FAULTS, NOT_LOADED, TABLES_FORM as FORM_SENTENCE, load_finding
     kind, detail = answer.get("fault"), answer.get("detail")
     if set(answer) != {"fault", "detail"} or not isinstance(kind, str):
         return None, None
@@ -213,7 +197,7 @@ def _sentence(answer, manifest) -> tuple[str | None, str | None]:
     if kind in LOAD_FAULTS and detail is None:
         return kind, load_finding(kind, manifest.id)
     if kind == TABLES_FORM and detail is None:
-        return kind, TABLES_REFUSED.format(TABLES_FORM_NOTE)
+        return kind, FORM_SENTENCE
     if kind == MANIFEST and detail is None:
         return kind, NOT_LOADED.format("its manifest could not be read")
     return None, None
@@ -265,6 +249,12 @@ def declared(folder, *, others=()) -> tuple[dict | None, str | None]:
 KEPT = "The tables it has in the database stay."
 
 
+def holds_tables(paths, ext_id) -> bool:
+    """Whether the store records tables of ``ext_id``: what a note that its tables stay is said from."""
+    from qorqut.composition.extension_tables import owner_of, recorded
+    return any(getattr(item, "owner", None) == owner_of(ext_id) for item in recorded(paths.database))
+
+
 def make_staged(paths, selection, change_id, folder, ext_id, version, *, ownership=None) -> str | None:
     """Make the tables a staged folder declares, before it is moved in: None when there is nothing to make or they were
     made, else the note the change fails with. Before a commit the database is then as it was. When the database
@@ -273,13 +263,12 @@ def make_staged(paths, selection, change_id, folder, ext_id, version, *, ownersh
     that cannot be read is not a fault of the change, so it stops the start and the change stays pending. The copy goes
     under the change id (``copy_for``)."""
     from qorqut import extension_contract as contract
-    from qorqut.composition.extension_tables import ADDS, contribution_of, judge, owner_of, recorded
+    from qorqut.composition.extension_tables import ADDS, contribution_of, judge, recorded
     if contract.load_manifest(folder).factory is None:
         return None
 
     def failed(note):
-        held = any(getattr(item, "owner", None) == owner_of(ext_id) for item in recorded(paths.database))
-        return f"{note} {KEPT}" if held else note
+        return f"{note} {KEPT}" if holds_tables(paths, ext_id) else note
     row, finding = declared(folder, others=_code_folders(paths, ext_id))
     if finding is not None:
         return failed(finding)
@@ -290,14 +279,12 @@ def make_staged(paths, selection, change_id, folder, ext_id, version, *, ownersh
             raise DomainError("invalid_installation", f"its code declares tables for {row.get('id')!r}")
         verdict, row = judge(ext_id, version, (contribution_of(row),), recorded(paths.database))
     except DomainError as exc:
-        _not_made(ext_id, exc)
-        return failed(note_of(exc))
+        return failed(_not_made(ext_id, exc))
     if verdict != ADDS:
         return None
     chosen = selection()
     try:
         make_one(paths, chosen, ext_id, row, attempt=change_id, ownership=ownership)
     except (DomainError, OSError) as exc:
-        _not_made(ext_id, exc)
-        return failed(note_of(exc))
+        return failed(_not_made(ext_id, exc))
     return None

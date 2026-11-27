@@ -61,6 +61,7 @@ CHANGE_KEYS = frozenset({"format", "change_id", "action", "id", "version", "sha2
                          "signoff_id", "delete_data", "result"})
 CHANGE_ID = re.compile(r"^[0-9a-f]{32}$")  # uuid4().hex, as ``_new_change`` makes it
 WAITING = "Another extension change is waiting for Qorqbot to restart."
+DELETED = "Its private data was deleted."
 NOT_DELETED = "Its private data was not deleted, because its private folder is not a plain folder."
 PARTLY_DELETED = "Its private data could not be deleted completely."
 _fault_hook = lambda _phase: None  # tests interrupt a start after a phase
@@ -309,21 +310,27 @@ def _apply(paths, change, selection, owner):
 
 
 def _delete_data(paths, ext_id):
-    """Delete the private folder of ``ext_id``; None, or the sentence saying the data was not deleted or not all of it.
-    Only a plain folder at its own place is deleted, never what a link points to. A deletion that fails partway does not
-    stop the start: the removal is done and the result says so."""
+    """Delete the private folder of ``ext_id``; the note of the removal, built here only: whether its private data was
+    deleted (said only when it had a private folder), and that its tables stay when the database holds tables of it
+    (``extension_tables.holds_tables``); None when there is neither. Only a plain folder at its own place is deleted,
+    never what a link points to. A deletion that fails partway does not stop the start: the removal is done and the
+    note says so."""
+    from qorqut.bootstrap.extension_tables import KEPT, holds_tables
     from qorqut.extension_private import PrivateFolder
     folder = PrivateFolder(paths.instance_root, ext_id).path
+    said = None
     if not os.path.lexists(folder):
-        return None
-    if any(part.is_symlink() for part in (folder.parent.parent, folder.parent, folder)) or not folder.is_dir():
-        return NOT_DELETED
-    try:
-        shutil.rmtree(folder)
-    except OSError as exc:
-        LOGGER.warning("extension_data_not_deleted extension=%s error=%s", ext_id, exc.__class__.__name__)
-        return PARTLY_DELETED
-    return None
+        pass
+    elif any(part.is_symlink() for part in (folder.parent.parent, folder.parent, folder)) or not folder.is_dir():
+        said = NOT_DELETED
+    else:
+        try:
+            shutil.rmtree(folder)
+            said = DELETED
+        except OSError as exc:
+            LOGGER.warning("extension_data_not_deleted extension=%s error=%s", ext_id, exc.__class__.__name__)
+            said = PARTLY_DELETED
+    return " ".join(filter(None, (said, KEPT if holds_tables(paths, ext_id) else None))) or None
 
 
 def _moved_in(target, change):
