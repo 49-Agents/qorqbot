@@ -262,27 +262,42 @@ def declared(folder, *, others=()) -> tuple[dict | None, str | None]:
     return failed(kind, finding, detail)
 
 
+KEPT = "The tables it has in the database stay."
+
+
 def make_staged(paths, selection, change_id, folder, ext_id, version, *, ownership=None) -> str | None:
     """Make the tables a staged folder declares, before it is moved in: None when there is nothing to make or they were
-    made, else the note the change fails with (the store is then as it was). ``selection`` is called for today's
-    selection only when tables are made. The copy goes under the change id (``copy_for``)."""
+    made, else the note the change fails with. Before a commit the database is then as it was. When the database
+    already holds tables of the extension (this change made them before it failed, or an earlier version or install
+    did), the note says they stay. ``selection`` is called for today's selection only when tables are made; a selection
+    that cannot be read is not a fault of the change, so it stops the start and the change stays pending. The copy goes
+    under the change id (``copy_for``)."""
     from qorqut import extension_contract as contract
-    from qorqut.composition.extension_tables import ADDS, contribution_of, judge, recorded
-    from qorqut.extension_registry import TABLES_REFUSED
+    from qorqut.composition.extension_tables import ADDS, contribution_of, judge, owner_of, recorded
     if contract.load_manifest(folder).factory is None:
         return None
+
+    def failed(note):
+        held = any(getattr(item, "owner", None) == owner_of(ext_id) for item in recorded(paths.database))
+        return f"{note} {KEPT}" if held else note
     row, finding = declared(folder, others=_code_folders(paths, ext_id))
     if finding is not None:
-        return finding
+        return failed(finding)
     if row is None:
         return None
     try:
         if row.get("id") != ext_id:
             raise DomainError("invalid_installation", f"its code declares tables for {row.get('id')!r}")
         verdict, row = judge(ext_id, version, (contribution_of(row),), recorded(paths.database))
-        if verdict == ADDS:
-            make_one(paths, selection(), ext_id, row, attempt=change_id, ownership=ownership)
+    except DomainError as exc:
+        _not_made(ext_id, exc)
+        return failed(note_of(exc))
+    if verdict != ADDS:
+        return None
+    chosen = selection()
+    try:
+        make_one(paths, chosen, ext_id, row, attempt=change_id, ownership=ownership)
     except (DomainError, OSError) as exc:
         _not_made(ext_id, exc)
-        return note_of(exc)
+        return failed(note_of(exc))
     return None

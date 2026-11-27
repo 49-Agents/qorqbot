@@ -4,6 +4,7 @@ and a new install of it finds them. "Remove and delete its data" deletes its pri
 The change is staged and applied as in ``test_extension_tables_change.py``; each start is the real ``build_runtime``."""
 import shutil
 import sqlite3
+from unittest import mock
 
 from test_extension_tables_change import ChangeTablesCase
 
@@ -33,7 +34,12 @@ class RemovalKeepsTest(ChangeTablesCase):
         # Installed again: nothing is made, and its tool counts the row it wrote before.
         shutil.rmtree(self.release / "1.0.0")  # the same bundle, built again
         change_id = self.stage(self.version("1.0.0"))
-        self.assertEqual(self.apply(), {"state": "done", "note": None})
+        from qorqut.composition import extension_tables
+        with mock.patch.object(extension_tables, "judge", wraps=extension_tables.judge) as judged:
+            self.assertEqual(self.apply(), {"state": "done", "note": None})
+        # The new install declared its tables, was judged against the record, and nothing was made.
+        self.assertEqual(judged.call_count, 1)
+        self.assertEqual(extension_tables.judge(*judged.call_args.args), (extension_tables.SAME, None))
         self.assertEqual(self.change_copies(change_id), [])
         again = self.start()
         self.assertEqual(self.entry(again, "tablenote")["status"], "ready")

@@ -891,7 +891,9 @@ class CommandLineTest(Case):
             self.assertEqual(contract.main([]), 2)
 
     def test_with_load_the_code_part_is_loaded_in_a_process_of_its_own(self):
-        tablenote = EXAMPLE.parent / "tablenote"
+        # A copy: the example's own folder may hold compiled files from another test that loaded it in this process.
+        tablenote = self.root / "copied" / "tablenote"
+        shutil.copytree(EXAMPLE.parent / "tablenote", tablenote, ignore=shutil.ignore_patterns("__pycache__"))
         status, lines = self.run_main("--load", EXAMPLE, tablenote)
         self.assertEqual((status, len(lines)), (0, 1), lines)
         self.assertIn("with --load also 5 (the tool names), 8 and 10", lines[0])
