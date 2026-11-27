@@ -43,6 +43,14 @@ implementation: the host imports the Domain's `CATALOG_ENTRIES`, `TABLES`, `IMMU
 (see the Domain's CRM guide). It is the same operation: the `tables_rows_write` bound, grants, Signoff form and routes above are
 unchanged and the host maps nothing per argument.
 
+A row's record may be of a record type an installed extension adds (`record_type`, listed by `tasks_config_get` as
+`record_types`; see EXTENSION-CONTRACT.md section 9). `crm_entries_add` passes `create.record_type` to `tasks_create`
+like any other Task field: the Task gets the type's base type, and the Customer default applies only when `create` names
+neither `task_type` nor `record_type`. An agent cannot make a row of a type based on a Task, because a row is a record and
+not a piece of work. A column that projects `fields.<id>` shows the value of the type's own field for records of that
+type, while the type is in effect for some agent. While it is not, the column shows nothing, as for any field the
+record's scope does not define, and the value stays on the record.
+
 Whether a write can be staged as a Signoff is declared by the Domain's own catalog entry, not here. `composition/policy.py` owns the mapping (`CRM_PREREQUISITES`) as a rule that runs before an agent's override is
 consulted. For each name the agent's own override, else its role default, else the prerequisite's own decision is
 combined with the **prerequisite's effective decision** by strength: deny > signoff > allow. So an `allow` on the new

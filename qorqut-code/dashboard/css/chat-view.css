@@ -159,6 +159,17 @@ button.gchat-file-card:hover { background:color-mix(in srgb, var(--file-color) 9
 @media (prefers-reduced-motion:reduce) { .gchat-mic-spinner { animation-duration:2.4s; } }
 @keyframes gchat-mic-pulse { 0%, 100% { box-shadow:0 0 0 0 rgba(255,69,58,.35); } 50% { box-shadow:0 0 0 5px rgba(255,69,58,0); } }
 @media (prefers-reduced-motion:reduce) { .gchat-composer .gchat-mic[data-state="recording"] { animation:none; } }
+/* A floating microphone outside a composer (the Focus notes, js/focus-text.js): same button, pulse, spinner and waveform. */
+.gchat-voice-float { display:flex; align-items:center; gap:8px; }
+.gchat-voice-float .gchat-mic[hidden], .gchat-voice-float .gchat-wave[hidden] { display:none; }
+.gchat-voice-float .gchat-mic { display:inline-flex; align-items:center; justify-content:center; flex:none; width:36px; height:36px; min-height:36px; padding:8px; border:1px solid var(--line); border-radius:50%; background:color-mix(in srgb, var(--fg) 9%, var(--bg)); color:var(--fg-2); }
+.gchat-voice-float .gchat-mic:hover { color:var(--fg); }
+.gchat-voice-float .gchat-mic:disabled { opacity:.4; }
+.gchat-voice-float .gchat-mic[data-state="recording"] { border-color:#FF453A; background:color-mix(in srgb, #FF453A 14%, var(--bg)); color:#FF453A; animation:gchat-mic-pulse 1.4s ease-in-out infinite; }
+.gchat-voice-float .gchat-mic[data-state="working"] { opacity:1; color:var(--fg); }
+.gchat-voice-float .gchat-mic[data-state="working"]:disabled { opacity:.85; }
+.gchat-voice-float .gchat-wave { padding:0 10px; border-radius:18px; background:color-mix(in srgb, var(--fg) 9%, var(--bg)); }
+@media (prefers-reduced-motion:reduce) { .gchat-voice-float .gchat-mic[data-state="recording"] { animation:none; } }
 /* The recording waveform (js/voice-input.js) is a grid item only while recording; it always comes with the microphone,
    so it adds one column to the microphone's rules. In the compact composer it is placed by document order (after the text
    field and any model pill, before the buttons); the expanded composer places it left of the buttons in their row. */

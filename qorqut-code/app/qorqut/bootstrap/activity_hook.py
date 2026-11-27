@@ -67,9 +67,14 @@ CLAUDE_READS = frozenset({'Read', 'Glob', 'Grep', 'LS', 'NotebookRead', 'WebFetc
     'ListMcpResourcesTool', 'ReadMcpResourceTool', 'AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode'})
 
 
+def operation_name(tool):
+    """The operation a reported tool name calls: its last part, whether the parts are joined by ``__`` or by ``.``."""
+    return tool.replace('.', '__').rsplit('__', 1)[-1]
+
+
 def substantive(tool, arguments=None, reads=frozenset()):
     """Whether one tool or batch entry changes work; reads come from the prepared registration."""
-    operation = tool.replace('.', '__').rsplit('__', 1)[-1]
+    operation = operation_name(tool)
     if not operation or tool in CLAUDE_READS or operation in reads or operation.endswith(('_get', '_list', '_describe')):
         return False
     if operation == 'notes_create' and isinstance(arguments, dict) and 'target_project_id' in arguments:
@@ -197,6 +202,80 @@ def matches_continuation(prompt, state):
     return bool(state.get('continuation') and prompt==state['continuation'])
 
 
+# Chat's rule for what is not the owner's own words (``native_chat/projection.py``, ``Projector._user``): Claude's paste
+# wrapper is taken off first (``unwrap_claude_paste``); then the client's note about a stopped turn (``_INTERRUPT_RECORD``)
+# and text whose first character after leading space opens a tag (``internal_notification``) are not. The tag rule covers the
+# application's system marker (nudges, recovery wakes) and the compaction handoff. This file runs with the standard library
+# only, so the rule is copied here; a test compares both copies over many inputs.
+CLAUDE_PASTE = re.compile(r'\s*<pasted_content id="([0-9a-fA-F]+)">\n(.*?)\n</pasted_content id="\1">\s*', re.S)
+INTERRUPT_RECORD = re.compile(r"\[Request interrupted by user(?: for tool use)?\]")
+OPENING_TAG = re.compile(r"<[A-Za-z].*>", re.S)
+# A system input typed behind a marker whose id starts with ``MESSAGE_MARKER_PREFIX`` (native_chat/contracts.py) carries a
+# message to the agent: Ordubashy's message to a worker. Its turn is a message turn.
+MESSAGE_MARKER = re.compile(r'<qorqut-system-input\s+id="message-[A-Za-z0-9_-]+"')
+LEADING_SPACE = " \t\n\r\x0b\x0c"
+# The first message of a fresh session (``managed_runtime/clients.py`` ``TABLE[...]["role"]``) and Claude Code's menu-only
+# commands (``native_chat/contracts.py`` ``MANAGED_MENU_COMMANDS``, read as ``managed_menu_command`` reads them). The same test
+# compares these copies.
+ROLE_COMMANDS = frozenset({'/role', '$role'})
+MANAGED_MENU_COMMANDS = frozenset({'/model', '/resume', '/cost', '/usage', '/status', '/context', '/permissions', '/mcp',
+                                   '/memory', '/agents', '/config', '/doctor', '/help', '/clear'})
+
+
+def owner_prompt(prompt, state, *, runtime='claude-code', ordubashy=False):
+    """Whether a submitted prompt is a message from the owner: not a system notice, a nudge, the handoff, the checkpoint
+    continuation (``state`` is the session's checkpoint state), the role command or a menu-only command. With
+    ``ordubashy`` (a ``stop`` entry's message turn), the inbox nudge that carries Ordubashy's message to a worker
+    (``MESSAGE_MARKER``) counts as well."""
+    if not isinstance(prompt, str) or matches_continuation(prompt, state or {}):
+        return False
+    if runtime == 'claude-code':
+        match = CLAUDE_PASTE.fullmatch(prompt)
+        prompt = match.group(2) if match else prompt
+    if ordubashy and MESSAGE_MARKER.match(prompt.lstrip(LEADING_SPACE)):
+        return True
+    if (not prompt.strip() or INTERRUPT_RECORD.fullmatch(prompt.strip())
+            or OPENING_TAG.match(prompt.lstrip(LEADING_SPACE))):
+        return False
+    words = prompt.split()
+    first = words[0].lower()
+    if first in ROLE_COMMANDS:
+        return False
+    return not (first in MANAGED_MENU_COMMANDS and not (first == '/model' and len(words) > 1))
+
+
+def turn_activity(hook, checkpoint, previous, *, runtime='codex', watched=frozenset(), owner_turn=False, before=None):
+    """This root turn's record for the hooks of extensions, as ``{root_turn_id, used[, owner_turn]}``, or ``None`` when it
+    does not change. ``used`` holds the watched operations the agent called (named as ``substantive`` reads them); ``owner_turn`` (kept only when asked)
+    says whether a message from the owner started the root turn, by ``owner_prompt`` on the prompt with the checkpoint
+    state ``before`` it. A new root turn starts a new record; a continuation after a correction keeps the same root turn
+    and so the same record. It is kept beside the activity file, which must stay small."""
+    event = hook.get('hook_event_name')
+    root = checkpoint.get('root_turn_id')
+    if event not in {'UserPromptSubmit', 'PreToolUse'} or not root:
+        return None
+    same = previous.get('root_turn_id') == root
+    used = list(previous['used']) if same and isinstance(previous.get('used'), list) else []
+    current = {'root_turn_id': root, 'used': used}
+    if owner_turn:
+        # A turn without a prompt (Claude, started by a notification after a finished Stop) was started by no message.
+        current['owner_turn'] = (previous['owner_turn'] if same and isinstance(previous.get('owner_turn'), bool)
+                                 else event == 'UserPromptSubmit'
+                                 and owner_prompt(hook.get('prompt'), before or {}, runtime=runtime, ordubashy=True))
+    tool = hook.get('tool_name')
+    if event == 'PreToolUse' and watched and isinstance(tool, str):
+        current_turn = True
+        if runtime != 'claude-code':
+            try:
+                current_turn = str(uuid.UUID(hook.get('turn_id'))) == checkpoint.get('turn_id')
+            except (ValueError, TypeError, AttributeError):
+                current_turn = False  # checkpoint_activity counts no action outside the current turn either.
+        if current_turn:
+            names = skill_gate_operations(operation_name(tool), hook.get('tool_input'))
+            used.extend(name for name in dict.fromkeys(names) if name in watched and name not in used)
+    return None if current == previous else current
+
+
 def checkpoint_activity(hook, previous, *, runtime='codex', reads=frozenset()):
     """Native metadata only; no database/HTTP work on ordinary action hooks."""
     current = dict(previous or {})
@@ -228,7 +307,7 @@ def checkpoint_activity(hook, previous, *, runtime='codex', reads=frozenset()):
         name = str(hook.get('tool_name', ''))
         tool_input = hook.get('tool_input')
         action = substantive(name, tool_input, reads)
-        if name.replace('.', '__').rsplit('__',1)[-1] == 'operations_batch':
+        if operation_name(name) == 'operations_batch':
             entries = tool_input.get('operations') if isinstance(tool_input, dict) else None
             if isinstance(entries,list) and 0 < len(entries) <= 20 and all(isinstance(e,dict) and isinstance(e.get('operation'),str) for e in entries):
                 action = any(substantive(entry['operation'], entry.get('arguments'), reads) for entry in entries)
@@ -306,6 +385,22 @@ def activity_lock(path):
 
 def read_activity(path):
     return json.loads(path.read_text()) if safe_path(path) and path.is_file() and path.stat().st_size <= 8192 else {}
+
+
+# The used list holds only names from the registration's watched list, so it is never larger than the registration,
+# which ``record`` reads up to this size.
+REGISTRATION_BYTES = 1024 * 1024
+
+
+def read_used(path):
+    """The per-turn used file beside the activity file, or ``{}``."""
+    try:
+        if not safe_path(path) or not path.is_file() or path.stat().st_size > REGISTRATION_BYTES:
+            return {}
+        value = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
 
 
 def checkpoint_stop(hook, registration, path, value, *, post=checkpoint_post):
@@ -462,7 +557,7 @@ def record(hook, registration_path, runtime, *, now=None):
     event=hook.get('hook_event_name')
     if event not in PHASES: return {}
     session_id=str(uuid.UUID(hook['session_id']))
-    if not safe_path(registration_path) or registration_path.stat().st_size>1024*1024:
+    if not safe_path(registration_path) or registration_path.stat().st_size>REGISTRATION_BYTES:
         raise ValueError('invalid registration')
     registration=json.loads(registration_path.read_text())
     workspace=Path(registration['workspace'])
@@ -513,6 +608,15 @@ def record(hook, registration_path, runtime, *, now=None):
             reads = registration.get('read_operations')
             value['checkpoint'] = checkpoint_activity(hook, previous_checkpoint, runtime=runtime,
                 reads=frozenset(reads) if isinstance(reads, list) else frozenset())
+            watched = registration.get('extension_watched_tools')
+            watched = frozenset(name for name in watched if isinstance(name, str)) if isinstance(watched, list) else frozenset()
+            owner_turn = registration.get('extension_owner_turn') is True
+            if watched or owner_turn:
+                turn_path = path.with_suffix('.used.json')
+                turn = turn_activity(hook, value['checkpoint'], read_used(turn_path), runtime=runtime,
+                                     watched=watched, owner_turn=owner_turn, before=previous_checkpoint)
+                if turn is not None:
+                    write_state(turn_path, turn)
         output={}
         feedback=directory/(session_id+'.feedback.json')
         work_at=None

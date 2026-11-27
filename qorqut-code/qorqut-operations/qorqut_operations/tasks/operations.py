@@ -43,12 +43,13 @@ from qorqut_operations.tasks.models import (DEFAULT_CONFIG, DEFAULT_STATE, full_
                                             validate_config, validate_dependencies, validate_parent, validate_task)
 from qorqut_operations.tasks.overview import TaskOverview
 from qorqut_operations.tasks.ports import TaskPorts
+from qorqut_operations.tasks.record_types import TYPE_ID, FixedRecordTypes
 from qorqut_operations.tasks.relocation import TaskRelocation, moved_location
 from qorqut_operations.tasks.scope import task_context, task_namespace
 from qorqut_operations.tasks.schema import CLOSED_STATES, PAUSED_STATES, STATES
 from qorqut_operations.tasks.snooze import reconcile_snoozes
 from qorqut_operations.tasks.types import (KIND_SCHEMA, NEXT_STEP_SCHEMA, PLAN_SCHEMA, POSITION_SCHEMA, PROFILE_SCHEMA, STATE_SCHEMA,
-                                           STATUS_LINE_SCHEMA, TEMPLATE_SCHEMA, TYPES, apply_attributes, attributes,
+                                           RECORD_TYPE_SCHEMA, STATUS_LINE_SCHEMA, TEMPLATE_SCHEMA, TYPES, apply_attributes, attributes,
                                            queue_rank)
 from qorqut_operations.team_channel import reject_owner_team_write
 
@@ -70,6 +71,7 @@ TASK_FIELDS = {
     "overview": {"type": "string", "maxLength": 20000, "description": instruction_text('operations-maintained-current-summary-and-next-steps-history-stays')},
     "email_conversation_id": {"anyOf": [IDENTITY, {"type": "null"}], "description": instruction_text('operations-historical-binding-of-an-email-task-kept-read')},
     "customer_kind": KIND_SCHEMA, "customer_state": STATE_SCHEMA, "customer_profile": PROFILE_SCHEMA,
+    "record_type": RECORD_TYPE_SCHEMA,
     "status_line": STATUS_LINE_SCHEMA, "next_step": NEXT_STEP_SCHEMA,
     "kind": KIND_INPUT, "title": {"type": "string", "minLength": 1, "maxLength": 1000},
     "status": {"enum": list(STATES)}, "assignee_ids": ASSIGNEES, "worker_ids": {**ASSIGNEES, "uniqueItems": True}, "archived": {"type": "boolean"}, "tags": LABELS_SCHEMA,
@@ -79,6 +81,9 @@ TASK_FIELDS = {
     "parent_id": {"description": instruction_text('operations-the-parent-task-in-the-same-owning-scope'),
                   "anyOf": [IDENTITY, {"type": "null"}]},
 }
+# The record type sentence of ``tasks_config_get``. Literal, as the record type schema's own description is.
+CONFIG_RECORD_TYPES = (" Its record_types lists the record types extensions add, each with its base type and its extra fields. "
+                       "Give one as record_type in tasks_create or tasks_update.")
 FOLLOW = schema({"task_id": IDENTITY, "following": {"type": "boolean"}}, ("task_id", "following"))
 
 
@@ -116,6 +121,10 @@ class TaskOperations:
         # ``plan_guard(ctx, task, uow)``: the host's refusal of a caller who may not replace or remove the plan ``task``
         # holds now. It is asked in every Task write that would change the stored plan, whatever operation carries it.
         self.plan_guard = None
+        # ``record_types``: the host's provider of the record types extensions add (see ``record_types``), asked at each
+        # operation: ``active(uow)`` for what writes are judged against, ``for_caller(ctx, uow)`` for what
+        # ``tasks_config_get`` lists. Without the host there are none.
+        self.record_types = FixedRecordTypes()
 
     # -- moved Tasks -----------------------------------------------------------------------------------------------
 
@@ -157,6 +166,7 @@ class TaskOperations:
         reads = {
             "tasks_list": {**PAGE, "assignee_id": {"anyOf": [UUID, {"type": "null"}]}, "include_archived": {"type": "boolean"},
                            "task_type": {"enum": list(TYPES)},
+                           "record_type": {"type": "string", "pattern": TYPE_ID.pattern},
                            "email_conversation_id": IDENTITY,
                            "statuses": {"type": "array", "items": {"enum": list(STATES)}}, "tags": LABELS_SCHEMA,
                            "include_closed": {"type": "boolean"}, "include_paused": {"type": "boolean"}, "blocked": {"type": "boolean"},
@@ -178,9 +188,12 @@ class TaskOperations:
         located = dict(locate_scope=self.lookup, description=common["description"] + LOCATED)
         descriptors = [self.overview.descriptor(), self.associated.descriptor()]
         for name, properties in reads.items():
+            options = {**common, **located} if "task_id" in properties else common
+            if name == "tasks_config_get":
+                options = {**common, "description": common["description"] + CONFIG_RECORD_TYPES}
             descriptors.append(OperationDescriptor(
                 name, schema({**SCOPE, **properties}, ("task_id",) if name in {"tasks_get", "tasks_notes_list", "tasks_thread_get"} else ()),
-                **({**common, **located} if "task_id" in properties else common), effect_kind="read", supports_signoff=False,
+                **options, effect_kind="read", supports_signoff=False,
                 read=lambda ctx, args, options, uow, op=name: self.read(op, ctx, args, uow)))
         comment = {"note_refs": refs, "summary": SUMMARY, "relay": RELAY, "for_owner": FOR_OWNER}
         mutations = {
@@ -369,7 +382,8 @@ class TaskOperations:
         configuration, config_row = self.configuration(ctx, uow)
         if operation == "tasks_config_get":
             return {"config": configuration, "revision": config_row["revision"] if config_row else None,
-                    "customer_states": customers.read(uow, ctx.project_id)[0]}
+                    "customer_states": customers.read(uow, ctx.project_id)[0],
+                    "record_types": self.record_types.for_caller(ctx, uow).public()}
         if operation in {"assignees_list", "workers_list"}:
             return self.assignees_list(ctx, uow, workers=operation == "workers_list")
         repository = uow.repository("tasks", project_id=ctx.project_id)
@@ -485,6 +499,10 @@ class TaskOperations:
         if "task_type" in arguments:
             clauses.append(attribute.format("task_type", "task") + "=?")
             parameters.append(arguments["task_type"])
+        if "record_type" in arguments:
+            # Not checked against the active types, so records of a type whose extension is gone are still found.
+            clauses.append("""json_extract(fields_json, '$."$task".record_type')=?""")
+            parameters.append(arguments["record_type"])
         if "email_conversation_id" in arguments:
             clauses.append("""json_extract(fields_json, '$."$task".email_conversation_id') IS ?""")
             parameters.append(arguments["email_conversation_id"])
@@ -601,6 +619,8 @@ class TaskOperations:
                 current["snoozed_until"] = requested
                 if requested is not None:
                     current["snooze_generation"] += 1
+        types = self.record_types.active(uow)
+        record_type_edits(edits, before, types)
         states, states_row = customers.read(uow, ctx.project_id) if "customer_state" in edits else ([], None)
         apply_attributes(current, edits, states)
         if before and self.plan_guard is not None and attributes(current)["plan"] != attributes(before)["plan"]:
@@ -611,7 +631,7 @@ class TaskOperations:
             current["fields_json" if key == "fields" else key] = value
         if current["status"] == "done" and (before is None or before["status"] != "done"):
             current["latest_completed_at"] = builder.at
-        validate_task(current, fields, before)
+        validate_task(current, fields, before, types=types)
         if attributes(current)["email_conversation_id"] != attributes(before or {})["email_conversation_id"]:
             self.email_reference(ctx, current, uow, builder)
         parents = self.parents(ctx, uow)
@@ -684,8 +704,9 @@ class TaskOperations:
     def prepare_config(self, ctx, arguments, options, uow, builder, config_row):
         require_revision(config_row, options.expected_revision)
         fields = validate_config(arguments["config"])
+        types = self.record_types.active(uow)
         for task in rows(uow, "tasks", ctx.project_id):
-            validate_task(task, fields)
+            validate_task(task, fields, kept_record(task, types), types=types)
             builder.expect(ref("tasks", task["id"], ctx.project_id), task)
         stored = {"v": 1, "fields": fields}
         builder.record("project_configs", "tasks", config_row, {"config_json": stored} if config_row else {"domain": "tasks", "config_json": stored})
@@ -712,8 +733,9 @@ class TaskOperations:
         if plan.operation_name == "tasks_config_update":
             proposed = plain(next(change.values["config_json"] for change in plan.changes
                                   if change.resource.resource_type == "project_configs" and change.resource.resource_id == "tasks"))
+            types = self.record_types.active(uow)
             for task in rows(uow, "tasks", ctx.project_id):
-                validate_task(task, proposed["fields"])
+                validate_task(task, proposed["fields"], kept_record(task, types), types=types)
             return
         task_id = self.planned_task(plan)
         task_change = next((change for change in plan.changes if change.resource.resource_type == "tasks"), None)
@@ -725,7 +747,7 @@ class TaskOperations:
             raise DomainError("revision_conflict", "The new Task's id was taken meanwhile; prepare the change again", retryable=True)
         current = uow.repository("tasks", project_id=ctx.project_id).get(task_id) or {}
         proposed = {**current, **plain(task_change.values)} if task_change else current
-        validate_task(proposed, fields, current)
+        validate_task(proposed, fields, current, types=self.record_types.active(uow))
         worker_changes = plan.arguments.get("worker_ids") if plan.operation_name == "tasks_create" else plan.arguments.get("changes", {}).get("worker_ids")
         if plan.operation_name == "tasks_delegate":
             worker_changes = [plan.arguments["worker_id"]]
@@ -860,3 +882,32 @@ class TaskOperations:
 
 
 __all__ = ["TASK_ENTRIES", "TaskOperations", "task_context", "task_namespace"]
+
+
+def record_type_edits(edits, before, types):
+    """Fill in what a record type edit implies, before the typed edits are applied.
+
+    Naming an active record type sets ``task_type`` to its base; naming both, they must agree. A change of ``task_type``
+    that names no record type clears a record type whose base no longer matches (one that is not active is cleared too,
+    since its base is not known), as a change away from email clears the email binding."""
+    found = types.get(edits.get("record_type"))
+    if found is not None:
+        if edits.setdefault("task_type", found.based_on) != found.based_on:
+            raise DomainError("validation_error", f"A {found.label} is a {found.based_on} record; leave task_type out or give "
+                                                  f"{found.based_on}")
+        return
+    held = attributes(before or {})["record_type"]
+    if ("record_type" not in edits and held is not None and "task_type" in edits
+            and edits["task_type"] != attributes(before)["task_type"]):
+        kept = types.get(held)
+        if kept is None or kept.based_on != edits["task_type"]:
+            edits["record_type"] = None
+
+
+def kept_record(task, types):
+    """What a configuration change judges a stored Task against as already saved: the Task itself when it holds a record
+    type that is not active, so the values it keeps are not judged again (see ``validate_task``); for every other Task
+    nothing, as before record types existed. A Task whose fields are not an object is judged as before as well."""
+    values = task.get("fields_json")
+    record_type = attributes(task)["record_type"] if isinstance(values, dict) else None
+    return task if record_type is not None and types.get(record_type) is None else None

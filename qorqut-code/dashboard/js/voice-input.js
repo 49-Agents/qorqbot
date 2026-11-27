@@ -1,4 +1,4 @@
-// Voice input for the Chat composer, and the owner's sign-in with OpenRouter that turns it on.
+// Voice input for the Chat composer and the Focus notes, and the owner's sign-in with OpenRouter that turns it on.
 // `voiceInputModel` is pure (unit tested with `node --test dashboard/tests/*.test.js`). `openrouterConnect` starts the
 // sign-in and finishes it when OpenRouter sends the browser back. `voiceInput.attach` adds the microphone button to one
 // composer; the recording goes to the OpenRouter extension's own route and its text is inserted where the cursor is.
@@ -116,8 +116,10 @@ const voiceInput = (() => {
   const refresh = () => readStatus();
   const say = text => { if (typeof toast === 'function') toast(text); };
 
-  // options: {form, input, before, maxLength, onChange}. The button is inserted before `before` inside `form`; `onChange` is
-  // called whenever the recording state changes.
+  // options: {form, input, before, maxLength, onChange, insertText, hotkeyFallback}. The button is inserted before `before` inside `form`;
+  // `onChange` is called whenever the recording state changes. `insertText(text)`, for a field that is not a textarea (the
+  // Focus notes), puts the words in itself and returns whether it could. `hotkeyFallback: false` leaves it out of the
+  // hotkey's choice unless it has the caret or is recording.
   function attach(options) {
     const {form, input} = options;
     const button = document.createElement('button');
@@ -197,6 +199,7 @@ const voiceInput = (() => {
           {method: 'POST', headers: {'Content-Type': voiceInputModel.mediaType(type) || 'audio/webm'}, body: blob}));
         if (disposed) return;
         if (!String(data.text || '').trim()) say('Nothing was heard. Try again a little closer to the microphone.');
+        else if (options.insertText) { if (!options.insertText(data.text)) say('Your words could not be put in. Try again.'); }
         else {
           const next = voiceInputModel.insert(input.value, input.selectionStart, input.selectionEnd, data.text, options.maxLength);
           input.value = next.value; input.setSelectionRange(next.cursor, next.cursor);
@@ -205,7 +208,9 @@ const voiceInput = (() => {
         }
         // A send pressed during transcription is taken too.
         then = after || then;
-      } catch (failure) { then = null; if (!disposed) say(failure.message || 'Your words could not be turned into text. Try again.'); }
+      // The service's own sentence (OpenRouter's balance, a refused key) says what to do; the generic wording for a
+      // server-side refusal would not.
+      } catch (failure) { then = null; if (!disposed) say(failure.serverMessage || failure.message || 'Your words could not be turned into text. Try again.'); }
       after = null; transcribing = false;
       state = 'idle'; paint();
       if (!disposed && !input.disabled) input.focus();
@@ -262,6 +267,8 @@ const voiceInput = (() => {
       get input() { return input; },
       get usable() { return !disposed && !button.hidden && form.isConnected && form.getClientRects().length > 0; },
       get busy() { return state !== 'idle'; },
+      // Whether the hotkey falls back to this one when nothing is being typed in (the chat does; the Focus notes do not).
+      fallback: options.hotkeyFallback !== false,
     };
     controllers.add(controller);
     if (status) paint(); else void readStatus();
@@ -279,10 +286,10 @@ const voiceInput = (() => {
     };
   }
 
-  // The composer the hotkey acts on: one that is recording, else the one being typed in, else the last one on screen.
+  // The field the hotkey acts on: one that is recording, else the one being typed in, else the last chat on screen.
   function target() {
     const usable = [...controllers].filter(c => c.usable);
-    return usable.find(c => c.busy) || usable.find(c => c.input === document.activeElement) || usable.at(-1) || null;
+    return usable.find(c => c.busy) || usable.find(c => c.input === document.activeElement) || usable.filter(c => c.fallback).at(-1) || null;
   }
   if (typeof document !== 'undefined') {
     document.addEventListener('keydown', event => {

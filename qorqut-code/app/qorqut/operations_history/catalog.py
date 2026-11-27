@@ -443,6 +443,7 @@ def catalog(extensions=()):
             TableClassification('reminders', PRIVATE_EXCLUDED, 'Reminder text, recipients and linked items are private and are excluded from general history.'),
             TableClassification('reminder_occurrences', PRIVATE_EXCLUDED, 'Reminder delivery history is private operational state and is excluded from general history.'),
             TableClassification('browser_cleanup_enrollments', PRIVATE_EXCLUDED, 'Default reminder enrollment links private agents and reminders; it is excluded from general history.'),
+            TableClassification('extension_deliveries', PRIVATE_EXCLUDED, 'Delivery record: which text of which extension reached which agent conversation, and when; agent bookkeeping, excluded from general history.'),
             TableClassification('timeline_deliveries', PRIVATE_EXCLUDED, 'Delivery bookkeeping: which revision of a timeline each agent conversation was last told; no content.'),
             TableClassification('compactions', PRIVATE_EXCLUDED, 'The log of each agent conversation handoff: what the agent filed about private owner messages; excluded from general history.'),
             TableClassification('experience_runs', PRIVATE_EXCLUDED, 'Observations about the owner\'s conversations and agent tool calls, the proposals drawn from them and the workflow queue quote private owner messages; excluded from general history.'),

@@ -700,6 +700,9 @@ class RecordsTest(Case):
         self.assertFinding("`id` that is not lowercase")
         self.records(lambda d: (d[0].update(id="connection"), d.append(dict(d[0]))))
         self.assertFinding("repeats the record type id 'connection'")
+        for own in ("task", "story", "customer", "email"):
+            self.records(lambda d: d[0].update(id=own))
+            self.assertFinding(f"The record type {own!r} has the name of one of Qorqbot's own types")
 
     def test_based_on(self):
         for value in ("email", "table", None):
@@ -731,15 +734,17 @@ class RecordsTest(Case):
             self.records(lambda d: d[0]["fields"][0].update(type=kind))
             self.assertEqual(self.findings(), [])
 
-    def test_values_exactly_for_enum(self):
+    def test_values_as_a_custom_field_definition_takes_them(self):
+        # The fields are judged by the Task engine's own rule for a custom field definition, no stricter and no looser.
         self.records(lambda d: d[0]["fields"][1].pop("values"))
         self.assertFinding("field 2 is an enum and needs `values`")
         self.records(lambda d: d[0]["fields"][1].update(values=[]))
         self.assertFinding("field 2 is an enum and needs `values`")
-        self.records(lambda d: d[0]["fields"][1].update(values=[1, 2]))
+        self.records(lambda d: d[0]["fields"][1].update(values="close"))
         self.assertFinding("field 2 is an enum and needs `values`")
-        self.records(lambda d: d[0]["fields"][0].update(values=["a"]))
-        self.assertFinding("field 1 has `values`")
+        for accepted in (lambda d: d[0]["fields"][1].update(values=[1, 2]), lambda d: d[0]["fields"][0].update(values=["a"])):
+            self.records(accepted)
+            self.assertEqual(self.findings(), [])
 
     def test_field_id_follows_the_custom_field_name_rule(self):
         for bad in ("Met At", "title", "x" * 33):

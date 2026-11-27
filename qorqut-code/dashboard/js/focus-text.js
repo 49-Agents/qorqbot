@@ -167,6 +167,12 @@ const focusText = (() => {
       save: () => save(s),
     });
     editors.set(p, editor);
+    // A floating microphone in the notes' bottom left corner (the reminder cards take the right): the words go where the
+    // caret was (js/voice-input.js). The hotkey reaches it only while the notes have the caret.
+    const voice = document.createElement('div');
+    voice.className = 'gchat-voice-float agfocus-notes-voice';
+    host.append(voice);
+    const mic = typeof voiceInput === 'undefined' ? null : voiceInput.attach({form: voice, input: editor.doc, insertText: text => editor.insertText(text, s.view.caret), hotkeyFallback: false});
     paper.onpointerdown = () => editor.rememberSelection();
     // Only a visible text reports a real position; hiding it must not overwrite the remembered one with 0.
     let viewTimer = null;
@@ -186,7 +192,7 @@ const focusText = (() => {
     void load(p);
     return () => {
       document.removeEventListener('selectionchange', keepCaret); clearTimeout(viewTimer); writeView(s);
-      s.views.delete(p); editors.delete(p); editor.destroy(); host.replaceChildren();
+      s.views.delete(p); editors.delete(p); mic?.dispose(); editor.destroy(); host.replaceChildren();
       if (s.loaded && !s.conflict && dirty(s)) save(s);
     };
   }

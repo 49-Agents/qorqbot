@@ -456,5 +456,18 @@ function ntLinesEditor(o) {
     return true;
   }
 
-  return { doc, render, sync, setEditable, focusLine, placeBalls, record, rememberSelection, undoRedo, caret, placeCaret, destroy: () => resizeObserver.disconnect() };
+  // Text from outside the keyboard (voice input): where the caret is, or was (`at`), else at the end, as one undoable edit,
+  // with one space between it and the words around it.
+  function insertText(text, at) {
+    const words = String(text ?? "").replace(/\r\n?/g, "\n").trim();
+    if (!words || locked()) return false;
+    if (!(document.activeElement === doc && selection()) && !placeCaret(at)) focusLine(es.lines.length - 1, Infinity);
+    const s = selection(); if (!s) return false;
+    const [a, f] = ntOrdered(s), bl = ntBlocks(es);
+    const head = bl[a.i].rule ? "" : bl[a.i].text.slice(0, a.pos), tail = bl[f.i].rule ? "" : bl[f.i].text.slice(f.pos);
+    rememberSelection();
+    editRange(a, f, (head && !/\s$/.test(head) ? " " : "") + words + (tail && !/^[\s.,;:!?)]/.test(tail) ? " " : ""));
+    return true;
+  }
+  return { doc, render, sync, setEditable, focusLine, placeBalls, record, rememberSelection, undoRedo, caret, placeCaret, insertText, destroy: () => resizeObserver.disconnect() };
 }
