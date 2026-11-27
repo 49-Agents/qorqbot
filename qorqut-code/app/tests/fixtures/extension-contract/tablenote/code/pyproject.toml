@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qorqut-tablenote"
+version = "1.0.0"
+description = "Table Note, a test extension with a table of its own"
+requires-python = ">=3.12"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["qorqut_tablenote*"]

@@ -350,6 +350,28 @@ class LoadCodeTest(FreshModuleCase):
         self.assertEqual((made.handler, made.ticker.running()), (None, False))   # not installed, nothing started
         self.assertEqual([entry.name for entry in loaded["keyed"].entries], ["keyed_status"])
 
+    def test_declared_tables_are_judged_against_the_store_s_record(self):
+        from qorqut.composition.extension_tables import contribution_of, record_contribution, row_of
+        from qorqut.extensions import NO_EXTENSIONS
+        from qorqut_operations.storage.assembly import StorageContribution
+        statement = "CREATE TABLE keyed_items (id TEXT PRIMARY KEY)"
+        folder = self.place_keyed()
+        code = folder / "code" / "qorqut_keyed" / "extension.py"
+        code.write_text(code.read_text() + "\nfrom qorqut_operations.storage.assembly import StorageContribution\n"
+                        f"Keyed.tables = lambda self: (StorageContribution('keyed', schema=({statement!r},)),)\n")
+        importlib.invalidate_caches()
+        from qorqut import extension_registry
+        row = row_of("keyed", "1.0.0", (StorageContribution("keyed", schema=(statement,)),))
+        found, selection, loaded = extension_registry.load_code(self.discover(), NO_EXTENSIONS)
+        # Not in the record yet: the row is made at this start.
+        self.assertEqual((selection.ids, loaded["keyed"].tables), (("keyed",), row))
+        for name in [name for name in sys.modules if name.split(".")[0] == "qorqut_keyed"]:
+            del sys.modules[name]
+        # Already recorded: nothing to make.
+        found, selection, loaded = extension_registry.load_code(
+            self.discover(), NO_EXTENSIONS, recorded=(record_contribution(), contribution_of(row)))
+        self.assertEqual((selection.ids, loaded["keyed"].tables), (("keyed",), None))
+
     def test_a_folder_that_is_refused_or_cannot_run_here_is_not_loaded(self):
         self.place_keyed(lambda data: data.update(platforms=["mac"]))
         found, selection, loaded = self.load()
@@ -357,7 +379,9 @@ class LoadCodeTest(FreshModuleCase):
         self.assertNotIn("qorqut_keyed", sys.modules)
 
     def test_code_that_cannot_be_loaded_refuses_the_folder(self):
-        from qorqut.extension_registry import NO_TABLES, NOT_YET
+        from qorqut.extension_registry import NO_TABLES, NOT_YET, TABLES_REFUSED
+        tables = ("\nfrom qorqut_operations.storage.assembly import StorageContribution\n"
+                  "Keyed.tables = lambda self: (StorageContribution('keyed', schema=({!r},)),)\n")
         on_instance = ("\n_create = create\ndef create(config=None):\n    made = _create(config)\n"
                        "    made.{} = lambda: ('probe',)\n    return made\n")
         catalog = "\nKeyed.catalog = lambda self: (CatalogContribution(ID, entries=(CatalogEntry({!r}, False, 'read', EXPOSURE),)),)\n"
@@ -370,6 +394,11 @@ class LoadCodeTest(FreshModuleCase):
                  # The object is judged as the selection will call it: a part set on the instance counts too.
                  (on_instance.format("global_capabilities"), NOT_YET.format("global_capabilities")),
                  (on_instance.format("storage"), NO_TABLES),
+                 ("\nKeyed.tables = lambda self: 1 / 0\n", "Its code could not be loaded: ZeroDivisionError."),
+                 (tables.format("CREATE TABLE other_items (id TEXT)"), TABLES_REFUSED.format(
+                     "The tables of keyed are refused: statement 1: the table other_items is not named keyed_...")),
+                 (tables.format("ATTACH DATABASE 'x.sqlite3' AS other"), TABLES_REFUSED.format(
+                     "The tables of keyed are refused: statement 1: it holds ATTACH")),
                  ("\ndef create(config=None):\n    raise RuntimeError('broken ' + TEST_TOKEN)\n",
                   "Its code could not be loaded: RuntimeError."),
                  ("\nclass Other(Keyed):\n    id = 'other'\n\ndef create(config=None):\n    return Other()\n",

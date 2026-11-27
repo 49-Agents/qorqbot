@@ -152,22 +152,41 @@ def discover(paths, *, selected=(), app_version, platform, shipped=None) -> tupl
 
 
 # -- loading the code part --------------------------------------------------------------------------------------------
-NO_TABLES = "Its code declares tables of its own, and extensions cannot bring tables yet."
+NO_TABLES = "Its code declares storage(); an extension declares the tables of its own with tables()."
+TABLES_REFUSED = "Its tables could not be made: {}"
 NOT_LOADED = "Its code could not be loaded: {}."
 CODE_FOLDER = "code"
-# What the code part of a contract extension may give Qorqbot today: its tools, its install, its services and its
-# set-up. Any other part of the ``Extension`` declaration (routes, sources, policy rules and the rest) is refused for now:
+# What the code part of a contract extension may give Qorqbot today: its tools, its install, its services, its set-up
+# and its own tables. Any other part of the ``Extension`` declaration (routes, sources, policy rules and the rest) is refused for now:
 # Qorqbot takes those parts into the whole selection before the extension is installed, so they could not be taken back.
-CONTRACT_PARTS = frozenset({"catalog", "install", "services", "setup_handler"})
+CONTRACT_PARTS = frozenset({"catalog", "install", "services", "setup_handler", "tables"})
 NOT_YET = "Its code uses {}, which this version of Qorqbot does not take from an extension yet."
 
 
 @dataclass(frozen=True)
 class Loaded:
-    """A loaded code part: the extension and the tools its ``catalog()`` declared at load (``CatalogEntry`` values)."""
+    """A loaded code part: the extension and the tools its ``catalog()`` declared at load (``CatalogEntry`` values).
+    ``tables`` is the canonical record row of its declared tables when they add to what the store records (they are made
+    at this start), else None."""
     extension: object
     entries: tuple
     folder: Path
+    tables: dict | None = None
+
+
+def declared_tables(item, extension, recorded):
+    """``(row or None, finding or None)``: the extension's ``tables()`` judged against the store's record
+    (``extension_tables.judge``). ``row`` is set when the declaration adds tables."""
+    from qorqut.composition.extension_tables import ADDS, judge
+    try:
+        declared = tuple(extension.tables())
+    except Exception as fault:  # noqa: BLE001 - only the kind of fault is said
+        return None, NOT_LOADED.format(type(fault).__name__)
+    try:
+        verdict, row = judge(item.id, item.manifest.version, declared, recorded)
+    except DomainError as refusal:
+        return None, TABLES_REFUSED.format(refusal.message)
+    return (row if verdict == ADDS else None), None
 
 
 def _forget(code):
@@ -235,8 +254,11 @@ def _load(item):
     return Loaded(made, entries, code), None
 
 
-def load_code(found, selection):
+def load_code(found, selection, *, recorded=()):
     """Add the code part of each fine found folder with ``code.factory`` to ``selection`` (today's ``ExtensionSet``).
+
+    ``recorded`` is what the store records of extension tables (``extension_tables.recorded``); each declaration of
+    ``tables()`` is judged against it, and one that is refused refuses the folder.
 
     Answers ``(found, selection, loaded)``: the folders with a refusal added to each one whose code could not be loaded,
     the selection with the loaded extensions added, and the ``Loaded`` code parts by id. A folder that is refused or
@@ -251,6 +273,13 @@ def load_code(found, selection):
             continue
         made, problem = _load(item)
         if made is not None:
+            row, problem = declared_tables(item, made.extension, recorded)
+            if problem is not None:
+                _forget(made.folder)
+                made = None
+            else:
+                made = replace(made, tables=row)
+        if made is not None:
             try:
                 chosen = ExtensionSet((*chosen.extensions, made.extension))
             except Exception as refusal:  # noqa: BLE001 - only the kind of fault is said
@@ -263,6 +292,20 @@ def load_code(found, selection):
             loaded[item.id] = made
         checked.append(item)
     return (tuple(checked), chosen if loaded else selection, loaded)
+
+
+def unload(found, selection, loaded, ext_id, finding):
+    """Take one loaded code part back out after ``load_code``, refused with ``finding``; answers the three again."""
+    from qorqut.extensions import ExtensionSet
+    made = loaded.get(ext_id)
+    if made is None:
+        return found, selection, loaded
+    _forget(made.folder)
+    LOGGER.warning("extension_not_loaded extension=%s", ext_id)
+    found = tuple(replace(item, findings=(*item.findings, finding)) if item.id == ext_id else item for item in found)
+    loaded = {key: value for key, value in loaded.items() if key != ext_id}
+    selection = ExtensionSet(tuple(extension for extension in selection.extensions if extension.id != ext_id))
+    return found, selection, loaded
 
 
 class _Collecting:

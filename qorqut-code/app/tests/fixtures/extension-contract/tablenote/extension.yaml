@@ -1,0 +1,15 @@
+contract: 1
+id: tablenote
+name: Table Note
+summary: A test extension with one table of its own, which its one tool counts.
+version: 1.0.0
+delivery: downloadable
+platforms: [linux, mac, windows]
+requires:
+  qorqbot: ">=1.7.0"
+code:
+  factory: qorqut_tablenote.extension:create
+setup:
+  kind: none
+agents:
+  allowed: [ordubashy]

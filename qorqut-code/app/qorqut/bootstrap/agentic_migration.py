@@ -45,12 +45,13 @@ import tempfile
 import time
 
 from qorqut_operations.contracts import DomainError, canonical_hash
-from qorqut_operations.storage.assembly import Assembly, StorageContribution
+from qorqut_operations.storage.assembly import Assembly, AssemblyError, StorageContribution
 from qorqut_operations.storage.database import APPLICATION_ID, Database
 from qorqut_operations.storage.inventory import IDENTITY_TABLE, CompiledTarget, compile_target, describe, differences, read_objects
 from qorqut_operations.storage.sqlfunctions import install_sql_functions
 
 from qorqut.composition.assembly import HostComposition, host_assembly, host_contributions
+from qorqut.composition import extension_tables
 from qorqut.composition.extension_tables import recorded
 from qorqut.extensions import NO_EXTENSIONS, ExtensionSet
 from qorqut.instance_paths import InstancePathError, InstancePaths
@@ -267,8 +268,24 @@ def apply_migration(paths: InstancePaths, plan, *, backup, extensions=NO_EXTENSI
     return _apply_transition(paths, transition, validated, backup=backup, ownership=ownership)
 
 
-def _apply_transition(paths, transition, validated, *, backup, ownership=None):
+def _apply_transition(paths, transition, validated, *, backup, ownership=None, inside=None, readback=None, phases=None):
+    """The one offline transition: recognise, check integrity, publish the backup, then the DDL and the identity in one
+    ``BEGIN IMMEDIATE``, and a strict open after the commit.
+
+    ``inside(connection)`` runs in the transaction after the DDL (the tables transition writes its record rows there).
+    ``readback(source)`` composes the target assembly again from what the store records, given the open connection inside
+    the transaction or the store's path after the commit: inside, its digest must be the target's, or the transaction
+    rolls back; after, the strict open uses it instead of the in-memory target. ``phases``, a dict, receives the seconds
+    each phase took. The two older callers pass none of them and are unchanged."""
     acquired_here = ownership is None
+    clock = time.monotonic()
+
+    def phase(name):
+        nonlocal clock
+        if phases is not None:
+            now = time.monotonic()
+            phases[name] = round(now - clock, 3)
+            clock = now
     owner = InstanceOwnership(paths).acquire() if acquired_here else _caller_ownership(paths, ownership)
     try:
         _verify_ownership(owner)
@@ -281,7 +298,9 @@ def _apply_transition(paths, transition, validated, *, backup, ownership=None):
             if application_id != APPLICATION_ID or user_version != transition.target.target.version:
                 raise DomainError("unsupported_schema", "The existing store is not this Operations target schema version",
                                   details={"application_id": application_id, "user_version": user_version})
+            phase("recognise")
             _require_integrity(connection)
+            phase("integrity")
             if state == "target":
                 return _report(paths, transition, validated, applied=False, already_migrated=True, backup=None)
             if state != "predecessor":
@@ -293,18 +312,24 @@ def _apply_transition(paths, transition, validated, *, backup, ownership=None):
             _verify_ownership(owner)
             preserved = _preserved_store_properties(connection)
             backup_report = _publish_backup(connection, backup, transition)
+            phase("backup")
             _verify_ownership(owner)
             connection.execute("BEGIN IMMEDIATE")
             try:
                 _verify_ownership(owner)
                 _require_store(connection, transition, "predecessor")
                 _execute_additions(connection, transition.contributions)
+                if inside is not None:
+                    inside(connection)
                 _update_identity(connection, transition.target)
+                if readback is not None and readback(connection).target != transition.target.target:
+                    raise DomainError("unsupported_schema", "The store's record read back does not compose the target")
                 _require_store(connection, transition, "target")
                 _require_references(connection)
                 if _preserved_store_properties(connection) != preserved:
                     raise DomainError("unsupported_schema", "The transition changed an application id or user version")
                 connection.commit()
+                phase("transaction")
             except BaseException:
                 connection.rollback()
                 raise
@@ -316,7 +341,8 @@ def _apply_transition(paths, transition, validated, *, backup, ownership=None):
         # The ordinary strict target open is the last local proof; the transition is durable at this point, so a failure
         # here is reported as a committed store that does not validate, never silently retried or repaired.
         try:
-            Database(database, assembly=transition.target).open_existing()
+            Database(database, assembly=transition.target if readback is None else readback(database)).open_existing()
+            phase("open")
         except DomainError as exc:
             raise DomainError("migration_verification_failed", "The transition committed but the result does not open "
                               "through the target composition; report it, never restart the old host",
@@ -652,6 +678,71 @@ def extension_transition(previous, selected, *, tables):
         raise DomainError("invalid_installation", "An extension install may only create schema objects")
     return _Transition(selected, predecessor, target, contributions, _additions(before, after), before, after,
                        name="v1.3-extension-addition-1")
+
+
+class _Statements:
+    """The statements one tables transition runs: those of each row beyond what the store already records."""
+
+    def __init__(self, schema):
+        self.schema = tuple(schema)
+
+
+def tables_transition(selection, tables, rows):
+    """The additive transition that makes the tables of ``rows`` (canonical record rows, ``extension_tables.row_of``) in
+    a store whose record is ``tables`` (``recorded``), with the startup ``selection`` on both sides.
+
+    The target records each row in place of the extension's earlier one; the record table comes first when the store had
+    none. Only each row's statements beyond the recorded ones run, so an update only adds. Returns the transition and the
+    ``inside`` and ``readback`` callables for ``_apply_transition``: ``inside`` writes the rows, ``readback`` composes
+    from what the store records."""
+    if not isinstance(selection, ExtensionSet):
+        raise DomainError("invalid_configuration", "The tables need the explicit extension selection")
+    by_owner = {item.owner: item for item in tables}
+    statements = [] if by_owner else [extension_tables.RECORD_DDL]
+    for row in rows:
+        contribution = extension_tables.contribution_of(row)
+        earlier = by_owner.get(contribution.owner)
+        recorded_statements = tuple(earlier.schema) if earlier is not None else ()
+        if tuple(contribution.schema[:len(recorded_statements)]) != recorded_statements:
+            raise DomainError("invalid_installation", "A table update can only add statements")
+        statements.extend(contribution.schema[len(recorded_statements):])
+        by_owner[contribution.owner] = contribution
+    record = by_owner.pop(extension_tables.RECORD_OWNER, extension_tables.record_contribution())
+    target_tables = (record, *(by_owner[owner] for owner in sorted(by_owner)))
+    feed = ChangeFeed()
+    predecessor = host_assembly(feed, selection, tables=tables)
+    before = compile_target(predecessor)
+    try:
+        # A name another part of the store already has fails here, before anything runs in the store.
+        target = host_assembly(feed, selection, tables=target_tables)
+        after = compile_target(target)
+    except (AssemblyError, sqlite3.Error) as exc:
+        raise DomainError("invalid_installation", f"they do not fit the store: {exc}") from None
+    transition = _Transition(selection, predecessor, target, (_Statements(statements),), _additions(before, after),
+                             before, after, name="extension-tables-1")
+
+    def inside(connection):
+        connection.executemany(
+            f"INSERT INTO {extension_tables.RECORD_TABLE} (id, version, contribution) VALUES (:id, :version, :contribution) "
+            "ON CONFLICT(id) DO UPDATE SET version = excluded.version, contribution = excluded.contribution", rows)
+
+    def readback(source):
+        return host_assembly(ChangeFeed(), selection, tables=recorded(source))
+
+    return transition, inside, readback
+
+
+def apply_tables(paths, transition, *, inside, readback, backup, ownership=None, phases=None):
+    """Apply one tables transition (``tables_transition``) under the instance lifetime lock (taken here, or the
+    caller's). A store that is already the target is a validated no-op with no copy."""
+    body = _plan_body(paths, transition)
+    if transition.predecessor.target == transition.target.target:
+        # The store already records these rows (a start that stopped after the commit): it is opened, nothing written.
+        Database(paths.database, assembly=readback(paths.database)).open_existing()
+        return _report(paths, transition, {**body, "plan_digest": canonical_hash(body)}, applied=False,
+                       already_migrated=True, backup=None)
+    return _apply_transition(paths, transition, {**body, "plan_digest": canonical_hash(body)}, backup=backup,
+                             ownership=ownership, inside=inside, readback=readback, phases=phases)
 
 
 def prepare_extension_storage(paths, *, previous, selected):

@@ -212,6 +212,40 @@ def _check_triggers(ext_id, connection, own):
 
 # -- the canonical record row ------------------------------------------------------------------------------------
 
+SAME, ADDS = "same", "adds"
+
+
+def judge(ext_id, version, declared, tables):
+    """Compare an extension's declared tables with what the store records of it (``tables``, as ``recorded`` gives).
+
+    Answers ``(SAME, None)`` when there is nothing to make, or ``(ADDS, row)`` with the canonical row to make and record.
+    The declaration goes through ``row_of`` and ``contribution_of``, so it is checked as a recorded row is. An update may
+    only add: its statements begin with the recorded ones and each recorded table keeps its specification and immutable
+    columns. A declaration whose statements are the start of the recorded ones (an older version, or none) leaves the
+    record as it is. Anything else raises ``DomainError("invalid_installation")`` with the note."""
+    declared = tuple(declared)
+    new = contribution_of(row := row_of(ext_id, version, declared)) if declared else None
+    old = next((item for item in tables if getattr(item, "owner", None) == owner_of(ext_id)), None)
+    if new is None:
+        return SAME, None
+    if old is None:
+        return ADDS, row
+    now, before = tuple(new.schema), tuple(old.schema)
+    if now[:len(before)] == before:
+        if any(new.tables.get(name) != spec for name, spec in old.tables.items()) or any(
+                new.immutable_fields.get(name, frozenset()) != fields for name, fields in old.immutable_fields.items()):
+            raise _refused(ext_id, "it changes the specification of a table it made before")
+        if len(now) == len(before):
+            if dict(new.tables) != dict(old.tables) or dict(new.immutable_fields) != dict(old.immutable_fields):
+                raise _refused(ext_id, "it changes the specification of a table it made before")
+            return SAME, None
+        return ADDS, row
+    if before[:len(now)] == now:
+        return SAME, None
+    raise _refused(ext_id, "its statements are not the ones it made its tables with, followed by new ones; an update "
+                           "can only add tables, indexes and triggers")
+
+
 def owner_of(ext_id):
     """The storage owner of an extension's recorded tables."""
     return f"extension.{ext_id}"

@@ -78,14 +78,15 @@ class OpenerCase(unittest.TestCase):
 
 
 class ServiceOpenersTest(OpenerCase):
-    def test_the_service_start_opens_the_store_with_its_record(self):
+    def test_the_service_start_leaves_the_open_to_build_runtime(self):
+        # The service start opens no store itself: ``build_runtime`` opens it (tested below), after making tables.
         from qorqut.service import main as service_main
         for name, expected in self.stores():
             with self.subTest(name):
                 handed = {}
 
                 def assemble(*args, **kwargs):
-                    handed["database"] = kwargs["database"]
+                    handed.update(database=kwargs["database"], make_tables=kwargs["make_tables"])
                     raise DomainError("invalid_configuration", "stopped by the test")
 
                 with mock.patch("qorqut.bootstrap.extension_change.apply_pending"), \
@@ -95,12 +96,7 @@ class ServiceOpenersTest(OpenerCase):
                                                 str(self.paths.instance_root), "--component", f"app={self.app}",
                                                 "--component", f"dashboard={self.dashboard}"])
                 self.assertEqual(status, 1)
-                if expected is None:
-                    self.assertEqual(handed, {})
-                    self.assertFalse((self.folder / ATTACHED).exists())
-                else:
-                    self.assertEqual(handed["database"].assembly.target, expected.target)
-                    handed["database"].close()
+                self.assertEqual(handed, {"database": None, "make_tables": True})
 
     def build(self, database=None):
         from qorqut.service import runtime
@@ -309,6 +305,8 @@ DATABASES = {("composition/assembly.py", "open_database"): 1, ("composition/asse
              ("bootstrap/agentic_migration.py", "_apply_transition"): 1,
              ("bootstrap/agentic_migration.py", "_publish_backup"): 1,
              ("bootstrap/agentic_migration.py", "apply_extension_storage"): 1,
+             # Its assembly is ``readback(paths.database)``: composed from what the store records.
+             ("bootstrap/agentic_migration.py", "apply_tables"): 1,
              ("bootstrap/extension_install.py", "install"): 2,
              ("storage/recovery.py", "snapshot_database"): 1,
              # Already fails on every installation: it passes no assembly at all.

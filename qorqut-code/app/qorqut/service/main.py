@@ -114,14 +114,14 @@ def assemble(workspace, *, paths, origins, endpoint, bootstrap_token="", shell="
              model_client_factory=None, broker=None, database=None, signing_key=None,
              nightly_maintenance=_DEFAULT_MAINTENANCE, capture_transcripts=None, terminal_workspace=None,
              execution_provider=None, recovery_config=None,
-             context=None, extensions=None):
+             context=None, extensions=None, make_tables=False):
     from qorqut.background.integration import attach_background
     from qorqut_operations.background.programs import ProgramRegistry
 
     capture_transcripts = transcript_capture_configuration(capture_transcripts)
     programs = ProgramRegistry()
     runtime = build_runtime(workspace, paths=paths, database=database, job_programs=programs, context=context,
-                            extensions=extensions)
+                            extensions=extensions, make_tables=make_tables)
     if nightly_maintenance is _DEFAULT_MAINTENANCE:
         from qorqut.storage.versioning import NightlyMaintenance
         nightly_maintenance = NightlyMaintenance(runtime.database, runtime.paths, locks=runtime.locks,
@@ -247,13 +247,12 @@ def main(argv=None):
         if args.workspace is None:
             raise DomainError("invalid_configuration", "Set the explicit engine workspace with --workspace")
         paths = instance_paths_from_arguments(args, required=("app", "dashboard"))
-        # The one operational database of the instance; the engine validates its stored target identity and exact schema.
-        from qorqut.composition.assembly import host_assembly, open_database
-        from qorqut.composition.extension_tables import recorded
         from qorqut.extensions import installed_selection
         from qorqut.installation import extensions_configuration
-        from qorqut.service.changes import ChangeFeed
         from qorqut.private_files import read_private_file
+        # An unfinished install of today's extensions stops the start before anything else is changed.
+        from qorqut.bootstrap.extension_install import require_complete
+        require_complete(paths)
         # A pending extension change (install, update or removal) is applied here, before the selection is read.
         from qorqut.bootstrap.extension_change import apply_pending
         apply_pending(paths)
@@ -266,13 +265,6 @@ def main(argv=None):
             token = read_private_file(args.token_file, max_bytes=512).decode().strip()
             if not token:
                 raise DomainError("invalid_configuration", "The token file is empty")
-        # The store's own record of extension tables is part of the composition it is opened with.
-        database = open_database(paths, host_assembly(ChangeFeed(), selection, tables=recorded(paths.database)))
-        if args.project:
-            with database.read() as uow:
-                registered = {str(Path(row["workspace"]).resolve()) for row in uow.repository("projects").list()}
-            if any(str(Path(path).expanduser().resolve()) not in registered for path in args.project):
-                raise DomainError("invalid_configuration", "--project accepts registered project folders only; it does not import them")
         local_host = "127.0.0.1" if args.host in {"0.0.0.0", "::"} else args.host
         if ":" in local_host:
             local_host = "[" + local_host.strip("[]") + "]"
@@ -284,10 +276,18 @@ def main(argv=None):
             from qorqut_context.integration.service import ContextSettings
             from qorqut.shared_context.service import runner_config_from_file
             context_settings = ContextSettings(config=runner_config_from_file(args.context_config))
+        # The store is opened by ``build_runtime``, after it has made the tables of the loaded extensions, with the
+        # store's own record of extension tables as part of its composition.
         app = assemble(args.workspace, paths=paths, origins=origins, endpoint=endpoint, bootstrap_token=token,
-            shell=terminal_shell(), database=database,
+            shell=terminal_shell(), database=None,
             terminal_workspace=args.terminal_workspace or os.environ.get("QORQUT_TERMINAL_WORKSPACE") or None,
-            recovery_config=args.recovery_config, context=context_settings, extensions=selection)
+            recovery_config=args.recovery_config, context=context_settings, extensions=selection, make_tables=True)
+        database = app.state.runtime.database
+        if args.project:
+            with database.read() as uow:
+                registered = {str(Path(row["workspace"]).resolve()) for row in uow.repository("projects").list()}
+            if any(str(Path(path).expanduser().resolve()) not in registered for path in args.project):
+                raise DomainError("invalid_configuration", "--project accepts registered project folders only; it does not import them")
         if args.prepare_agent:
             # Preparing an agent writes its bootstrap material, so only the backend that owns the instance may do it:
             # ownership, target validation and mutation admission for the preparation alone, and no service is started.

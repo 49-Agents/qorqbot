@@ -7,7 +7,7 @@ from unittest import mock
 
 import uvicorn
 
-from qorqut.bootstrap import extension_change
+from qorqut.bootstrap import extension_change, extension_install
 from qorqut.composition import assembly, extension_tables
 from qorqut import extensions
 from qorqut.service import main as service_main
@@ -113,6 +113,7 @@ class ServiceExitTest(unittest.TestCase):
             return ()
 
         with mock.patch.object(service_main, "instance_paths_from_arguments", return_value=SimpleNamespace(runtime=None, database=None)), \
+                mock.patch.object(extension_install, "require_complete", side_effect=lambda paths: order.append("complete")), \
                 mock.patch.object(extension_change, "apply_pending", side_effect=lambda paths: order.append("pending")), \
                 mock.patch.object(extensions, "installed_selection", side_effect=selection), \
                 mock.patch.object(assembly, "host_assembly"), mock.patch.object(assembly, "open_database"), \
@@ -130,8 +131,9 @@ class ServiceExitTest(unittest.TestCase):
         self.assertEqual(status, 0)
 
     def test_the_pending_change_comes_before_the_selection(self):
+        # An unfinished install of today's extensions is looked at first, before a pending change is applied.
         _, order = self.run_service(lambda: None)
-        self.assertEqual(order, ["pending", "selection"])
+        self.assertEqual(order, ["complete", "pending", "selection"])
 
 
 if __name__ == "__main__":
