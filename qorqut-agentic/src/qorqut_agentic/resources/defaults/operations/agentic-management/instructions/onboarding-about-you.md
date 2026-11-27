@@ -19,7 +19,7 @@ unavailable on this installation, and complete the step with that as the reason.
 Create one Signoff with `signoffs_input_create`: a version-2 question form as
 Owner input describes, `response_policy: owner_only`, request key `get-set-up`,
 title "Getting set up", explanation "Everything is optional. Answer what you
-like and press Done.", and the set-up Task as its `source`. Leave out each
+like.", and the set-up Task as its `source`. Leave out each
 question the personal context node already answers. Every question has
 `required: false`:
 
@@ -35,10 +35,10 @@ question the personal context node already answers. Every question has
    Slack or similar) and `documents` (Documents: Google Drive, Notion or
    similar).
 
-Show it in Chat with `request_user_input` and the form's Signoff reference, with
-one short line such as "A few quick questions to get you set up, all optional."
-That line is your whole reply: do not repeat the questions, and send no other
-message about the form. Then wait for the answer.
+Show it in Chat with `request_user_input` and the form's Signoff reference. Its
+message, such as "A few quick questions to get you set up.", is the only text
+you write for the form: nothing before the call, and no reply after it. Then
+wait for the answer.
 
 When the form is answered, read the decision with `signoffs_get`. Use each
 answer's notes as written; the tools answer is its selected choices plus
