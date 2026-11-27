@@ -294,7 +294,16 @@ class ExtensionTools:
     def owner_change(self, ctx, ext_id, action, *, version=None, delete_data=False):
         """The owner's install, update or removal from the card, ``ctx`` being the owner: checked as the tools check it and
         staged at once, ``version`` being the one his card showed. Answers the sentence the card shows until the restart;
-        a refusal or a failure before the restart is raised as its plain sentence and changes nothing."""
+        a refusal or a failure before the restart is raised as its plain sentence, changes nothing and leaves one log
+        line."""
+        try:
+            return self._owner_change(ctx, ext_id, action, version, delete_data)
+        except DomainError as problem:
+            kind = getattr(problem, "kind", None) or ("waiting" if problem.message == change.WAITING else problem.code)
+            change.not_done(action, ext_id, ctx.principal_id, kind, delete_data)
+            raise
+
+    def _owner_change(self, ctx, ext_id, action, version, delete_data):
         with self.app.database.read() as uow:
             self.app.ensure_writes_open(uow)    # closed for writes as for the Signoff path through ``invoke``
             self.no_change_waiting(self.paths)
@@ -305,7 +314,8 @@ class ExtensionTools:
                 found, entry, bundle = self.install_target(ext_id, uow.connection)
                 name = entry.name
                 if (found, entry.version) != (action, version):
-                    raise DomainError("invalid_transition", "The index has changed since the card was shown. Look again.")
+                    raise _kind(DomainError("invalid_transition", "The index has changed since the card was shown. Look "
+                                                        "again."), "index_changed")
         if action == change.REMOVE:
             outcome = change.stage_removal(self.paths, ext_id, requested_by=ctx.principal_id, delete_data=delete_data,
                                            restart=self.restart)
@@ -313,7 +323,8 @@ class ExtensionTools:
             outcome = change.stage(self.paths, SimpleNamespace(id=ext_id, version=version), bundle,
                                    requested_by=ctx.principal_id, restart=self.restart)
         if not outcome.staged:
-            raise DomainError("operation_failed", f"{name} was not {DONE_WORDS[action]}. {outcome.note}")
+            raise _kind(DomainError("operation_failed", f"{name} was not {DONE_WORDS[action]}. {outcome.note}"),
+                        outcome.kind)
         self.results[ext_id] = outcome.note or RESTARTING
         return self.results[ext_id]
 
@@ -382,6 +393,12 @@ def result_sentence(name, applied):
     return " ".join(filter(None, (done, "Qorqbot restarted.", note)))
 
 
+def _kind(problem, kind):
+    """``problem`` with the kind of reason its log line gives."""
+    problem.kind = kind
+    return problem
+
+
 class ChangeProgram:
     """The job behind an approved change: prove it comes from exactly that approved Signoff, then stage it."""
 
@@ -411,6 +428,7 @@ class ChangeProgram:
             outcome = change.stage(paths, SimpleNamespace(id=args["extension"], version=args["version"]), bound,
                                    requested_by=asked, signoff_id=signoff_id, restart=self.tools.restart)
         if not outcome.staged:
+            change.not_done(args["action"], args["extension"], asked, outcome.kind, args.get("delete_data", False))
             self.tools.tell(signoff_id, job["principal_id"],
                             lambda name: f"{name} was not {DONE_WORDS[args['action']]}. {outcome.note}")
             raise DomainError("operation_failed", outcome.note)

@@ -236,6 +236,23 @@ class InstallTest(ChangeCase):
         self.assertEqual(len(written.records), 1)
         self.assertIn("extension_change_finished action=install extension=network state=done", written.output[0])
 
+    def test_the_two_removals_say_which_they_are_when_asked_and_at_the_next_start(self):
+        self.assertStaged(self.stage())
+        change.apply_pending(self.paths)
+        self.start()
+        change.finish(self.paths)
+        for delete_data, reason, said in ((False, "remove extension network", "no"),
+                                          (True, "remove extension network and delete its data", "yes")):
+            self.assertStaged(change.stage_removal(self.paths, "network", delete_data=delete_data, restart=self.restart))
+            self.assertEqual(self.restarts[-1], reason)
+            # Only the line is checked here: the removal is undone so the second one finds the extension again.
+            pending = change.pending(self.paths)
+            change.change_path(self.paths).unlink()
+            with self.assertLogs("qorqut.bootstrap.extension_change", "WARNING") as written:
+                change.report({**pending, "result": {"state": "done"}})
+            self.assertIn(f"extension_change_finished action=remove delete_data={said} extension=network state=done",
+                          written.output[0])
+
     def test_a_bad_checksum_changes_nothing(self):
         bundle = replace(self.index.entry("network").bundles[0], sha256="0" * 64)
         self.assertEqual(self.stage(bundle=bundle),

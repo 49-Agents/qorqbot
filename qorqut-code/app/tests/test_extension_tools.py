@@ -479,7 +479,7 @@ class OwnerCardTest(ToolsCase):
         self.index = self.update_source()
         self.registry()
         self.assertEqual(self.card()["offers"], [{"action": "update", "version": "1.0.1"}, {"action": "remove"}])
-        self.assertEqual(self.refused(action="update", version="1.0.2"), "The index has changed since the card was shown. Look again.")
+        self.assertEqual(self.refused("index_changed", action="update", version="1.0.2"), "The index has changed since the card was shown. Look again.")
         self.click(action="update", version="1.0.1")
         self.next_start()
         self.assertEqual(self.card()["result"], "Updated Network to 1.0.1. Qorqbot restarted.")
@@ -505,17 +505,21 @@ class OwnerCardTest(ToolsCase):
         self.next_start()
         self.assertEqual(((private / "token").read_text(), self.card()["result"]), ("kept", "Removed Network. Qorqbot restarted."))
 
-    def refused(self, **body):
+    def refused(self, reason, **body):
         """The answer to a click whose change was refused or failed before the restart: an ordinary answer, the entry with
-        the sentence as its result, marked failed."""
-        entry = self.click(**body)
+        the sentence as its result, marked failed. It leaves one log line with the kind of reason."""
+        with self.assertLogs("qorqut.bootstrap.extension_change", "WARNING") as written:
+            entry = self.click(**body)
         self.assertTrue(entry.get("failed"), entry)
+        self.assertEqual(written.output, [
+            f"WARNING:qorqut.bootstrap.extension_change:extension_change_not_done action={body['action']} "
+            f"extension=network requested_by={self.rt.owner.principal_id} reason={reason}"])
         return entry["result"]
 
     def test_a_failure_before_the_restart_is_said_and_changes_nothing(self):
         bundle = Path(self.index.entry("network").bundles[0].url.removeprefix("file://"))
         bundle.write_bytes(bundle.read_bytes()[:-1] + b"x")
-        self.assertEqual(self.refused(action="install", version="1.0.0"),
+        self.assertEqual(self.refused("checksum", action="install", version="1.0.0"),
                          "Network was not installed. The downloaded bundle does not have the checksum the index gives.")
         self.assertEqual((change.pending(self.paths), self.restarts, self.card()["offers"]),
                          (None, [], [{"action": "install", "version": "1.0.0"}]))
@@ -549,7 +553,7 @@ class OwnerCardTest(ToolsCase):
     def test_closed_for_writes_stages_nothing(self):
         with self.rt.database.transaction() as uow:
             uow.repository("maintenance_state").insert({"id": "service", "state": "closed", "message": "Recovery"})
-        self.assertEqual(self.refused(action="install", version="1.0.0"), "Recovery")
+        self.assertEqual(self.refused("maintenance", action="install", version="1.0.0"), "Recovery")
         self.assertEqual((change.pending(self.paths), self.restarts), (None, []))
 
     def test_no_restart_asked_for_says_so_and_does_not_wait_for_one(self):
@@ -566,7 +570,7 @@ class OwnerCardTest(ToolsCase):
         self.assertEqual(connections.parse_action({"action": "remove", "delete_data": True}),
                          {"action": "remove", "delete_data": True})
         self.click(action="install", version="1.0.0")
-        self.assertEqual(self.refused(action="install", version="1.0.0"), change.WAITING)
+        self.assertEqual(self.refused("waiting", action="install", version="1.0.0"), change.WAITING)
 
     def test_an_address_that_does_not_answer_and_a_bundle_of_another_version_are_said(self):
         from dataclasses import replace as replaced
@@ -576,12 +580,12 @@ class OwnerCardTest(ToolsCase):
             # The index as the tools read it, with the one bundle address changed.
             return NS(entries=real.entries, entry=real.entry, entry_for=lambda ext_id, platform: (entry, bundle))
         self.index = serving(replaced(entry.bundles[0], url=(self.root / "nothing-here.tar.gz").as_uri()))
-        self.assertTrue(self.refused(action="install", version="1.0.0").startswith(
+        self.assertTrue(self.refused("not_downloaded", action="install", version="1.0.0").startswith(
             "Network was not installed. The bundle could not be downloaded or unpacked:"))
         # The index names 1.0.0 but its address serves the bundle of 1.0.1.
         newer = self.update_source().entry("network").bundles[0]
         self.index = serving(newer)
-        self.assertEqual(self.refused(action="install", version="1.0.0"),
+        self.assertEqual(self.refused("other_version", action="install", version="1.0.0"),
                          "Network was not installed. The bundle holds network 1.0.1, not network 1.0.0.")
         self.assertEqual((change.pending(self.paths), self.restarts), (None, []))
 

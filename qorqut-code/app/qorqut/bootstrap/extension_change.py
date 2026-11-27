@@ -26,7 +26,7 @@ writing (``_read``, ``_save``) is reused.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 import logging
 import os
@@ -70,6 +70,14 @@ class Outcome:
     change is staged but no restart could be asked for, ``note`` says it is applied at the next start."""
     staged: bool
     note: str | None = None
+    kind: str | None = field(default=None, compare=False)  # when not staged: the kind of reason, for ``not_done``
+
+
+class _Refused(ValueError):
+    """A bundle that cannot be taken, with the kind of reason for the log line."""
+    def __init__(self, kind, message):
+        super().__init__(message)
+        self.kind = kind
 
 
 def change_path(paths) -> Path:
@@ -165,9 +173,8 @@ def _write(paths, change, restart, reason, undo) -> Outcome:
         if os.path.lexists(path):
             path.unlink()
         undo()
-        LOGGER.warning("extension_change_not_staged action=%s extension=%s error=%s", change["action"], change["id"],
-                       exc.__class__.__name__)
-        return Outcome(False, f"The change could not be written or the restart could not be asked for: {exc}")
+        return Outcome(False, f"The change could not be written or the restart could not be asked for: {exc}",
+                       f"not_written:{exc.__class__.__name__}")
     if not asked:
         return Outcome(True, "Qorqbot could not be asked to restart, so the change is applied at its next start.")
     return Outcome(True)
@@ -175,13 +182,16 @@ def _write(paths, change, restart, reason, undo) -> Outcome:
 
 def _download(url, target, size):
     """Write the bundle at ``url`` to ``target``; refuse more bytes than the index gives."""
-    with urllib.request.urlopen(url, timeout=60) as response, target.open("xb") as output:
-        written = 0
-        while chunk := response.read(1024 * 1024):
-            written += len(chunk)
-            if written > size:
-                raise ValueError(f"The bundle is larger than the {size} bytes the index gives.")
-            output.write(chunk)
+    try:
+        with urllib.request.urlopen(url, timeout=60) as response, target.open("xb") as output:
+            written = 0
+            while chunk := response.read(1024 * 1024):
+                written += len(chunk)
+                if written > size:
+                    raise _Refused("too_large", f"The bundle is larger than the {size} bytes the index gives.")
+                output.write(chunk)
+    except OSError as exc:
+        raise _Refused("not_downloaded", f"The bundle could not be downloaded or unpacked: {exc}") from exc
 
 
 def stage(paths, entry, bundle, *, requested_by=None, signoff_id=None, restart=None) -> Outcome:
@@ -193,9 +203,9 @@ def stage(paths, entry, bundle, *, requested_by=None, signoff_id=None, restart=N
 
 def _stage(paths, entry, bundle, requested_by, signoff_id, restart) -> Outcome:
     if pending(paths) is not None:
-        return Outcome(False, WAITING)
+        return Outcome(False, WAITING, "waiting")
     if not EXTENSION_ID.fullmatch(entry.id) or not bundles.SHA256.fullmatch(bundle.sha256):
-        return Outcome(False, "The index entry does not name an extension and a bundle checksum.")
+        return Outcome(False, "The index entry does not name an extension and a bundle checksum.", "invalid_entry")
     area = staging(paths)
     archive, unpacked = area / f"{bundle.sha256}.tar.gz", area / bundle.sha256
 
@@ -208,20 +218,22 @@ def _stage(paths, entry, bundle, requested_by, signoff_id, restart) -> Outcome:
         _download(bundle.url, archive, bundle.size)
         with archive.open("rb") as stream:
             if hashlib.file_digest(stream, "sha256").hexdigest() != bundle.sha256:
-                raise ValueError("The downloaded bundle does not have the checksum the index gives.")
+                raise _Refused("checksum", "The downloaded bundle does not have the checksum the index gives.")
         found = bundles.check_bundle(archive)
         if found:
-            raise ValueError("The bundle does not pass its check: " + " ".join(found))
+            raise _Refused("bundle_check", "The bundle does not pass its check: " + " ".join(found))
         header = bundles.unpack(archive, unpacked)
         if (header["id"], header["version"]) != (entry.id, entry.version):
-            raise ValueError(f"The bundle holds {header['id']} {header['version']}, not {entry.id} {entry.version}.")
+            raise _Refused("other_version",
+                           f"The bundle holds {header['id']} {header['version']}, not {entry.id} {entry.version}.")
         if header["platform"] != bundle.platform:
-            raise ValueError(f"The bundle is for {header['platform']}, not {bundle.platform}.")
+            raise _Refused("other_platform", f"The bundle is for {header['platform']}, not {bundle.platform}.")
         archive.unlink()
     except (OSError, ValueError, tarfile.TarError) as exc:
         undo()
         return Outcome(False, str(exc) if isinstance(exc, ValueError)
-                       else f"The bundle could not be downloaded or unpacked: {exc}")
+                       else f"The bundle could not be downloaded or unpacked: {exc}",
+                       getattr(exc, "kind", None) or ("invalid_bundle" if isinstance(exc, ValueError) else "not_unpacked"))
     action = UPDATE if (paths.installed_extensions / entry.id).is_dir() else INSTALL
     change = _new_change(action, entry.id, entry.version, bundle.sha256,
                          str(_staged_folder(paths, bundle.sha256, entry.id)), requested_by, signoff_id)
@@ -237,14 +249,15 @@ def stage_removal(paths, ext_id, *, requested_by=None, signoff_id=None, delete_d
 
 def _stage_removal(paths, ext_id, requested_by, signoff_id, delete_data, restart) -> Outcome:
     if pending(paths) is not None:
-        return Outcome(False, WAITING)
+        return Outcome(False, WAITING, "waiting")
     if not isinstance(ext_id, str) or not EXTENSION_ID.fullmatch(ext_id) \
             or not (paths.installed_extensions / ext_id).is_dir():
-        return Outcome(False, f"No downloaded extension {ext_id!r} is installed.")
+        return Outcome(False, f"No downloaded extension {ext_id!r} is installed.", "not_installed")
     if type(delete_data) is not bool:
-        return Outcome(False, "Whether to delete the extension's data is not true or false.")
+        return Outcome(False, "Whether to delete the extension's data is not true or false.", "invalid_request")
     change = _new_change(REMOVE, ext_id, None, None, None, requested_by, signoff_id, delete_data)
-    return _write(paths, change, restart, f"remove extension {ext_id}", lambda: None)
+    return _write(paths, change, restart, f"remove extension {ext_id}{' and delete its data' if delete_data else ''}",
+                  lambda: None)
 
 
 def _apply(paths, change):
@@ -333,12 +346,25 @@ def apply_pending(paths) -> None:
         owner.release()
 
 
+def _what(action, delete_data):
+    """The action as the log lines write it: a removal says whether it deletes the private data."""
+    return f"{action} delete_data={'yes' if delete_data else 'no'}" if action == REMOVE else action
+
+
 def report(change) -> None:
     """Write how the change ended to the log. The service gives ``finish`` the reporter that also tells the agent who
     asked (``domains/extension_tools.py``)."""
     # A warning, as the service's log holds warnings and above only: the one line a change leaves at the start after it.
-    LOGGER.warning("extension_change_finished action=%s extension=%s state=%s requested_by=%s", change["action"],
-                change["id"], change["result"]["state"], change.get("requested_by") or "")
+    LOGGER.warning("extension_change_finished action=%s extension=%s state=%s requested_by=%s",
+                   _what(change["action"], change.get("delete_data")), change["id"], change["result"]["state"],
+                   change.get("requested_by") or "")
+
+
+def not_done(action, ext_id, requested_by, kind, delete_data=False) -> None:
+    """The one line a change refused or failed before the restart leaves: what, who asked, and the kind of reason (a
+    word, never a typed value or the text of a file)."""
+    LOGGER.warning("extension_change_not_done action=%s extension=%s requested_by=%s reason=%s",
+                   _what(action, delete_data), ext_id, requested_by or "", kind or "unknown")
 
 
 def finish(paths, report=report) -> dict | None:
