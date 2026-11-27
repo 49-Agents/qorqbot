@@ -73,6 +73,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # The start text comparison below checks out the base commit, which a one-commit fetch does not hold.
+          fetch-depth: 0
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
@@ -94,6 +97,25 @@ jobs:
           python -I -B -m unittest discover -s qorqut-code/app/tests --durations 30
           python -I -B -m unittest discover -s qorqut-code/tools/tests
           python -I -B -m unittest discover -s qorqut-code/tools/distribution/tests
+      - name: Compare every default agent's start text with the base commit
+        # The proof that a change moves code without changing what an agent is told.
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          head="$(git rev-parse HEAD)"
+          base="$RUNNER_TEMP/start-texts-base"
+          work="$RUNNER_TEMP/start-texts"
+          git worktree add --detach "$base" "$BASE_SHA"
+          mkdir -p "$work"
+          # The base record resolves with the base commit's own code and export tool; the head record uses this checkout.
+          PYTHONPATH="$base/qorqut-system/src:$base/qorqut-agentic/src:$base/qorqut-code/qorqut-operations:$base/qorqut-code/qorqut-context:$base/qorqut-code/app:$base/dependencies/document-history/src" \
+            python qorqut-code/tools/start_texts.py record --repository "$GITHUB_WORKSPACE" --commit "$BASE_SHA" \
+              --exporter "$base/qorqut-code/tools/export-unified.py" --output "$work/base.json" --work "$work"
+          python qorqut-code/tools/start_texts.py record --repository "$GITHUB_WORKSPACE" --commit "$head" \
+            --output "$work/head.json" --work "$work"
+          python qorqut-code/tools/start_texts.py compare "$work/base.json" "$work/head.json"
 
   backend-mac:
     # Required: the Mac job is listed in checks-passed, so a red one blocks a merge.
