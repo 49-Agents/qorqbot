@@ -9,6 +9,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 from qorqut_operations.storage.assembly import StorageContribution
 
@@ -106,9 +107,12 @@ class ExtensionNamesTest(unittest.TestCase):
 
     def test_a_shipped_package_that_is_importable_but_not_a_folder_of_this_tree_is_composed_from_where_it_is(self):
         tool, out = load_tool(), io.StringIO()
+        place = next(root / "qorqut-fastmail" for root in tool.PACKAGE_ROOTS if (root / "qorqut-fastmail").is_dir())
         tool.PACKAGE_ROOTS = tuple(root for root in tool.PACKAGE_ROOTS if not (root / "qorqut-fastmail").is_dir())
         self.assertIsNone(tool._package_folder("qorqut_fastmail.extension:create"))
-        with contextlib.redirect_stderr(out):
+        # On the import path from a place that is no folder of the tree's package roots, as an installed wheel is: the
+        # test does not lean on what the interpreter that runs it has installed.
+        with mock.patch.object(sys, "path", [*sys.path, str(place)]), contextlib.redirect_stderr(out):
             self.assertIn("fastmail", tool.shipped_ids())
         self.assertEqual(out.getvalue(), "")
 
