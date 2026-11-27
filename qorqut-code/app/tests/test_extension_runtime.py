@@ -204,6 +204,24 @@ class KeyedRuntimeTest(RuntimeCase):
     the Connections card; then its tool is Ordubashy's and its service runs, until the owner disconnects it."""
     FOLDER = KEYED
 
+    def setUp(self):
+        import sys
+        super().setUp()
+        # Another test file may have imported the example from its own folder, as the whole suite in one process does.
+        # The start must load the placed copy, so the name and the example's folder are free while this test runs.
+        path = list(sys.path)
+        modules = {name: module for name, module in sys.modules.items() if name.split(".")[0] == "qorqut_keyed"}
+        for name in modules:
+            del sys.modules[name]
+        sys.path[:] = [entry for entry in sys.path if entry != str(KEYED / "code")]
+
+        def restore():
+            sys.path[:] = path
+            for name in [name for name in sys.modules if name.split(".")[0] == "qorqut_keyed"]:
+                del sys.modules[name]
+            sys.modules.update(modules)
+        self.addCleanup(restore)
+
     def owner_client(self, runtime):
         try:
             from starlette.applications import Starlette
