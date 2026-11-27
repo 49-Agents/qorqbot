@@ -64,11 +64,18 @@ if [ -z "$python" ]; then
 fi
 python=${python:-python3.12}
 if ! command -v "$python" >/dev/null 2>&1; then
-    echo "Qorqbot requires Python 3.12 with venv support." >&2
-    if [ "$(uname -s)" = Darwin ]; then
-        echo "Install it with: brew install python@3.12" >&2
+    # Everything missing is named at once, with one command that installs it all.
+    if command -v git >/dev/null 2>&1; then
+        echo "Qorqbot: Python 3.12 with venv support is required. Install it with this command, then run ./qorqbot again:" >&2
+        git=
     else
-        echo "Install it with: sudo apt install python3.12 python3.12-venv" >&2
+        echo "Qorqbot: Python 3.12 with venv support and Git are required. Install them with this command, then run ./qorqbot again:" >&2
+        git=" git"
+    fi
+    if [ "$(uname -s)" = Darwin ]; then
+        echo "  brew install python@3.12$git" >&2
+    else
+        echo "  sudo apt install python3.12 python3.12-venv$git" >&2
     fi
     exit 1
 fi

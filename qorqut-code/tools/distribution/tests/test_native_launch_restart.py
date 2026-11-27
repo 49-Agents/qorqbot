@@ -81,7 +81,7 @@ class RestartTest(unittest.TestCase):
         self.assertEqual([state['pid'] for state in states], [os.getpid()])
         self.assertFalse(self.state.exists())
         self.assertEqual(output.count('Qorqbot restarted and is running at'), 2)
-        self.assertEqual(output.count('Press Ctrl+C to stop.'), 1)
+        self.assertEqual(output.count('Press Ctrl+C to stop it.'), 1)
 
     def test_zero_ends_the_run(self):
         code, starts, _, _ = self.run_child([0])

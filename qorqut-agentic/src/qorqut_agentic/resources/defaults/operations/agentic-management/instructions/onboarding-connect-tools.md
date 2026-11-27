@@ -16,17 +16,17 @@ complete the step with an empty list.
 The agent browser is the default path and works with both Claude Code and
 Codex. For each site, one at a time:
 
-1. Say in Chat exactly which website you are opening.
-2. Call `website_sign_in` with action `open` and the site.
-3. The site's sign-in page is now open in the Shared browser. Tell the owner to
-   open your Browser tab in the dashboard and sign in there themselves, and wait
-   until they say it is done. Nothing is paused. Only if
-   they cannot use it, ask for the password or code and type it yourself; never
-   repeat it or write it anywhere else.
-4. Confirm it worked: `website_sign_in` with action `status` only shows that the
+1. Call `website_sign_in` with action `open` and the site.
+2. Ask the owner to sign in as its result says: a browser-action Signoff shown
+   with `request_user_input`, whose message, such as "Sign in to Gmail.", is
+   the only text you write for it (without a tab reference in the result, tell
+   them in one line to sign in through your Browser tab). Then wait for their
+   answer. Only if they cannot use it, ask for the password or code and type it
+   yourself; never repeat it or write it anywhere else.
+3. Confirm it worked: `website_sign_in` with action `status` only shows that the
    site left cookies, so open the site and check that the
    owner's account is signed in. Read only; send, change or post nothing.
-5. Tell the owner in one line that the site is connected, or what went wrong.
+4. Tell the owner in one line that the site is connected, or what went wrong.
 
 If the agent browser is not ready, set it up yourself: call
 `agent_browser_manage` with action `status`, then `ensure` (or `repair` when
