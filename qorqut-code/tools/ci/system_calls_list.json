@@ -77,9 +77,6 @@
       "safe_file_access": 2,
       "system_module": 1
     },
-    "qorqut-code/app/qorqut/bootstrap/bridge_binding.py": {
-      "platform_check": 1
-    },
     "qorqut-code/app/qorqut/bootstrap/extension_bundle.py": {
       "permission_bits": 1
     },
@@ -101,12 +98,6 @@
       "safe_file_access": 2,
       "service_manager": 6,
       "system_module": 1
-    },
-    "qorqut-code/app/qorqut/browser/live.py": {
-      "platform_check": 1
-    },
-    "qorqut-code/app/qorqut/browser/targets.py": {
-      "platform_check": 2
     },
     "qorqut-code/app/qorqut/connectors.py": {
       "proc_read": 1
@@ -131,15 +122,6 @@
       "platform_check": 1,
       "proc_read": 1,
       "process_control": 2
-    },
-    "qorqut-code/app/qorqut/native_chat/liveness.py": {
-      "platform_check": 2
-    },
-    "qorqut-code/app/qorqut/native_chat/probe.py": {
-      "platform_check": 2
-    },
-    "qorqut-code/app/qorqut/native_paths.py": {
-      "platform_check": 1
     },
     "qorqut-code/app/qorqut/release_worker/adapters.py": {
       "file_lock": 1,

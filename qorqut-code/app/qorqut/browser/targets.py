@@ -18,6 +18,7 @@ import sys
 import types
 
 from qorqut_operations.contracts import DomainError
+from qorqut_system import platform
 
 from qorqut.service import browser_surfaces
 
@@ -69,7 +70,7 @@ class BrowserTargets:
         """Every browser the agent can name, as ``{id, label}``: the managed Global desktops the registry configures, except the
         email engine's (``AGENT_LISTED``). Empty
         when no registry is configured."""
-        if sys.platform != 'linux':
+        if platform.family() != 'linux':
             return []
         registry = self.registry()
         entries = []
@@ -107,7 +108,7 @@ class BrowserTargets:
     def _session(self):
         """``tools/browser/desktop_session.py`` from the explicit app component, executed in memory so that nothing is written
         beside an immutable source."""
-        if sys.platform != 'linux':
+        if platform.family() != 'linux':
             raise DomainError("operation_unavailable", "Managed X11 browser desktops are supported only on Linux; "
                               "use the agent's headless browser on this platform")
         if self._session_module is None:

@@ -1,8 +1,8 @@
 """Process-scoped MCP provenance; shared app-server pipes deliberately stay unbound (a managed host's own app-server is bound)."""
 import json
-import sys
 from pathlib import Path
 
+from qorqut_system import platform
 from .client import path_has_symlink
 from .codex_session import owner_alive
 from .terminal_chat import native_process
@@ -17,7 +17,7 @@ class BridgeBinding:
             try:
                 process=ancestor(runtime)
                 if not process:continue
-                if sys.platform == 'darwin':
+                if platform.family() == 'mac':
                     from qorqut import process_info
                     args=[arg.encode() for arg in process_info.cmdline(process['pid'])]
                 else:

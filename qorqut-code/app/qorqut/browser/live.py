@@ -30,12 +30,12 @@ from __future__ import annotations
 
 import json
 import re
-import sys
 import threading
 import time
 import uuid
 
 from qorqut_operations.contracts import DomainError
+from qorqut_system import platform as _platform
 
 TAB_ID = re.compile(r"[0-9A-F]{32}")
 FRAME_INTERVAL = 1 / 20          # At most this many pictures a second reach the dashboard; Chrome offers up to 60.
@@ -160,7 +160,7 @@ def command(event):
 def _mac_command(key, modifiers, platform=None):
     """The editing command a Command-key shortcut needs spelled out, as extra key event parameters. The browser runs on
     this computer, so this computer's system decides."""
-    if (platform or sys.platform) != "darwin" or modifiers & (ALT | CTRL | META) != META:
+    if (platform or _platform.family()) != "mac" or modifiers & (ALT | CTRL | META) != META:
         return {}
     name = MAC_COMMANDS.get((bool(modifiers & SHIFT), key.lower() if len(key) == 1 else key))
     return {"commands": [name]} if name else {}
