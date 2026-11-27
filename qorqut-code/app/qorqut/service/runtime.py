@@ -463,7 +463,7 @@ def build_runtime(workspace, *, paths, database=None, worker_profiles=None,
         # Without the step, tables that are not in the store cannot be opened; those extensions sit this run out.
         for ext_id in [ext_id for ext_id, item in loaded.items() if item.tables is not None]:
             found, selection, loaded = extension_registry.unload(
-                found, selection, loaded, ext_id, extension_registry.TABLES_REFUSED.format("they are made at a start"))
+                found, selection, loaded, ext_id, extension_registry.TABLES_AT_NEXT_START)
     from qorqut.agentic.installation import open_installation
     agentic_layer, agentic_view = open_installation(paths, configured.ids)
     if database is None:

@@ -100,7 +100,20 @@ class JudgeKeepsEverySpecificationTest(unittest.TestCase):
         self.assertEqual(judge("tablenote", "0", self.declare((self.ITEMS,)), record), (SAME, None))
 
 
-class TransitionTest(unittest.TestCase):
+def failing_after_the_trial(error):
+    """``_execute_additions`` as it is, except that the second call, the real transaction after the trial and the copy,
+    raises ``error``: a fault after the copy."""
+    real, calls = agentic_migration._execute_additions, []
+
+    def execute(connection, contributions):
+        calls.append(None)
+        if len(calls) == 2:
+            raise error
+        return real(connection, contributions)
+    return execute
+
+
+class PlainStoreCase(unittest.TestCase):
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
@@ -117,6 +130,8 @@ class TransitionTest(unittest.TestCase):
         folder = self.paths.instance_root / making.BACKUPS / making.AT_START
         return sorted(path.name for path in folder.iterdir()) if folder.is_dir() else []
 
+
+class TransitionTest(PlainStoreCase):
     def test_the_tables_are_made_and_the_record_read_back_from_the_file_composes_the_stored_identity(self):
         with self.assertLogs("qorqut.bootstrap.extension_tables", "WARNING") as logged:
             report = making.make_one(self.paths, NO_EXTENSIONS, "tablenote", ROW)
@@ -128,7 +143,7 @@ class TransitionTest(unittest.TestCase):
         self.assertEqual(len(self.copies()), 1)
         # Each phase's time is in the log line (finding 9).
         [line] = logged.output
-        for name in ("recognise", "integrity", "backup", "transaction", "open"):
+        for name in ("recognise", "trial", "integrity", "backup", "transaction", "open"):
             self.assertIn(f"{name}_seconds=", line)
         # Made again: the store is the target already, so no copy and nothing written.
         before = self.paths.database.read_bytes()
@@ -161,8 +176,8 @@ class TransitionTest(unittest.TestCase):
 
     def test_a_fault_after_the_copy_leaves_it_and_the_next_attempt_makes_its_own(self):
         before = objects(self.paths.database)
-        with mock.patch.object(agentic_migration, "_execute_additions", side_effect=sqlite3.OperationalError("fault")), \
-                self.assertRaises(DomainError):
+        with mock.patch.object(agentic_migration, "_execute_additions",
+                               failing_after_the_trial(sqlite3.OperationalError("fault"))), self.assertRaises(DomainError):
             making.make_one(self.paths, NO_EXTENSIONS, "tablenote", ROW)
         self.assertEqual((objects(self.paths.database), len(self.copies())), (before, 1))
         self.assertTrue(making.make_one(self.paths, NO_EXTENSIONS, "tablenote", ROW)["applied"])
@@ -194,6 +209,65 @@ class TransitionTest(unittest.TestCase):
         # With nothing due, nothing is read, locked or written.
         with mock.patch.object(making, "make_one", side_effect=AssertionError("made")):
             self.assertEqual(making.make(self.paths, NO_EXTENSIONS, {"other": loaded["other"]}), {})
+
+
+class MakingFaultsTest(PlainStoreCase):
+    LABELS = "CREATE TABLE tablenote_items (id TEXT PRIMARY KEY, label TEXT)"
+    UNIQUE = "CREATE UNIQUE INDEX tablenote_items_label ON tablenote_items(label)"
+
+    def row(self, ext_id, version, *statements):
+        return row_of(ext_id, version, (StorageContribution(ext_id, {}, schema=statements),))
+
+    def test_statements_that_do_not_fit_the_rows_cost_no_copy_at_any_start(self):
+        making.make_one(self.paths, NO_EXTENSIONS, "tablenote", self.row("tablenote", "1", self.LABELS))
+        with closing(sqlite3.connect(self.paths.database)) as connection:
+            connection.executemany("INSERT INTO tablenote_items VALUES (?, 'same')", (("a",), ("b",)))
+            connection.commit()
+        before, copies = objects(self.paths.database), self.copies()
+        due = {"tablenote": Loaded(None, (), Path("/nowhere"), self.row("tablenote", "2", self.LABELS, self.UNIQUE))}
+        for _ in range(2):
+            with self.assertLogs("qorqut.bootstrap.extension_tables", "WARNING") as logged:
+                refused = making.make(self.paths, NO_EXTENSIONS, due)
+            self.assertEqual(refused, {"tablenote": "Its tables could not be made: this version's changes to its "
+                                                    "tables do not fit the data already in them"})
+            self.assertIn("code=tables_do_not_fit_rows error=DomainError", logged.output[-1])
+            self.assertEqual((objects(self.paths.database), self.copies()), (before, copies))
+
+    def test_one_start_with_several_extensions_due_makes_one_copy(self):
+        due = {ext_id: Loaded(None, (), Path("/nowhere"),
+                              self.row(ext_id, "1", f"CREATE TABLE {ext_id}_x (id TEXT PRIMARY KEY)"))
+               for ext_id in ("tablenote", "tableother", "tablethird")}
+        with self.assertLogs("qorqut.bootstrap.extension_tables", "WARNING") as logged:
+            self.assertEqual(making.make(self.paths, NO_EXTENSIONS, due), {})
+        self.assertEqual(len(logged.output), 3)
+        self.assertEqual(len(self.copies()), 1)
+        self.assertEqual([item.owner for item in recorded(self.paths.database)][1:],
+                         ["extension.tablenote", "extension.tableother", "extension.tablethird"])
+
+    def test_a_copy_that_cannot_be_written_refuses_the_extension_and_leaves_the_store(self):
+        folder = self.paths.instance_root / making.BACKUPS
+        folder.mkdir(mode=0o500)
+        self.addCleanup(folder.chmod, 0o700)
+        before = objects(self.paths.database)
+        due = {"tablenote": Loaded(None, (), Path("/nowhere"), ROW)}
+        with self.assertLogs("qorqut.bootstrap.extension_tables", "WARNING") as logged:
+            refused = making.make(self.paths, NO_EXTENSIONS, due)
+        self.assertEqual(refused, {"tablenote": "Its tables could not be made: the copy of the database that is made "
+                                                "first could not be written"})
+        self.assertIn("code=os_error error=PermissionError", logged.output[-1])
+        self.assertEqual(objects(self.paths.database), before)
+
+    def test_tables_already_made_are_opened_and_closed_again(self):
+        making.make_one(self.paths, NO_EXTENSIONS, "tablenote", ROW)
+        closed = []
+        original = Database.close
+
+        def close(database):
+            closed.append(database.path)
+            return original(database)
+        with mock.patch.object(Database, "close", close), self.assertLogs("qorqut.bootstrap.extension_tables", "WARNING"):
+            self.assertFalse(making.make_one(self.paths, NO_EXTENSIONS, "tablenote", ROW)["applied"])
+        self.assertEqual(closed, [self.paths.database])
 
 
 if __name__ == "__main__":

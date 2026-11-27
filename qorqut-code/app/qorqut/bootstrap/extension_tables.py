@@ -13,8 +13,11 @@ process; the canonical row it prints is judged against the store's record here.
 Two choices that wait for the owner each live in one function here:
 
 - ``due``: which loaded extensions get their tables at this start. Today every loaded one whose declaration adds.
-- ``copy_for``: whether a full copy of the store is made first, and which copies stay. Today a copy every time, each
-  attempt under a name of its own, and every copy stays.
+- ``copy_for``: whether a full copy of the store is made first, and which copies stay. Today one copy per attempt (a
+  start, or a staged change), each under a name of its own, and every copy stays.
+
+Each transaction first runs its statements in a transaction that is rolled back, so statements that do not fit the rows
+already in the store cost no copy.
 """
 from __future__ import annotations
 
@@ -39,26 +42,59 @@ def due(loaded) -> dict:
     return {ext_id: item.tables for ext_id, item in sorted(loaded.items()) if item.tables is not None}
 
 
-def copy_for(paths, attempt) -> Path:
-    """Where this attempt's full copy of the store is written before its tables are made: a new name in
-    ``extension-backups/<attempt>/`` (``attempt`` is the change id of a staged change, or ``tables`` at an ordinary
-    start). A copy is made every time, and every copy stays; an attempt that was interrupted after its copy leaves it,
-    and the next one makes its own."""
-    folder = paths.instance_root / BACKUPS / attempt
-    for part in (folder.parent, folder):
-        part.mkdir(mode=0o700, exist_ok=True)
-    return folder / f"{uuid.uuid4().hex}.sqlite3"
+def copy_for(paths, attempt):
+    """The copies of the store this attempt makes before its tables are made (``attempt`` is the change id of a staged
+    change, or ``tables`` at an ordinary start), as the callable ``_apply_transition`` asks when a copy is due: it
+    answers the path of a new copy, or None when none is to be made.
+
+    Today one copy per attempt, written by the first transaction that reaches its copy, under a new name in
+    ``extension-backups/<attempt>/``; the later transactions of the same attempt make none. Every copy stays: an attempt
+    interrupted after its copy leaves it, and the next one makes its own."""
+    made = []
+
+    def wanted():
+        if made and made[-1].exists():
+            return None
+        folder = paths.instance_root / BACKUPS / attempt
+        for part in (folder.parent, folder):
+            part.mkdir(mode=0o700, exist_ok=True)
+        made.append(folder / f"{uuid.uuid4().hex}.sqlite3")
+        return made[-1]
+    return wanted
 
 
-def make_one(paths, selection, ext_id, row, *, attempt=AT_START, ownership=None):
-    """Make the tables of one row in the store, holding the instance (taken here, or the caller's). Returns the
-    transition's report; raises ``DomainError`` when they cannot be made, and the store is then as it was."""
+NOT_COPIED = "the copy of the database that is made first could not be written"
+NOT_FIT_ROWS = "this version's changes to its tables do not fit the data already in them"
+STATEMENT_FAILED = "a change to its tables failed in the database"
+
+
+def note_of(exc) -> str:
+    """The sentence a person reads when tables could not be made, from the kind of the failure: never the text of an
+    inner error. ``exc`` is the ``DomainError`` or ``OSError`` raised while making them."""
+    from qorqut.extension_registry import TABLES_REFUSED
+    if isinstance(exc, OSError):
+        return TABLES_REFUSED.format(NOT_COPIED)
+    known = {"tables_do_not_fit_rows": NOT_FIT_ROWS, "tables_statement_failed": STATEMENT_FAILED}
+    return TABLES_REFUSED.format(known[exc.code]) if exc.code in known else TABLES_REFUSED.format(exc.message)
+
+
+def _not_made(ext_id, exc):
+    """The log line of tables that could not be made: the kind and the type of the fault, never its text."""
+    LOGGER.warning("extension_tables_not_made extension=%s code=%s error=%s", ext_id,
+                   getattr(exc, "code", None) or "os_error", type(exc).__name__)
+
+
+def make_one(paths, selection, ext_id, row, *, attempt=AT_START, copy=None, ownership=None):
+    """Make the tables of one row in the store, holding the instance (taken here, or the caller's). ``copy`` is the
+    attempt's ``copy_for``; without one this call is an attempt of its own. Returns the transition's report; raises
+    ``DomainError`` (or ``OSError`` when the copy cannot be written) when they cannot be made, and the store is then as it
+    was."""
     from qorqut.bootstrap import agentic_migration as storage
     from qorqut.composition.extension_tables import recorded
     transition, inside, readback = storage.tables_transition(selection, recorded(paths.database), (row,))
     phases = {}
     report = storage.apply_tables(paths, transition, inside=inside, readback=readback,
-                                  backup=copy_for(paths, attempt), ownership=ownership, phases=phases)
+                                  backup=copy or copy_for(paths, attempt), ownership=ownership, phases=phases)
     LOGGER.warning("extension_tables_made extension=%s version=%s applied=%s %s", ext_id, row["version"],
                    "yes" if report["applied"] else "no",
                    " ".join(f"{name}_seconds={seconds}" for name, seconds in phases.items()))
@@ -66,16 +102,16 @@ def make_one(paths, selection, ext_id, row, *, attempt=AT_START, ownership=None)
 
 
 def make(paths, selection, loaded) -> dict:
-    """Make the tables of every due extension (``due``). Answers ``{id: finding}`` for each one whose tables could not
-    be made; the caller refuses those. With nothing due nothing is read, locked or written."""
-    from qorqut.extension_registry import TABLES_REFUSED
-    refused = {}
+    """Make the tables of every due extension (``due``), one transaction each, the attempt's copy made once. Answers
+    ``{id: note}`` for each one whose tables could not be made; the caller refuses those. With nothing due nothing is
+    read, locked or written."""
+    refused, copy = {}, copy_for(paths, AT_START)
     for ext_id, row in due(loaded).items():
         try:
-            make_one(paths, selection, ext_id, row)
-        except DomainError as exc:
-            LOGGER.warning("extension_tables_not_made extension=%s code=%s", ext_id, exc.code)
-            refused[ext_id] = TABLES_REFUSED.format(exc.message)
+            make_one(paths, selection, ext_id, row, copy=copy)
+        except (DomainError, OSError) as exc:
+            _not_made(ext_id, exc)
+            refused[ext_id] = note_of(exc)
     return refused
 
 
@@ -148,7 +184,7 @@ def make_staged(paths, selection, change_id, folder, ext_id, version, *, ownersh
         verdict, row = judge(ext_id, version, (contribution_of(row),), recorded(paths.database))
         if verdict == ADDS:
             make_one(paths, selection(), ext_id, row, attempt=change_id, ownership=ownership)
-    except DomainError as exc:
-        LOGGER.warning("extension_tables_not_made extension=%s code=%s", ext_id, exc.code)
-        return TABLES_REFUSED.format(exc.message)
+    except (DomainError, OSError) as exc:
+        _not_made(ext_id, exc)
+        return note_of(exc)
     return None

@@ -81,8 +81,8 @@ class ServiceOpenersTest(OpenerCase):
     def test_the_service_start_leaves_the_open_to_build_runtime(self):
         # The service start opens no store itself: ``build_runtime`` opens it (tested below), after making tables.
         from qorqut.service import main as service_main
-        for name, expected in self.stores():
-            with self.subTest(name):
+        for (name, expected), preparing in zip(self.stores(), (False, True, False)):
+            with self.subTest(name, preparing=preparing):
                 handed = {}
 
                 def assemble(*args, **kwargs):
@@ -94,9 +94,11 @@ class ServiceOpenersTest(OpenerCase):
                         mock.patch.object(service_main, "assemble", assemble):
                     status = service_main.main(["--workspace", str(self.workspace), "--instance-root",
                                                 str(self.paths.instance_root), "--component", f"app={self.app}",
-                                                "--component", f"dashboard={self.dashboard}"])
+                                                "--component", f"dashboard={self.dashboard}",
+                                                *(("--prepare-agent", "project", "agent") if preparing else ())])
                 self.assertEqual(status, 1)
-                self.assertEqual(handed, {"database": None, "make_tables": True})
+                # Only the service's own start makes tables; a command-line preparation does not.
+                self.assertEqual(handed, {"database": None, "make_tables": not preparing})
 
     def build(self, database=None):
         from qorqut.service import runtime

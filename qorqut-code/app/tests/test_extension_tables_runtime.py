@@ -134,7 +134,9 @@ class MakingAtStartTest(TablesRuntimeCase):
     def test_a_fault_after_the_copy_leaves_it_needing_attention_and_the_next_start_makes_its_own_copy(self):
         from qorqut.bootstrap import agentic_migration
         self.place()
-        with mock.patch.object(agentic_migration, "_execute_additions", side_effect=sqlite3.OperationalError("fault")), \
+        from test_extension_tables_making import failing_after_the_trial
+        with mock.patch.object(agentic_migration, "_execute_additions",
+                               failing_after_the_trial(sqlite3.OperationalError("fault"))), \
                 self.assertLogs("qorqut.bootstrap.extension_tables", logging.WARNING):
             runtime = self.start()
         entry = self.entry(runtime, "tablenote")

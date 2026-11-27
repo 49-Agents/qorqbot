@@ -154,6 +154,7 @@ def discover(paths, *, selected=(), app_version, platform, shipped=None) -> tupl
 # -- loading the code part --------------------------------------------------------------------------------------------
 NO_TABLES = "Its code declares storage(); an extension declares the tables of its own with tables()."
 TABLES_REFUSED = "Its tables could not be made: {}"
+TABLES_AT_NEXT_START = "Its tables are made at Qorqbot's next start; until then it is not loaded."
 NOT_LOADED = "Its code could not be loaded: {}."
 CODE_FOLDER = "code"
 # What the code part of a contract extension may give Qorqbot today: its tools, its install, its services, its set-up

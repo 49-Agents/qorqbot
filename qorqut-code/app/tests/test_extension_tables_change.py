@@ -125,7 +125,8 @@ class StagedInstallTest(ChangeTablesCase):
         from qorqut.bootstrap import agentic_migration
         change_id = self.stage(self.version("1.0.0"))
         before = self.store("SELECT type, name, sql FROM sqlite_master ORDER BY type, name"), self.identity()
-        with mock.patch.object(agentic_migration, "_execute_additions", side_effect=Interrupted("transaction")), \
+        from test_extension_tables_making import failing_after_the_trial
+        with mock.patch.object(agentic_migration, "_execute_additions", failing_after_the_trial(Interrupted("transaction"))), \
                 self.assertRaises(Interrupted):
             self.apply()
         self.assertEqual((self.store("SELECT type, name, sql FROM sqlite_master ORDER BY type, name"), self.identity()),

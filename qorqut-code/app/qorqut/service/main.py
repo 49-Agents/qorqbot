@@ -285,12 +285,16 @@ def main(argv=None):
         app = assemble(args.workspace, paths=paths, origins=origins, endpoint=endpoint, bootstrap_token=token,
             shell=terminal_shell(), database=None,
             terminal_workspace=args.terminal_workspace or os.environ.get("QORQUT_TERMINAL_WORKSPACE") or None,
-            recovery_config=args.recovery_config, context=context_settings, extensions=selection, make_tables=True)
+            recovery_config=args.recovery_config, context=context_settings, extensions=selection,
+            # Only the service's own start makes tables; a command-line preparation leaves an extension with tables to
+            # make unloaded, and the next start makes them.
+            make_tables=not args.prepare_agent)
         database = app.state.runtime.database
         if args.project:
             with database.read() as uow:
                 registered = {str(Path(row["workspace"]).resolve()) for row in uow.repository("projects").list()}
             if any(str(Path(path).expanduser().resolve()) not in registered for path in args.project):
+                app.state.runtime.stop()
                 raise DomainError("invalid_configuration", "--project accepts registered project folders only; it does not import them")
         if args.prepare_agent:
             # Preparing an agent writes its bootstrap material, so only the backend that owns the instance may do it:

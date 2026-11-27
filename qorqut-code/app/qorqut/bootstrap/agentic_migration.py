@@ -268,7 +268,8 @@ def apply_migration(paths: InstancePaths, plan, *, backup, extensions=NO_EXTENSI
     return _apply_transition(paths, transition, validated, backup=backup, ownership=ownership)
 
 
-def _apply_transition(paths, transition, validated, *, backup, ownership=None, inside=None, readback=None, phases=None):
+def _apply_transition(paths, transition, validated, *, backup, ownership=None, inside=None, readback=None, phases=None,
+                      trial=False):
     """The one offline transition: recognise, check integrity, publish the backup, then the DDL and the identity in one
     ``BEGIN IMMEDIATE``, and a strict open after the commit.
 
@@ -276,7 +277,10 @@ def _apply_transition(paths, transition, validated, *, backup, ownership=None, i
     ``readback(source)`` composes the target assembly again from what the store records, given the open connection inside
     the transaction or the store's path after the commit: inside, its digest must be the target's, or the transaction
     rolls back; after, the strict open uses it instead of the in-memory target. ``phases``, a dict, receives the seconds
-    each phase took. The two older callers pass none of them and are unchanged."""
+    each phase took. With ``trial`` the statements and ``inside`` first run in a transaction that is rolled back, before
+    the integrity scan and the copy, so statements that do not fit the rows cost no copy (``_try_additions``).
+    ``backup`` is the copy's path, or a callable asked for it when the copy is due that may answer None: no copy is then
+    made. The two older callers pass a path and none of the others, and are unchanged."""
     acquired_here = ownership is None
     clock = time.monotonic()
 
@@ -299,6 +303,9 @@ def _apply_transition(paths, transition, validated, *, backup, ownership=None, i
                 raise DomainError("unsupported_schema", "The existing store is not this Operations target schema version",
                                   details={"application_id": application_id, "user_version": user_version})
             phase("recognise")
+            if trial and state == "predecessor":
+                _try_additions(connection, transition, inside)
+                phase("trial")
             _require_integrity(connection)
             phase("integrity")
             if state == "target":
@@ -311,7 +318,8 @@ def _apply_transition(paths, transition, validated, *, backup, ownership=None, i
             _require_store(connection, transition, "predecessor")
             _verify_ownership(owner)
             preserved = _preserved_store_properties(connection)
-            backup_report = _publish_backup(connection, backup, transition)
+            destination = backup() if callable(backup) else backup
+            backup_report = None if destination is None else _publish_backup(connection, destination, transition)
             phase("backup")
             _verify_ownership(owner)
             connection.execute("BEGIN IMMEDIATE")
@@ -341,12 +349,12 @@ def _apply_transition(paths, transition, validated, *, backup, ownership=None, i
         # The ordinary strict target open is the last local proof; the transition is durable at this point, so a failure
         # here is reported as a committed store that does not validate, never silently retried or repaired.
         try:
-            Database(database, assembly=transition.target if readback is None else readback(database)).open_existing()
+            Database(database, assembly=transition.target if readback is None else readback(database)).open_existing().close()
             phase("open")
         except DomainError as exc:
             raise DomainError("migration_verification_failed", "The transition committed but the result does not open "
                               "through the target composition; report it, never restart the old host",
-                              details={"backup": backup_report["path"]}) from exc
+                              details={"backup": backup_report and backup_report["path"]}) from exc
         return _report(paths, transition, validated, applied=True, already_migrated=False, backup=backup_report)
     finally:
         if acquired_here:
@@ -582,6 +590,23 @@ def _execute_additions(connection, contributions) -> None:
             connection.execute(statement)
 
 
+def _try_additions(connection, transition, inside) -> None:
+    """Run the statements and ``inside`` in a transaction that is rolled back. A statement that fails raises
+    ``DomainError`` ``tables_do_not_fit_rows`` (a constraint the rows already there break) or ``tables_statement_failed``
+    (any other failure); the message names only the kind of the SQLite error."""
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        _execute_additions(connection, transition.contributions)
+        if inside is not None:
+            inside(connection)
+    except sqlite3.IntegrityError as exc:
+        raise DomainError("tables_do_not_fit_rows", f"A statement does not fit the rows ({type(exc).__name__})") from None
+    except sqlite3.Error as exc:
+        raise DomainError("tables_statement_failed", f"A statement failed ({type(exc).__name__})") from None
+    finally:
+        connection.rollback()
+
+
 def _update_identity(connection, target: Assembly) -> None:
     """Change only the target identity digest; name, version, created_at and the id stay byte for byte."""
     before = connection.execute(f'SELECT id, name, version, created_at FROM "{IDENTITY_TABLE}"').fetchall()
@@ -734,15 +759,16 @@ def tables_transition(selection, tables, rows):
 
 def apply_tables(paths, transition, *, inside, readback, backup, ownership=None, phases=None):
     """Apply one tables transition (``tables_transition``) under the instance lifetime lock (taken here, or the
-    caller's). A store that is already the target is a validated no-op with no copy."""
+    caller's), its statements tried first in a transaction that is rolled back. A store that is already the target is a
+    validated no-op with no copy. ``backup`` is as ``_apply_transition`` takes it."""
     body = _plan_body(paths, transition)
     if transition.predecessor.target == transition.target.target:
         # The store already records these rows (a start that stopped after the commit): it is opened, nothing written.
-        Database(paths.database, assembly=readback(paths.database)).open_existing()
+        Database(paths.database, assembly=readback(paths.database)).open_existing().close()
         return _report(paths, transition, {**body, "plan_digest": canonical_hash(body)}, applied=False,
                        already_migrated=True, backup=None)
     return _apply_transition(paths, transition, {**body, "plan_digest": canonical_hash(body)}, backup=backup,
-                             ownership=ownership, inside=inside, readback=readback, phases=phases)
+                             ownership=ownership, inside=inside, readback=readback, phases=phases, trial=True)
 
 
 def prepare_extension_storage(paths, *, previous, selected):
