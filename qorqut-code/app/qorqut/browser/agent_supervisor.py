@@ -1,4 +1,4 @@
-"""One persistent headless Chrome for one agent's managed browser, supervised outside the application.
+"""One persistent Chrome for one agent's managed browser, supervised outside the application: headless, or on a Mac a visible window.
 
 ``python -m qorqut.browser.agent_supervisor --state <runtime>/agent-browsers/<agent>`` is started detached by
 ``agent_browsers.AgentBrowserManager`` with this fixed argv; everything else comes from the private ``meta.json`` the manager
@@ -29,7 +29,8 @@ import time
 import uuid
 from urllib.request import ProxyHandler, build_opener
 
-from qorqut.bootstrap.client import path_has_symlink, write_json_private
+from qorqut_operations.errors import DomainError
+from qorqut.bootstrap.client import path_has_symlink, write_json_private, write_text_private
 from .control import owns_listener, process_identity
 
 EXIT_STOPPED, EXIT_FAILED, EXIT_BUSY, EXIT_CONFIG = 0, 1, 75, 78
@@ -38,6 +39,34 @@ SOCKET_PATH_LIMIT = 104
 VERSION_TIMEOUT = 10             # Seconds Chrome gets to print its version before the browser starts without a user agent of its own.
 # What a visible Chrome puts in its user agent for the computer it runs on. It is the same for every processor.
 USER_AGENT_PLATFORMS = {"linux": "X11; Linux x86_64", "darwin": "Macintosh; Intel Mac OS X 10_15_7"}
+# How the browser runs, recorded under ``managed`` in its ownership record. A record without one is headless: every record
+# written before the mode existed was.
+HEADLESS, VISIBLE = "headless", "visible"
+MODES = (HEADLESS, VISIBLE)
+WINDOW_SIZE = "1440,900"
+# What makes the visible window recognisably Qorqbot's and not the owner's own Chrome (see ``mark_profile``).
+PROFILE_NAME = "Qorqbot agents"
+THEME_COLOR = 0xFFE8710A - (1 << 32)      # orange, as the signed ARGB number Chrome stores
+IDENTITY_FILE = "profile-identity.json"
+START_PAGE = "start.html"
+START_PAGE_TEXT = ("<!doctype html><meta charset=utf-8><title>Qorqbot agents</title>"
+                   "<body style=\"font:16px system-ui,sans-serif;margin:3em;max-width:36em;color:#333\">"
+                   "<h1 style=\"font-size:20px\">Qorqbot agents</h1>"
+                   "<p>This window is where Qorqbot's agents work. Their tabs open here, and the Browser tab in Qorqbot shows "
+                   "the same pages.</p><p>It is a separate Chrome profile, not your own.</p>\n")
+
+
+def default_mode(platform: str | None = None) -> str:
+    """The mode a browser is given when it is created or started now: a visible window on a Mac, headless everywhere else.
+
+    A Mac has a screen, a window server and a graphics card, so its Chrome can run as a normal window that reads like any
+    person's browser to the websites it visits. A server has none of those, so it stays headless."""
+    return VISIBLE if (platform or sys.platform) == "darwin" else HEADLESS
+
+
+def recorded_mode(managed: dict) -> str:
+    """The mode an ownership record names; a record from before modes existed is headless."""
+    return managed.get("mode", HEADLESS)
 
 
 def load_meta(state: Path, recorded: Path | None = None) -> dict:
@@ -57,30 +86,119 @@ def load_meta(state: Path, recorded: Path | None = None) -> dict:
     if (meta["schema_version"] != 1 or meta["mode"] != "managed" or meta["agent_id"] != state.name
             or str(uuid.UUID(meta["agent_id"])) != state.name or not isinstance(managed["port"], int)
             or not 1024 <= managed["port"] <= 65535 or managed["profile"] != str((recorded or state) / "profile")
-            or not os.path.isabs(managed["chrome"])
+            or not os.path.isabs(managed["chrome"]) or recorded_mode(managed) not in MODES
             or meta["target"]["content"]["cdp_endpoint"] != f"http://127.0.0.1:{managed['port']}"):
         raise ValueError("ownership record")
     managed["profile"] = str(state / "profile")
     return meta
 
 
-def chrome_command(meta: dict, user_agent: str | None = None) -> list[str]:
+def chrome_command(meta: dict, user_agent: str | None = None, start_page: str = "about:blank") -> list[str]:
     """The only Chrome argv this supervisor ever runs: normal sandbox, loopback CDP, a profile private to the agent.
 
+    Headless (the record's mode, see ``recorded_mode``):
     No WebGL or other 3D: the host has no GPU, so 3D content (embedded maps, animated widgets) is drawn in software,
     and a headless browser always has one tab in front (the newest, or the one the owner watches) that it treats as
     visible, so a forgotten tab keeps redrawing and holds a CPU core. Tabs behind it are throttled like any background
     tab; ``idle_tabs`` unloads what nobody uses.
-    Overlay scrollbars: the page's own scrollbar is part of the picture the owner watches in the live view, and the
-    default one is a wide bar with arrows; the overlay kind is a thin thumb that fades out while the page is not scrolling.
-
     ``user_agent`` is ``normal_user_agent``'s answer for this Chrome. Without one the browser names itself
-    ``HeadlessChrome``, as it does when left alone."""
+    ``HeadlessChrome``, as it does when left alone.
+
+    Visible (a Mac): a normal Chrome window, so none of what a headless browser needs to pass for a normal one. No
+    ``--headless``, no user agent of its own (a window already sends the normal one) and graphics left on, because a Mac
+    has a graphics card and a page that finds no WebGL reads as unusual. The window opens at 1440 by 900. Chrome slows or
+    stops drawing a window that is covered or minimised and a tab that is not in front, and agents work in exactly those
+    tabs: measured on Linux with Chrome 153, such a tab stops drawing, its timers slow to a tenth and screenshots never
+    answer, and the three ``--disable-...`` flags below keep it running normally. ``start_page`` is the first tab, which
+    says what the window is (``start_page_url``). ``user_agent`` is ignored.
+
+    Overlay scrollbars, both modes: the page's own scrollbar is part of the picture the owner watches in the live view, and
+    the default one is a wide bar with arrows; the overlay kind is a thin thumb that fades out while the page is not
+    scrolling."""
     managed = meta["managed"]
-    return [managed["chrome"], "--headless=new", *profile_flags(managed),
-            "--remote-debugging-address=127.0.0.1", f"--remote-debugging-port={managed['port']}",
+    devtools = ["--remote-debugging-address=127.0.0.1", f"--remote-debugging-port={managed['port']}"]
+    if recorded_mode(managed) == VISIBLE:
+        return [managed["chrome"], *profile_flags(managed), *devtools, "--disable-background-networking",
+                "--enable-features=OverlayScrollbar", f"--window-size={WINDOW_SIZE}",
+                "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding",
+                "--disable-background-timer-throttling", start_page]
+    return [managed["chrome"], "--headless=new", *profile_flags(managed), *devtools,
             "--disable-background-networking", "--disable-3d-apis", "--enable-features=OverlayScrollbar",
             *([f"--user-agent={user_agent}"] if user_agent else []), "about:blank"]
+
+
+def start_page_url(state: Path) -> str:
+    """The visible window's first tab: a small local page in the browser's state directory (not its profile), written again
+    at every start so it is never missing. A local file and not a ``data:`` address, because Chrome marks a ``data:`` page
+    "Not secure" in the address bar. When it cannot be written the window opens on a blank tab."""
+    page = state / START_PAGE
+    try:
+        write_text_private(page, START_PAGE_TEXT)
+    except (OSError, DomainError):
+        return "about:blank"
+    return page.as_uri()
+
+
+def _merged(path: Path, values: dict) -> dict | None:
+    """The JSON object in ``path`` with ``values`` merged in (nested objects merged key by key, every other key kept), an empty
+    object merged when the file is not there yet, or ``None`` when the file is there but is not a JSON object: Chrome's own
+    file is then left as it is."""
+    try:
+        current = json.loads(path.read_bytes())
+    except FileNotFoundError:
+        current = {}
+    except (OSError, ValueError):
+        return None
+    if not isinstance(current, dict):
+        return None
+
+    def merge(into, update):
+        for key, value in update.items():
+            if isinstance(value, dict) and isinstance(into.get(key), dict):
+                merge(into[key], value)
+            else:
+                into[key] = value
+    merge(current, values)
+    return current
+
+
+def mark_profile(state: Path, profile: Path) -> str:
+    """Name the visible browser's profile "Qorqbot agents" and give it an orange theme, once, before its Chrome starts.
+
+    Two Chromes run side by side on a Mac, the owner's and the agents', with the same icon. The profile name (shown in
+    Chrome's profile menu and settings) and the window colour are what tell them apart. Written once: a colour or name the
+    owner later changes in Chrome is kept. ``IDENTITY_FILE`` in the state directory records that it was done.
+
+    Chrome keeps these in two files, checked with Chrome 153 on a throwaway profile: the profile's name in ``Local State``
+    (``profile.info_cache.Default.name`` with ``is_using_default_name`` false) and in ``Default/Preferences``
+    (``profile.name``); either alone is taken and Chrome copies it to the other. The colour is
+    ``browser.theme.user_color2`` in ``Preferences``, and ``browser.theme.user_color`` for a profile Chrome has not yet moved
+    to the newer key (Chrome 153 copies it over on the first start). ``autogenerated.theme.color``, the older key, is
+    ignored by Chrome 153 and not written.
+
+    Only while no Chrome uses the profile: the caller holds the supervisor lock and has found the port free, and a
+    ``SingletonLock`` in the profile (a Chrome that is running, or one that ended without closing) means it is left for the
+    next start. Every other key in both files is kept, each file is replaced in one step, and a file that is not a JSON
+    object is left alone. Returns what happened, for the supervisor's log."""
+    if (state / IDENTITY_FILE).exists():
+        return "kept"
+    if os.path.lexists(profile / "SingletonLock"):
+        return "in_use"
+    local_state = _merged(profile / "Local State", {"profile": {"info_cache": {"Default": {
+        "name": PROFILE_NAME, "is_using_default_name": False}}}})
+    preferences = _merged(profile / "Default/Preferences", {"profile": {"name": PROFILE_NAME},
+                                                            "browser": {"theme": {"user_color": THEME_COLOR,
+                                                                                  "user_color2": THEME_COLOR}}})
+    if local_state is None or preferences is None:
+        return "unreadable"
+    try:
+        (profile / "Default").mkdir(mode=0o700, exist_ok=True)
+        write_json_private(profile / "Local State", local_state)
+        write_json_private(profile / "Default/Preferences", preferences)
+        write_json_private(state / IDENTITY_FILE, {"schema_version": 1, "name": PROFILE_NAME, "theme_color": THEME_COLOR})
+    except (OSError, DomainError):          # a symbolic link is refused, never written through; the browser starts anyway
+        return "unwritable"
+    return "marked"
 
 
 def normal_user_agent(chrome: str, environment: dict) -> str | None:
@@ -95,6 +213,13 @@ def normal_user_agent(chrome: str, environment: dict) -> str | None:
     platform = USER_AGENT_PLATFORMS.get(sys.platform)
     if platform is None:
         return None
+    version = chrome_major(chrome, environment)
+    return version and f"Mozilla/5.0 ({platform}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{version}.0.0.0 Safari/537.36"
+
+
+def chrome_major(chrome: str, environment: dict) -> int | None:
+    """This Chrome's major version as it prints it for ``--version`` (which opens no profile), or ``None`` when it does not
+    say. Only a whole four-part version is taken."""
     try:
         child = subprocess.Popen([chrome, "--version"], env=environment, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                  stderr=subprocess.DEVNULL, text=True, errors="replace", start_new_session=True)
@@ -110,12 +235,17 @@ def normal_user_agent(chrome: str, environment: dict) -> str | None:
             pass
         child.wait()
         child.stdout.close()
-    version = re.search(r"(?<![\d.])(\d{2,4})\.\d+\.\d+\.\d+(?![\d.])", answer)
-    return version and f"Mozilla/5.0 ({platform}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{version[1]}.0.0.0 Safari/537.36"
+    return version_major(answer)
+
+
+def version_major(text: str) -> int | None:
+    """The major number of the one whole Chrome version (``153.0.8010.36``) in ``text``, else ``None``."""
+    version = re.search(r"(?<![\d.])(\d{2,4})\.\d+\.\d+\.\d+(?![\d.])", text)
+    return int(version[1]) if version else None
 
 
 def profile_flags(managed: dict) -> list[str]:
-    """The flags that decide which profile and cookie store the headless browser reads."""
+    """The flags that decide which profile and cookie store the browser reads, in either mode."""
     keychain = ["--use-mock-keychain"] if sys.platform == "darwin" else []
     return ["--no-first-run", "--no-default-browser-check", "--password-store=basic", *keychain,
             f"--user-data-dir={managed['profile']}", "--disable-sync", "--disable-extensions"]
@@ -281,11 +411,21 @@ def serve(state: Path, stop: threading.Event, recorded: Path | None = None) -> i
         if not port_free(managed["port"]):
             raise RuntimeError("port_in_use")
         environment = chrome_environment(state)
-        user_agent = normal_user_agent(managed["chrome"], environment)
-        if user_agent is None:
-            print("Browser supervisor: this Chrome did not say its version, so the browser names itself HeadlessChrome and "
-                  "some websites will refuse it.", file=sys.stderr)
-        child = subprocess.Popen(chrome_command(meta, user_agent), cwd=state, env=environment, stdin=subprocess.DEVNULL,
+        if recorded_mode(managed) == VISIBLE:
+            user_agent, start_page = None, start_page_url(state)
+            marked = mark_profile(state, profile)
+            if marked in {"in_use", "unreadable", "unwritable"}:
+                print("Browser supervisor: the profile was not named and coloured as Qorqbot's this time ("
+                      + {"in_use": "a Chrome lock is in it", "unreadable": "Chrome's settings file could not be read",
+                         "unwritable": "Chrome's settings files could not be written"}[marked]
+                      + "); the next start tries again.", file=sys.stderr)
+        else:
+            start_page = "about:blank"
+            user_agent = normal_user_agent(managed["chrome"], environment)
+            if user_agent is None:
+                print("Browser supervisor: this Chrome did not say its version, so the browser names itself HeadlessChrome "
+                      "and some websites will refuse it.", file=sys.stderr)
+        child = subprocess.Popen(chrome_command(meta, user_agent, start_page), cwd=state, env=environment, stdin=subprocess.DEVNULL,
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         publish(chrome_pid=child.pid, chrome_identity=process_identity(child.pid))
         deadline = time.monotonic() + START_TIMEOUT

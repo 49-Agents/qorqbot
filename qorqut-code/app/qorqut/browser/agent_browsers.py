@@ -10,7 +10,8 @@ list of agents); no host effect runs inside a database transaction.
 
 An agent is connected by the ``shared.json`` record in its own state directory and a target file in its workspace that
 names the Shared browser; ``ensure``, ``repair`` and ``restart`` write both for every permanent agent. A small supervisor
-(``agent_supervisor``) owns the one headless Chrome with its profile and a loopback CDP port reserved here. Folder
+(``agent_supervisor``) owns the one Chrome with its profile and a loopback CDP port reserved here: headless, or on a Mac a
+visible window (the record's ``mode``, see ``_brought_up_to_date``). Folder
 installations and macOS use a detached supervisor; existing Linux service installations use a deterministic transient
 *user* service (``systemd-run --user``).
 """
@@ -39,7 +40,7 @@ from qorqut_operations.storage import safe_io
 from qorqut.bootstrap import browser
 from qorqut.bootstrap.client import path_has_symlink, write_json_private
 from qorqut.composition.locations import agent_workspace_of
-from .agent_supervisor import port_free
+from .agent_supervisor import MODES, VISIBLE, default_mode, port_free, recorded_mode
 from .control import owns_listener, process_identity
 
 ACTIONS = ("status", "ensure", "repair", "restart", "stop")
@@ -49,6 +50,7 @@ SHARED_ID = "da69c2a4-cd9c-5aa7-9a94-176338b13618"
 MEMBERSHIP_FILE = "shared.json"
 PORTS = range(20400, 21400)          # reserved for managed browsers
 CHROME = "/usr/bin/google-chrome-stable"
+GOOGLE_CHROME_NAMES = frozenset({"Google Chrome", "google-chrome", "google-chrome-stable"})   # the program, on a Mac and on Linux
 SYSTEMCTL, SUDO, SYSTEMD_RUN = "/usr/bin/systemctl", "/usr/bin/sudo", "/usr/bin/systemd-run"
 UNIT_RUNNING = {"active", "activating", "reloading"}
 DEPLOYMENT_DIRECTORIES = (Path("/etc/qorqut-browser-desktops"),)
@@ -297,6 +299,7 @@ def meta_valid(meta, agent_id, directory):
                 and set(content) == {"schema_version", "cdp_endpoint", "runtime_dir"} and isinstance(target["workspace"], str)
                 and isinstance(managed["port"], int) and 1024 <= managed["port"] <= 65535
                 and managed["profile"] == str(directory / "profile") and os.path.isabs(managed["chrome"])
+                and recorded_mode(managed) in MODES
                 and managed["unit"] == unit_name(directory.parent, agent_id) and bool(UNIT.fullmatch(managed["unit"]))
                 and content["cdp_endpoint"] == f"http://127.0.0.1:{managed['port']}")
     except (KeyError, TypeError):
@@ -611,10 +614,85 @@ class AgentBrowserManager:
         return "missing" if capable else "unsupported"
 
     def _new_chrome(self):
-        """The Chrome a browser created now runs on: Qorqbot's own downloaded build once it is installed and has started
-        here, else the installed one. A browser that exists keeps the Chrome in its ownership record."""
+        """The Chrome a browser created now runs on. A browser that exists keeps the Chrome in its ownership record, apart
+        from the one move ``_visible_chrome`` makes.
+
+        Headless: Qorqbot's own downloaded build once it is installed and has started here, else the installed one.
+        Visible (a Mac): the installed Google Chrome, and Qorqbot's own build only on a Mac without one. Chrome for Testing
+        shows a bar saying it is for automated testing and calls itself Chromium, which a visible window must not do.
+        An installation that names its own Chrome (``managed_chrome.external_choice``) keeps it in both modes."""
         from . import managed_chrome
+        if default_mode() == VISIBLE and not managed_chrome.external_choice():
+            from qorqut import native_paths
+            installed = native_paths.installed_chrome()
+            if installed is not None:
+                return installed
         return managed_chrome.preferred(self.paths.runtime) or self.chrome
+
+    def _visible_chrome(self, directory, recorded):
+        """The Chrome an existing visible browser starts on: the one it is recorded on, except that a browser recorded on
+        Qorqbot's own build moves to the installed Google Chrome when that is at least as new.
+
+        ``managed_chrome.preferred`` explains why a browser keeps its recorded Chrome: a profile last opened by a newer Chrome
+        can lose data when an older one opens it. So the move happens only when the installed Chrome's major version is not
+        lower than both the recorded Chrome's and the one that last opened the profile (Chrome writes it to the profile's
+        ``Last Version`` file). When any of those versions cannot be told, the browser stays where it is. It never moves
+        back: a browser on Google Chrome is not Qorqbot's own build, so nothing here applies to it again."""
+        from qorqut import native_paths
+        from . import agent_supervisor, managed_chrome
+        if managed_chrome.external_choice() or not managed_chrome.is_own(recorded, self.paths.runtime):
+            return recorded
+        installed = native_paths.installed_chrome()
+        if installed is None or installed == recorded:
+            return recorded
+        environment = agent_supervisor.chrome_environment(directory)
+        new, old = (agent_supervisor.chrome_major(chrome, environment) for chrome in (installed, recorded))
+        try:
+            last = agent_supervisor.version_major(
+                safe_io.read_bytes(directory / "profile/Last Version", limit=64).decode(errors="replace"))
+        except (OSError, ValueError, TypeError):
+            last = None
+        if new is None or old is None or new < old or (last is not None and new < last):
+            return recorded
+        return installed
+
+    def _brought_up_to_date(self, directory, meta):
+        """The ownership record a browser is started with, written first when it changes.
+
+        The mode follows the computer (``agent_supervisor.default_mode``): a browser created on Linux before modes existed has
+        none, which already means headless, and is not rewritten; an existing Mac browser becomes visible here, at its next
+        start, on the same profile, port and supervisor, so its sign-ins are kept. Here and not when the record is read,
+        because the record is the one place the supervisor and every status check take the browser's facts from, and a
+        browser that is running must keep being recognised as it runs: it changes mode only when it starts again. Only the
+        mode and the Chrome under ``managed`` can change; the port, profile, unit and target the ownership checks compare are
+        left exactly as they are."""
+        managed = dict(meta["managed"])
+        mode = default_mode()
+        if recorded_mode(managed) != mode:
+            managed["mode"] = mode
+        if mode == VISIBLE:
+            managed["chrome"] = self._visible_chrome(directory, managed["chrome"])
+        if managed == meta["managed"]:
+            return meta
+        meta = {**meta, "managed": managed}
+        self._write_meta(directory, meta)
+        return meta
+
+    def chrome_in_use(self):
+        """Which Chrome the browser runs on and how, for Settings: ``{"kind", "mode"}``. ``kind`` is ``google_chrome``,
+        ``chrome_for_testing`` (Qorqbot's own build) or ``other``. It is the browser's ownership record when there is one, else
+        what a browser created now would get. A Mac browser still recorded on Qorqbot's own build shows that until its next
+        start moves it."""
+        from . import managed_chrome
+        directory = agent_state(self.paths, SHARED_ID)
+        meta = None if path_has_symlink(directory) else _read_json(directory / "meta.json")
+        if meta is not None and meta_valid(meta, SHARED_ID, directory):
+            chrome, mode = meta["managed"]["chrome"], recorded_mode(meta["managed"])
+        else:
+            chrome, mode = self._new_chrome(), default_mode()
+        kind = ("chrome_for_testing" if managed_chrome.is_own(chrome, self.paths.runtime) else
+                "google_chrome" if Path(chrome).name in GOOGLE_CHROME_NAMES else "other")
+        return {"kind": kind, "mode": mode}
 
     def _capable(self):
         chrome = self._new_chrome()
@@ -728,6 +806,7 @@ class AgentBrowserManager:
                 raise DomainError("browser_port_conflict", "The reserved CDP port is occupied by another process; it was not "
                                   "adopted or stopped and no other port was assigned")
             ctx.effect = True
+            meta = self._brought_up_to_date(directory, meta)
             (directory / "ready.json").unlink(missing_ok=True)      # a failure recorded by an earlier supervisor is not this start's
             self.launcher.start(unit, directory)
         self._await_ready(directory, meta, unit)
@@ -927,7 +1006,7 @@ class AgentBrowserManager:
                     "target": {"workspace": str(s.workspace), "content": content,
                                "sha256": hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()},
                     "managed": {"port": port, "profile": str(directory / "profile"), "chrome": chrome,
-                                "unit": unit_name(directory.parent, SHARED_ID)}}
+                                "unit": unit_name(directory.parent, SHARED_ID), "mode": default_mode()}}
             _private_directory(directory)
             _private_directory(directory / "profile")
             self._write_meta(directory, meta)

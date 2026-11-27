@@ -252,13 +252,21 @@ class BrowserSetupTest(unittest.TestCase):
             self.assertEqual((owner, arguments, owner_control), ('owner', {'action': 'status'}, True))
             return {'state': 'healthy', 'diagnostic': 'Ready.', 'browser': 'shared', 'agents': agents}
         view = self.read_view(status)
-        self.assertEqual(set(view), {'kind', 'tool_installed', 'chrome_installed', 'managed_chrome', 'diagnostic', 'state',
-                                     'explanation', 'ready', 'agents'})
+        self.assertEqual(set(view), {'kind', 'tool_installed', 'chrome_installed', 'managed_chrome', 'chrome_in_use',
+                                     'diagnostic', 'state', 'explanation', 'ready', 'agents'})
         self.assertEqual((view['kind'], view['state'], view['diagnostic']), ('built_in', 'healthy', 'Ready.'))
         self.assertEqual(view['agents'], agents)
         self.assertEqual(view['explanation'], "Atlas: This agent's folder isn't ready yet.")
         self.assertTrue(view['ready'])
         self.runtime.browser_manager.manage.assert_called_once()
+
+    def test_the_view_says_which_chrome_the_browser_uses(self):
+        self.runtime.browser_manager.chrome_in_use.return_value = {'kind': 'google_chrome', 'mode': 'visible'}
+        view = self.read_view(lambda *_a, **_k: {'state': 'healthy', 'diagnostic': '', 'browser': 'shared', 'agents': []})
+        self.assertEqual(view['chrome_in_use'], {'kind': 'google_chrome', 'mode': 'visible'})
+        self.runtime.browser_manager.chrome_in_use.side_effect = OSError('unreadable')
+        view = self.read_view(lambda *_a, **_k: {'state': 'healthy', 'diagnostic': '', 'browser': 'shared', 'agents': []})
+        self.assertIsNone(view['chrome_in_use'])
 
     def test_setup_offers_no_browser_choice(self):
         self.assertFalse(hasattr(setup, 'choose'))

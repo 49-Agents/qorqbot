@@ -86,7 +86,8 @@ INSTALLED_CHROME_USED = ("Qorqbot's own browser can't be used on this computer, 
 
 
 def host(runtime):
-    """What this computer has for the browser: the browser tool, a Chrome, and the state of Qorqbot's own Chrome."""
+    """What this computer has for the browser: the browser tool, a Chrome, the state of Qorqbot's own Chrome, and the Chrome
+    the browser uses."""
     from qorqut.native_paths import installed_chrome
     from qorqut.bootstrap import browser
     own_chrome = managed_chrome.view(runtime.paths.runtime)
@@ -99,7 +100,14 @@ def host(runtime):
         tool = True
     except (browser.BrowserError, OSError, ValueError):
         tool = False
-    return {"tool_installed": tool, "chrome_installed": chrome, "managed_chrome": own_chrome}
+    try:
+        in_use = runtime.browser_manager.chrome_in_use()
+    except (DomainError, OSError, ValueError, AttributeError):
+        in_use = None
+    # ``chrome_in_use``: which Chrome the browser runs on and whether as a visible window, so the card can say so. On a Mac
+    # without Google Chrome it is Qorqbot's own build, whose window says it is for automated testing.
+    return {"tool_installed": tool, "chrome_installed": chrome, "managed_chrome": own_chrome,
+            "chrome_in_use": in_use if isinstance(in_use, dict) else None}
 
 
 def view(runtime):

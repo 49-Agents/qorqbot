@@ -157,6 +157,7 @@ def current_program(runtime_directory, platform=None):
 
 def preferred(runtime_directory):
     """The Chrome a NEW browser is created on when it should be Qorqbot's own, as text, else None (use the installed one).
+    A visible browser (a Mac) asks this only when no Google Chrome is installed; see ``AgentBrowserManager._new_chrome``.
 
     A browser that already exists keeps the Chrome its ownership record names: a profile last opened by a newer Chrome can
     lose its sign-ins when an older one opens it, and the installed Chrome updates itself past this pin. The supervisor
@@ -169,6 +170,15 @@ def preferred(runtime_directory):
     from .agent_browsers import outside_private_mounts
     outside = outside_private_mounts(selected)
     return str(outside) if os.access(outside, os.X_OK) else None
+
+
+def is_own(chrome, runtime_directory):
+    """Whether the Chrome path a browser's record names is one of Qorqbot's own builds (anything under the runtime folder's
+    ``chrome/``), by the path the application sees or by the one valid outside its private bind mounts."""
+    from .agent_browsers import outside_private_mounts
+    root = chrome_root(runtime_directory)
+    path = PurePosixPath(os.path.normpath(str(chrome)))
+    return any(path.is_relative_to(os.path.normpath(str(folder))) for folder in {root, outside_private_mounts(root)})
 
 
 def settled(runtime_directory, platform=None):

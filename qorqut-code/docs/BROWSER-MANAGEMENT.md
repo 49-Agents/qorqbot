@@ -60,12 +60,14 @@ inactive workers are not.
 
 ## The managed headless browser
 
-The first `ensure` creates the Shared browser, a **headless managed browser**:
+The first `ensure` creates the Shared browser, a **headless managed browser** (on a Mac a visible window instead; see
+[A visible browser on a Mac](#a-visible-browser-on-a-mac)):
 
 * one persistent headless Chrome (normal sandbox — never `--no-sandbox`), loopback CDP only, starting on `about:blank`.
   It is [Qorqbot's own Chrome](#qorqbots-own-chrome) when that is installed and starts on this computer, otherwise the
   installed Google Chrome (`/usr/bin/google-chrome-stable`). The choice is made when the browser is created and saved in
-  its ownership record;
+  its ownership record, with the mode (`managed.mode`: `headless`; a record from before modes existed has none, which
+  means the same);
 * the user agent of a visible Chrome. Left alone, a headless Chrome writes `HeadlessChrome` where a visible one writes
   `Chrome`, and websites refuse it for that word: sign-up pages that turned this browser away on 2026-11-22 opened in the
   same browser without it. The supervisor asks the Chrome it is about to start for its version
@@ -102,6 +104,44 @@ The supervisor asks Chrome to close itself over DevTools before terminating it, 
 so a worker never talks to a foreign process that took over a dead browser's port; it gets `browser_not_ready` pointing to
 Ordubashy. After a host reboot (or any other loss) `status` reports `stopped` and `repair`/`ensure` starts the same profile
 again. `stop` ends exactly that supervisor (and, only if it ignored the stop, exactly its derived unit).
+
+## A visible browser on a Mac
+
+On a Mac (`sys.platform == "darwin"`) the Shared browser is a normal, visible Chrome window on its own profile, so it reads
+to websites like any person's Chrome without the overrides a headless one needs. Everywhere else nothing changes. There is
+no setting: visible is the only mode on a Mac. The plan and what is still to come are in
+[VISIBLE-AGENT-BROWSER-MAC-PLAN.md](VISIBLE-AGENT-BROWSER-MAC-PLAN.md).
+
+* **Mode.** `managed.mode` in the ownership record is `visible`, written when the browser is created or repaired. An
+  existing Mac browser (no mode, or `headless`) is given `visible` when it next starts (`_brought_up_to_date` in
+  `agent_browsers.py`, just before the supervisor is launched): same profile, port and supervisor, so sign-ins are kept. A
+  browser that is running is not touched; it changes at its next start. Only `mode` and `chrome` under `managed` ever
+  change there, never what the ownership checks compare. A Linux record without a mode is left as it is.
+* **Command.** No `--headless=new`, no `--disable-3d-apis`, no `--user-agent=` (and Chrome is not asked its version for
+  one). Added: `--window-size=1440,900`, `--disable-backgrounding-occluded-windows`, `--disable-renderer-backgrounding` and
+  `--disable-background-timer-throttling`, because agents work in tabs that are not in front and in a window that may be
+  covered or minimised. Profile flags, loopback DevTools and `--disable-background-networking` are as in headless.
+* **Which Chrome.** A new visible browser uses the installed Google Chrome; Qorqbot's own Chrome for Testing (which shows
+  a bar saying it is for automated testing) only on a Mac without one. `QORQUT_CHROME_EXECUTABLE` and a runtime that
+  bundles Chrome still win. A browser recorded on Qorqbot's own build moves to the installed Google Chrome at its next
+  start when that is at least as new: its major version (`--version`) is not lower than the recorded Chrome's or than the
+  one in the profile's `Last Version` file. When a version cannot be told it stays; it never moves back. Settings gets
+  `chrome_in_use` (`kind`: `google_chrome`, `chrome_for_testing` or `other`; `mode`) from the record, or from what a new
+  browser would get.
+* **Recognisably Qorqbot's.** Before its first visible start the supervisor names the profile "Qorqbot agents" and gives
+  it an orange theme, so the window is not mistaken for the owner's own Chrome. Chrome 153 was checked on a throwaway
+  profile: the name is `profile.info_cache.Default.name` (with `is_using_default_name` false) in `Local State` and
+  `profile.name` in `Default/Preferences`; the colour is `browser.theme.user_color2`, and `browser.theme.user_color` for a
+  profile Chrome has not moved to the newer key yet. Other keys in both files are kept, each file is replaced in one
+  step, and nothing is written while a `SingletonLock` is in the profile (that start is left and the next one tries again).
+  It is done once (`profile-identity.json` in the state directory), so a name or colour the owner changes in Chrome stays.
+  The first tab is `start.html` in the state directory, a few lines saying this window is where Qorqbot's agents work.
+* **Starting and stopping** are as in headless: the same supervisor, readiness check (DevTools answers and that exact
+  Chrome owns the port) and stop (`Browser.close` over DevTools first, so the profile is written). Checked on Linux with a
+  visible Chrome 153 on a virtual display: it started, became ready, closed cleanly with the name and colour kept, and
+  started again.
+* **Not built yet** (they wait for a run on a real Mac): keeping the window from taking the owner's focus, per-tab focus
+  emulation for every agent tab, what closing the window or quitting Chrome does, and Chrome's own pop-ups.
 
 ## How agents use it
 
