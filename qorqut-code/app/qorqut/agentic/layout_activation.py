@@ -14,6 +14,7 @@ from qorqut_agentic.errors import UnsafePathError
 from qorqut_agentic.store import Store
 from qorqut_operations.contracts import DomainError
 from qorqut.private_files import fsync_directory, read_private_file, require_private_directory
+from qorqut_system import private_files
 from . import layout_binding, layout_files, layout_git, layout_intent, layout_runtime
 from .layout_intent import _conflict
 from .support import canonical, digest, relative
@@ -73,24 +74,23 @@ def incomplete(paths, intents, *, _verified=None, offline_read_only=False):
     by_digest = {item['plan']['plan_digest']: item for item in intents}
     completed = set()
     if os.path.lexists(directory):
-        with os.scandir(directory) as entries:
-            count = 0
-            for entry in entries:
-                count += 1
-                if count > 10000:
-                    raise _conflict('History directory exceeds inspection bound')
-                if not entry.name.startswith('activation-layout'):
-                    continue
-                match = _NAME.fullmatch(entry.name)
-                if not match or match.group(1) not in by_digest:
-                    raise _conflict('Unknown layout activation journal')
-                intent = by_digest[match.group(1)]
-                journal = _read(directory / entry.name)
-                verified = _verify(paths, intent, journal, offline_read_only=offline_read_only)
-                if _verified is not None:
-                    _verified[match.group(1)] = (journal, verified)
-                if journal['phase'] == 'complete':
-                    completed.add(match.group(1))
+        count = 0
+        for name in private_files.walk_entries(directory):
+            count += 1
+            if count > 10000:
+                raise _conflict('History directory exceeds inspection bound')
+            if not name.startswith('activation-layout'):
+                continue
+            match = _NAME.fullmatch(name)
+            if not match or match.group(1) not in by_digest:
+                raise _conflict('Unknown layout activation journal')
+            intent = by_digest[match.group(1)]
+            journal = _read(directory / name)
+            verified = _verify(paths, intent, journal, offline_read_only=offline_read_only)
+            if _verified is not None:
+                _verified[match.group(1)] = (journal, verified)
+            if journal['phase'] == 'complete':
+                completed.add(match.group(1))
     return [i for i in intents if i['plan']['plan_digest'] not in completed]
 
 
@@ -131,45 +131,45 @@ def _validate_completed_record(paths, record, raw, *, _intents=None, _verified=N
 def _probe(parent):
     """Exercise the exact publication primitives in an isolated owned directory."""
     directory = Path(tempfile.mkdtemp(prefix='.layout-probe-', dir=parent))
-    os.chmod(directory, 0o700)
-    fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    private_files.set_private(directory, mode=0o700)
+    fd = private_files.open_folder(directory).descriptor
     try:
         from qorqut import posix_files
         pending = posix_files.anonymous_file(fd, read=True)
         try:
             os.write(pending.fd, b'probe')
-            os.fsync(pending.fd)
+            private_files.sync_folder(pending.fd)
             posix_files.publish(pending, fd, 'one')
         finally:
             posix_files.discard(pending)
         try:
-            os.link('one', 'two', src_dir_fd=fd, dst_dir_fd=fd, follow_symlinks=False)
+            private_files.link_entry(fd, 'one', 'two')
             try:
-                os.link('one', 'two', src_dir_fd=fd, dst_dir_fd=fd, follow_symlinks=False)
+                private_files.link_entry(fd, 'one', 'two')
             except FileExistsError:
                 pass
             else:
                 raise _conflict('Exclusive publication is unavailable')
-            os.unlink('two', dir_fd=fd)
-            target = os.open('two', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=fd)
+            private_files.remove_entry(fd, 'two')
+            target = private_files.create_file(fd, 'two', mode=0o600)
             try:
                 os.write(target, b'distinct target')
-                os.fsync(target)
+                private_files.sync_folder(target)
             finally:
                 os.close(target)
-            source_info = os.stat('one', dir_fd=fd, follow_symlinks=False)
-            target_info = os.stat('two', dir_fd=fd, follow_symlinks=False)
+            source_info = private_files.stat_entry(fd, 'one')
+            target_info = private_files.stat_entry(fd, 'two')
             if (source_info.st_dev, source_info.st_ino) == (target_info.st_dev, target_info.st_ino):
                 raise _conflict('Replacement probe operands are not distinct')
-            os.replace('one', 'two', src_dir_fd=fd, dst_dir_fd=fd)
-            os.fsync(fd)
+            private_files.rename_entry(fd, 'one', 'two')
+            private_files.sync_folder(fd)
             try:
-                os.stat('one', dir_fd=fd, follow_symlinks=False)
+                private_files.stat_entry(fd, 'one')
             except FileNotFoundError:
                 pass
             else:
                 raise _conflict('Replacement probe did not remove its source')
-            replaced = os.open('two', os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+            replaced = private_files.open_read(fd, 'two')
             try:
                 info = os.fstat(replaced)
                 if ((info.st_dev, info.st_ino) != (source_info.st_dev, source_info.st_ino)
@@ -180,12 +180,12 @@ def _probe(parent):
         finally:
             for name in ('one', 'two'):
                 try:
-                    os.unlink(name, dir_fd=fd)
+                    private_files.remove_entry(fd, name)
                 except FileNotFoundError:
                     pass
     finally:
         os.close(fd)
-        os.rmdir(directory)
+        private_files.remove_folder(Path(directory).parent, Path(directory).name)
         fsync_directory(parent)
     if os.path.lexists(directory):
         raise _conflict('Layout filesystem probe was not cleaned')
@@ -361,7 +361,7 @@ def apply(paths, plan, *, attribution):
             config = require_private_directory(Path(paths.instance_root) / 'config')
             temp = _write_private_temp(config, raw)
             try:
-                os.replace(temp, config / RECORD)
+                private_files.rename_entry(config, temp.name, RECORD)
                 fsync_directory(config)
             finally:
                 temp.unlink(missing_ok=True)

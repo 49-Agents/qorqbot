@@ -11,6 +11,7 @@ import os
 import stat
 
 from qorqut.private_files import read_private_file, write_private_file
+from qorqut_system import private_files
 from .support import canonical
 
 RECEIPT = 'agentic-copy-identity.json'
@@ -21,11 +22,11 @@ def identities(root, state):
     for name, path in (('root', root), ('state', state), ('git', root / '.git')):
         if not path.is_absolute() or any(p.is_symlink() for p in (path, *path.parents)):
             raise ValueError('Copied Agentic directories must be absolute and not symlinks')
-        info = path.stat(follow_symlinks=False)
-        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid():
+        info = private_files.stat_folder(path)
+        if not stat.S_ISDIR(info.st_mode) or not private_files.is_mine(info):
             raise ValueError('Copied Agentic directories must be owned by the installer')
         result[name] = {'device': info.st_dev, 'inode': info.st_ino,
-                        'mode': stat.S_IMODE(info.st_mode)}
+                        'mode': private_files.mode_of(info, mask=0o7777)}
     return result
 
 

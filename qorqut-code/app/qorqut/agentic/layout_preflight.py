@@ -5,13 +5,15 @@ import os
 import re
 import stat
 
+from qorqut_system import private_files
+
 
 def _identity(info):
     return (info.st_dev, info.st_ino, info.st_mode, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
 
 
 def _read_at(directory, name, limit):
-    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+    fd = private_files.open_read(directory, name, nonblock=True)
     try:
         before = os.fstat(fd)
         if not stat.S_ISREG(before.st_mode) or before.st_size > limit:
@@ -23,7 +25,7 @@ def _read_at(directory, name, limit):
             if size > limit:
                 raise OSError('oversized Git metadata')
         if (_identity(before) != _identity(os.fstat(fd)) or
-                _identity(before) != _identity(os.stat(name, dir_fd=directory, follow_symlinks=False))):
+                _identity(before) != _identity(private_files.stat_entry(directory, name))):
             raise OSError('Git metadata changed')
         return b''.join(chunks), _identity(before)
     finally:
@@ -36,9 +38,9 @@ def check(root, run):
     from .layout_git import _index_entries
 
     try:
-        rootfd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        rootfd = private_files.open_folder(root).descriptor
         try:
-            gitfd = os.open('.git', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=rootfd)
+            gitfd = private_files.open_child_folder(rootfd, '.git').descriptor
             try:
                 git_identity = _identity(os.fstat(gitfd))
                 try:
@@ -70,7 +72,7 @@ def check(root, run):
                 if destination == 'HEAD' and head != oid + b'\n':
                     raise OSError('Git HEAD identity diverged')
                 if (_identity(os.fstat(gitfd)) != git_identity or
-                        _identity(os.stat('.git', dir_fd=rootfd, follow_symlinks=False)) != git_identity or
+                        _identity(private_files.stat_entry(rootfd, '.git')) != git_identity or
                         _read_at(gitfd, 'HEAD', 4096) != (head, head_identity) or
                         _read_at(gitfd, 'index', 96 * 1024 * 1024) != (index, index_identity)):
                     raise OSError('Git metadata changed')

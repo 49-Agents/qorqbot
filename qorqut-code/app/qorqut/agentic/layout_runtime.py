@@ -16,6 +16,7 @@ from pathlib import Path
 
 from qorqut import file_identity
 from qorqut.private_files import read_private_file, require_private_directory
+from qorqut_system import private_files
 from qorqut_agentic.changes import Changes, event_dict, normalize_attribution
 from qorqut_agentic.core import LayerContext
 from qorqut_agentic.store import Store, _verify_layout
@@ -135,7 +136,7 @@ def _evidence(paths, plan, attribution, *, binding, current=True, retained=False
         return directory, path, intent, relocation, journal, candidate, candidate_digest, None
     if binding and digest(read_binding_bytes(paths)) != plan['binding']['record_sha256']:
         raise _conflict('Original active binding changed')
-    state = os.stat(paths.agentic_runtime, follow_symlinks=False)
+    state = private_files.stat_folder(paths.agentic_runtime)
     if not file_identity.matches(plan['identity']['state'], {'device': state.st_dev, 'inode': state.st_ino},
                                  file_identity.parent_volume(paths.agentic_runtime)):
         raise _conflict('Runtime directory identity changed')
@@ -152,7 +153,7 @@ def _evidence(paths, plan, attribution, *, binding, current=True, retained=False
         git._check_operation_locks(paths.agentic_root, destination)
         if git._head_state(runner, rootfd, journal, destination) != 'candidate':
             raise _conflict('Published ref changed')
-        gitfd = os.open('.git', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=rootfd)
+        gitfd = private_files.open_child_folder(rootfd, '.git').descriptor
         try:
             if not file_identity.matches(relocation['gitdir'], files._identity(os.fstat(gitfd)), os.fstat(rootfd).st_dev):
                 raise _conflict('Git directory changed')
@@ -337,7 +338,7 @@ def _offline_reader(store):
     path = Path(store.state_dir)
     if not path.is_absolute() or '..' in path.parts:
         raise _conflict('Unsafe offline runtime path')
-    directory = os.open('/', os.O_RDONLY | os.O_DIRECTORY)
+    directory = private_files.open_folder('/', follow_link=True).descriptor      # the filesystem root is never a link
     db = None
     conn = None
     parents = []
@@ -345,7 +346,7 @@ def _offline_reader(store):
         return (info.st_dev, info.st_ino, info.st_mode, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
     def state(name):
         try:
-            info = os.stat(name, dir_fd=directory, follow_symlinks=False)
+            info = private_files.stat_entry(directory, name)
         except FileNotFoundError:
             return None
         if not stat.S_ISREG(info.st_mode):
@@ -353,7 +354,7 @@ def _offline_reader(store):
         return identity(info)
     try:
         for component in path.parts[1:]:
-            child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+            child = private_files.open_child_folder(directory, component).descriptor
             os.close(directory)
             directory = child
             info = os.fstat(directory)
@@ -363,7 +364,7 @@ def _offline_reader(store):
             raise _conflict('Missing or oversized offline runtime database')
         if before['state.sqlite3-wal'] is not None and before['state.sqlite3-wal'][3]:
             raise _conflict('Nonempty runtime WAL requires offline checkpoint before preparation')
-        db = os.open('state.sqlite3', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+        db = private_files.open_read(directory, 'state.sqlite3', nonblock=True)
         if identity(os.fstat(db)) != before['state.sqlite3']:
             raise _conflict('Offline runtime database changed before inspection')
         conn = sqlite3.connect(immutable_database_uri(db), uri=True)
@@ -374,10 +375,10 @@ def _offline_reader(store):
         finally:
             if identity(os.fstat(db)) != before['state.sqlite3'] or any(state(name) != value for name, value in before.items()):
                 raise _conflict('Offline runtime database or sidecar changed during inspection')
-            check = os.open('/', os.O_RDONLY | os.O_DIRECTORY)
+            check = private_files.open_folder('/', follow_link=True).descriptor      # the filesystem root is never a link
             try:
                 for component, device, inode in parents:
-                    child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=check)
+                    child = private_files.open_child_folder(check, component).descriptor
                     os.close(check)
                     check = child
                     info = os.fstat(check)

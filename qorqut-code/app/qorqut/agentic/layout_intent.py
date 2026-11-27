@@ -21,6 +21,7 @@ from qorqut_agentic.store import Store
 from qorqut_operations.contracts import DomainError
 from qorqut import source_snapshot
 from qorqut.private_files import fsync_directory, read_private_file, require_private_directory
+from qorqut_system import private_files
 from .layout_inspection import read_legacy_tree
 from .support import canonical, digest
 from .upgrade import (MAX_RECORD, _unique, _write_private_temp, history_directory,
@@ -30,7 +31,6 @@ from .upgrade import (MAX_RECORD, _unique, _write_private_temp, history_director
 MAX_INTENT_BYTES = 512 * 1024 * 1024
 MAX_CAPTURE_BYTES = 96 * 1024 * 1024
 _INTENT_RE = re.compile(r'layout-([0-9a-f]{64})\.json\Z')
-_publish = os.link
 _retained_read = ContextVar('agentic_retained_layout_read', default=None)
 
 
@@ -76,9 +76,10 @@ def _manifest(raw, plan):
 
 
 def _capture_manifest(plan):
+    # source_snapshot does not use the system layer: this is a plain descriptor, not a layer folder.
     directory = source_snapshot._directory(plan['export']['root'])
     try:
-        fd = os.open('SOURCE-MANIFEST.json', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=directory)
+        fd = private_files.open_read(directory, 'SOURCE-MANIFEST.json', nonblock=True)
         with os.fdopen(fd, 'rb') as handle:
             if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
                 raise ValueError('export manifest is not a regular file')
@@ -163,16 +164,15 @@ def retained_intents(paths):
     require_private_directory(directory)
     result = []
     entries = []
-    with os.scandir(directory) as stream:
-        for entry in stream:
-            if len(entries) >= 10000:
-                raise _conflict('History directory exceeds inspection bound')
-            entries.append(entry)
-    for entry in sorted(entries, key=lambda e: e.name):
-        if entry.name.startswith('layout-'):
-            if not _INTENT_RE.fullmatch(entry.name):
+    for name in private_files.walk_entries(directory):
+        if len(entries) >= 10000:
+            raise _conflict('History directory exceeds inspection bound')
+        entries.append(name)
+    for name in sorted(entries):
+        if name.startswith('layout-'):
+            if not _INTENT_RE.fullmatch(name):
                 raise _conflict('Unknown layout intent path')
-            result.append(_read_intent(directory / entry.name))
+            result.append(_read_intent(directory / name))
     return result
 
 
@@ -185,7 +185,7 @@ def incomplete_intents(paths):
 def _read_index(root, expected):
     path = Path(root) / '.git' / 'index'
     _safe_ancestors(path)
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    fd = private_files.open_read(path.parent, path.name)
     try:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_CAPTURE_BYTES:
@@ -197,7 +197,7 @@ def _read_index(root, expected):
                 raise _conflict('Git index exceeds capture bound')
             chunks.append(chunk)
         after = os.fstat(fd)
-        named = os.stat(path, follow_symlinks=False)
+        named = private_files.stat_folder(path)
         identity = lambda s: (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns)
         data = b''.join(chunks)
         if identity(info) != identity(after) or identity(info) != identity(named) or digest(data) != expected:
@@ -328,7 +328,7 @@ def begin(paths, plan, *, attribution):
         target = directory / ('layout-' + plan['plan_digest'] + '.json')
         temp = _write_private_temp(directory, raw)
         try:
-            _publish(temp, target, follow_symlinks=False)
+            private_files.link_entry(temp.parent, temp.name, target.name)
             fsync_directory(directory)
         finally:
             temp.unlink(missing_ok=True)
