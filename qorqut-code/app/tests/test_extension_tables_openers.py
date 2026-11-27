@@ -174,7 +174,7 @@ class ServiceOpenersTest(OpenerCase):
 class UpgradeOpenerTest(OpenerCase):
     def test_the_ordered_upgrade_composes_every_state_with_the_record(self):
         extensions = ExtensionSet((SyntheticExtension(),))
-        for name, expected in self.stores(extensions, lambda selection, tables: upgrade.chain(selection, tables)[0][0]):
+        for name, expected in self.stores(extensions, lambda selection, tables: upgrade.chain(selection, tables=tables)[0][0]):
             with self.subTest(name), closing(sqlite3.connect(self.paths.database, isolation_level=None)) as connection:
                 if expected is None:
                     identity = connection.execute("SELECT digest FROM target_identity").fetchall()
@@ -192,7 +192,7 @@ class UpgradeOpenerTest(OpenerCase):
                 self.assertEqual(upgrade.revert(connection, extensions, to=upgrade.BASE, discard_rows=True)["store"],
                                  upgrade.BASE)
             if expected is not None:
-                Database(self.paths.database, assembly=upgrade.chain(extensions, recorded(self.paths.database))[0][0]
+                Database(self.paths.database, assembly=upgrade.chain(extensions, tables=recorded(self.paths.database))[0][0]
                          ).open_existing().close()
 
 
@@ -240,6 +240,57 @@ class AgenticMigrationOpenerTest(OpenerCase):
                 Database(self.paths.database, assembly=host_assembly(
                     ChangeFeed(), selected, tables=recorded(self.paths.database))).open_existing().close()
 
+    def test_apply_and_a_resumed_install_read_the_record_without_touching_the_store_or_refusing_a_wal_state(self):
+        store_with_record(self.paths.database, agentic_migration._transition_for(
+            NO_EXTENSIONS, tables=contributions()).predecessor)
+        sidecars = [Path(str(self.paths.database) + suffix) for suffix in ("-wal", "-shm")]
+        writer = sqlite3.connect(self.paths.database, isolation_level=None)
+        self.assertEqual(writer.execute("PRAGMA journal_mode = WAL").fetchone()[0], "wal")
+        writer.execute("PRAGMA wal_autocheckpoint = 0")
+        writer.execute("UPDATE target_identity SET created_at = created_at || ' '")
+        kept = {path: path.read_bytes() for path in (self.paths.database, *sidecars)}
+        writer.close()
+        self.assertTrue(kept[sidecars[0]])
+
+        def put(dropped=None):
+            for path, content in kept.items():
+                if path.exists():
+                    path.unlink()
+                if path != dropped:
+                    path.write_bytes(content)
+            return files()
+
+        def files():
+            return {path.name: path.read_bytes() for path in self.paths.database.parent.glob("operations.sqlite3*")}
+
+        put()
+        plan = agentic_migration.prepare_migration(self.paths)
+        backups = self.folder / "backups"
+        backups.mkdir(mode=0o700)
+        previous, selected = NO_EXTENSIONS, ExtensionSet((SyntheticExtension(),))
+        for dropped in (None, *sidecars):
+            with self.subTest(dropped=dropped and dropped.name):
+                before = put(dropped)
+                at_lock = {}
+
+                def acquire(owner):
+                    at_lock.update(files())
+                    raise Stop
+
+                with mock.patch.object(agentic_migration.InstanceOwnership, "acquire", acquire), self.assertRaises(Stop):
+                    agentic_migration.apply_migration(self.paths, plan, backup=backups / "never.sqlite3")
+                self.assertEqual(at_lock, before)
+                # The install's resume and the extension addition's apply compute their transition the same way.
+                tables = agentic_migration._recorded_tables(self.paths, untouched=True)
+                self.assertEqual(tables, contributions())
+                agentic_migration.extension_transition(previous, selected, tables=tables)
+                self.assertEqual(files(), before)
+                self.assertEqual([path.name for path in self.paths.database.parent.iterdir() if path.is_dir()], [])
+        # The read-only path, which inspection and preparation keep, refuses an incomplete pair as they always did.
+        put(sidecars[1])
+        with self.assertRaises(DomainError):
+            agentic_migration._recorded_tables(self.paths)
+
 
 # -- no new opener without a record read --------------------------------------------------------------------------
 
@@ -249,6 +300,9 @@ PACKAGE = Path(qorqut.__file__).resolve().parent
 WITHOUT_A_STORE = {("composition/assembly.py", "require_selected_storage"),
                    ("composition/assembly.py", "require_additive_registrations"),
                    ("bootstrap/initialize.py", "seed_instance")}
+# Calls that pass a literal ``tables=()`` because they mean "no record", by file and enclosing function. None today: a
+# store that is opened always has its record read, and a new store is composed without the keyword.
+NO_RECORD_MEANT = set()
 # Every ``Database(`` in the package, by file and enclosing function, with how many. Each one's assembly was composed
 # with the store's record (or is the new store of ``initialize_empty_target``); a new one must be looked at and added.
 DATABASES = {("composition/assembly.py", "open_database"): 1, ("composition/assembly.py", "initialize_empty_target"): 1,
@@ -282,10 +336,15 @@ def _name(call):
 
 
 class EveryOpenerReadsTheRecordTest(unittest.TestCase):
-    """Fails when a ``host_assembly(`` / ``host_contributions(`` call without ``tables=``, an ``open_database(`` whose
-    assembly is not such a call, or a new ``Database(`` is added to the package. It does not catch an opener outside the
-    package (the native updater, tools), one that passes a ``tables=`` value not read from the store it opens, a store read
-    with ``sqlite3`` directly, or an assembly reused from an open ``Database``."""
+    """Fails when a ``host_assembly(`` / ``host_contributions(`` call without ``tables=``, a literal ``tables=()``, an
+    ``open_database(`` whose assembly is not such a call, or a new ``Database(`` is added to the package. ``chain``,
+    ``require_selected_storage``, ``_transition_for`` and ``extension_transition`` take ``tables`` as a required keyword,
+    so Python itself refuses a call that forgets it.
+
+    It does not catch: an opener outside the package (the native updater, tools); a ``tables=`` value that was not read
+    from the store being opened (read from another store, kept from earlier, or built by hand); a ``Database`` made
+    indirectly, as ``functools.partial(Database, ...)``, ``type(database)(...)`` or under another name; a store read with
+    ``sqlite3`` directly, as the native updater compares identities; or an assembly reused from an open ``Database``."""
 
     def test_no_composition_opens_a_store_without_its_record(self):
         databases = {}
@@ -298,6 +357,9 @@ class EveryOpenerReadsTheRecordTest(unittest.TestCase):
                 if name in ("host_assembly", "host_contributions") and "tables" not in keywords \
                         and (relative, function) not in WITHOUT_A_STORE:
                     missing.append(place)
+                if any(keyword.arg == "tables" and isinstance(keyword.value, ast.Tuple) and not keyword.value.elts
+                       for keyword in call.keywords) and (relative, function) not in NO_RECORD_MEANT:
+                    missing.append(place + " passes tables=()")
                 if name == "open_database":
                     assembly = call.args[1] if len(call.args) > 1 else None
                     if not (isinstance(assembly, ast.Call) and _name(assembly) == "host_assembly"):

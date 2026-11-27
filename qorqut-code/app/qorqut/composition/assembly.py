@@ -111,7 +111,7 @@ def host_assembly(change_feed, extensions=NO_EXTENSIONS, tables=()) -> Assembly:
     return composition.freeze()
 
 
-def require_selected_storage(assembly: Assembly, extensions, tables=()) -> None:
+def require_selected_storage(assembly: Assembly, extensions, *, tables) -> None:
     """Refuse an opened store whose extension storage is not the selected extensions' own and the store's recorded
     tables: the same owner names are not enough, so the ordered owner/DDL entries, table specifications, immutable
     columns and required table / lifecycle metadata of ``extensions.storage()`` and then ``tables`` must be the ones this

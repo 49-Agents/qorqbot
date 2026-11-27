@@ -65,6 +65,14 @@ def _refused(ext_id, note):
     return DomainError("invalid_installation", f"The tables of {ext_id} are refused: {note}")
 
 
+def _fold(name):
+    """A name as SQLite compares it: ASCII letters without case, every other character as it is."""
+    return name.translate(_ASCII_LOWER) if isinstance(name, str) else name
+
+
+_ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
+
+
 def _quoted(name):
     return '"' + name.replace('"', '""') + '"'
 
@@ -96,19 +104,22 @@ def check_statements(ext_id, statements):
             named, problems = [], []
 
             def authorize(action, first, second, database, _trigger):
+                # SQLite reports the tables a create statement uses by their stored names; a created name must be written
+                # in the allowed form itself.
                 tables = own | {name for kind, name in named if kind == "table"}
+                name = first
                 if action in _CREATE and database == "main":
                     kind = _CREATE[action]
                     if INTERNAL.match(first or "") and (kind == "table" and first == "sqlite_sequence"
                                                         or kind == "index" and second in tables):
                         return sqlite3.SQLITE_OK
-                    if not first.startswith(prefix) or not OBJECT_NAME.fullmatch(first):
-                        problems.append(f"the {kind} {first} is not named {prefix}...")
+                    if not name.startswith(prefix) or not OBJECT_NAME.fullmatch(name):
+                        problems.append(f"the {kind} {name} is not named {prefix}...")
                         return sqlite3.SQLITE_DENY
                     if kind != "table" and second not in tables:
-                        problems.append(f"the {kind} {first} is on {second}, which is not a table of its own")
+                        problems.append(f"the {kind} {name} is on {second}, which is not a table of its own")
                         return sqlite3.SQLITE_DENY
-                    named.append((kind, first))
+                    named.append((kind, name))
                     return sqlite3.SQLITE_OK
                 if action in (sqlite3.SQLITE_INSERT, sqlite3.SQLITE_UPDATE, sqlite3.SQLITE_READ) and database == "main" \
                         and first == "sqlite_master":
@@ -119,7 +130,7 @@ def check_statements(ext_id, statements):
                     return sqlite3.SQLITE_OK
                 if action == sqlite3.SQLITE_FUNCTION:
                     return sqlite3.SQLITE_OK
-                problems.append(_refused_action(action, first, database))
+                problems.append(_refused_action(action, name, database))
                 return sqlite3.SQLITE_DENY
 
             before = _objects(connection)
@@ -142,7 +153,7 @@ def check_statements(ext_id, statements):
                     raise _refused(ext_id, f"the table name {name} is longer than a table name may be")
                 own.add(name)
         for table in sorted(own):
-            referenced = {row[2] for row in connection.execute(f"PRAGMA foreign_key_list({_quoted(table)})")}
+            referenced = {_fold(row[2]) for row in connection.execute(f"PRAGMA foreign_key_list({_quoted(table)})")}
             if referenced - own:
                 raise _refused(ext_id, f"the table {table} refers to {', '.join(sorted(referenced - own))}, "
                                        "which is not a table of its own")
@@ -169,6 +180,8 @@ def _check_triggers(ext_id, connection, own):
     problems = []
 
     def authorize(action, first, _second, database, trigger):
+        # A trigger body names tables as it was written, and SQLite resolves them without case.
+        first = _fold(first)
         if action in (sqlite3.SQLITE_INSERT, sqlite3.SQLITE_UPDATE, sqlite3.SQLITE_DELETE, sqlite3.SQLITE_READ) \
                 and database == "main" and first in own:
             return sqlite3.SQLITE_OK

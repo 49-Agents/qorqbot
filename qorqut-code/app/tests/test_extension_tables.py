@@ -153,6 +153,45 @@ class StatementCheckTest(unittest.TestCase):
                       "CREATE TRIGGER tablenote_copy AFTER INSERT ON tablenote_items BEGIN "
                       "INSERT INTO other_items(id) VALUES (NEW.id); END"], "a write to tablenote_items")
 
+    def test_the_prefix_is_the_id_and_an_underscore(self):
+        self.refused_as("net", ["CREATE TABLE network_x (id TEXT)"], "is not named net_")
+        self.assertEqual(set(check_statements("net", ["CREATE TABLE net_x (id TEXT)"])), {("table", "net_x")})
+
+    def test_a_table_name_the_history_cannot_classify_is_refused(self):
+        longest = "net_" + "x" * 60
+        self.assertEqual(set(check_statements("net", [f"CREATE TABLE {longest} (id TEXT)"])), {("table", longest)})
+        self.refused_as("net", [f"CREATE TABLE {longest}x (id TEXT)"], "longer than a table name may be")
+
+    def test_a_trigger_body_that_reaches_a_table_that_is_not_its_own_is_refused(self):
+        items = "CREATE TABLE net_items (id TEXT PRIMARY KEY, name TEXT)"
+        for body in ("SELECT name FROM sqlite_master WHERE name = NEW.id", "SELECT count(*) FROM SQLITE_MASTER",
+                     "UPDATE net_items SET name = (SELECT sql FROM sqlite_master LIMIT 1) WHERE id = NEW.id"):
+            with self.subTest(body=body):
+                self.refused_as("net", [items, f"CREATE TRIGGER net_watch AFTER INSERT ON net_items BEGIN {body}; END"],
+                                "the trigger net_watch: it uses sqlite_master")
+
+    def test_names_are_compared_as_sqlite_resolves_them(self):
+        items = "CREATE TABLE net_items (id TEXT PRIMARY KEY, parent TEXT REFERENCES NET_ITEMS(id))"
+        self.assertEqual(set(check_statements("net", [
+            items, "CREATE INDEX net_items_parent ON Net_Items(parent)",
+            "CREATE TRIGGER net_items_copy AFTER INSERT ON NET_items BEGIN UPDATE NET_ITEMS SET parent = NULL "
+            "WHERE id = NEW.id AND parent IN (SELECT ID FROM Net_Items WHERE 0); END"])), {
+            ("table", "net_items"), ("index", "net_items_parent"), ("trigger", "net_items_copy")})
+        # Nothing that is not its own passes because of case, and a created name keeps the written form's rule.
+        for statements, note in (
+                ([items, "CREATE TABLE net_links (id TEXT, other TEXT REFERENCES Other_Items(id))"], "refers to other_items"),
+                (["CREATE TABLE NET_items (id TEXT)"], "is not named net_"),
+                ([items, "CREATE INDEX NET_index ON net_items(id)"], "is not named net_"),
+                ([items, "CREATE TRIGGER net_t AFTER INSERT ON net_items BEGIN SELECT 1 FROM Sqlite_Master; END"],
+                 "it uses sqlite_master")):
+            with self.subTest(statements=statements):
+                self.refused_as("net", statements, note)
+
+    def refused_as(self, ext_id, statements, note):
+        with self.assertRaises(DomainError) as raised:
+            check_statements(ext_id, statements)
+        self.assertIn(note, raised.exception.message)
+
     def test_the_id_and_the_statements_must_be_given(self):
         for ext_id, statements in (("Tablenote", (ITEMS,)), ("tablenote", ()), ("tablenote", ("",)),
                                    ("tablenote", (None,))):
@@ -337,7 +376,7 @@ class RecordedTest(unittest.TestCase):
 
     def test_an_older_store_and_a_file_that_is_not_a_store(self):
         from qorqut.migration import upgrade
-        Database(self.path, assembly=upgrade.chain()[0][0]).initialize_target().close()
+        Database(self.path, assembly=upgrade.chain(tables=())[0][0]).initialize_target().close()
         self.assertEqual(recorded(self.path), ())
         other = self.folder / "other.sqlite3"
         other.write_bytes(b"not a database at all" * 100)

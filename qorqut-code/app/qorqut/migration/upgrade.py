@@ -74,7 +74,7 @@ def _before(contribution, transforms):
     return contribution
 
 
-def chain(extensions=NO_EXTENSIONS, tables=()):
+def chain(extensions=NO_EXTENSIONS, *, tables):
     """``(assembly, objects)`` for every state, oldest first: entry k is this build's composition with every transform
     after the first k taken out. The last entry is the build's own target. ``tables`` is what the store records of
     extension tables (``extension_tables.recorded``); it is part of every state, and no transform touches it."""

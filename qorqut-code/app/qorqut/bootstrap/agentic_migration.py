@@ -35,6 +35,7 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 import sqlite3
@@ -261,7 +262,7 @@ def apply_migration(paths: InstancePaths, plan, *, backup, extensions=NO_EXTENSI
     published, and the additive DDL plus the one identity-digest update commit as a single ``BEGIN IMMEDIATE`` unit.
     A recognised target store is a validated no-op: no DDL and no new backup.
     """
-    transition = _transition_for(extensions, tables=_recorded_tables(paths, "rw"))
+    transition = _transition_for(extensions, tables=_recorded_tables(paths, untouched=True))
     validated = _validated_plan(paths, plan, transition)
     return _apply_transition(paths, transition, validated, backup=backup, ownership=ownership)
 
@@ -468,22 +469,44 @@ def _readonly_uri(database: Path) -> str:
     return Path(database).resolve().as_uri() + "?mode=ro"
 
 
-def _recorded_tables(paths: InstancePaths, mode: str = "ro"):
-    """What the store records of extension tables, read on this module's own connection (``_connect``), so a read-only
-    inspection still creates nothing. A missing store records nothing; the caller reports it as it does today."""
+def _recorded_tables(paths: InstancePaths, *, untouched=False):
+    """What the store records of extension tables. A missing store records nothing; the caller reports it as it does
+    today.
+
+    By default it is read on this module's own read-only connection (``_connect``), as inspection and preparation read
+    the store. ``untouched`` is for apply and for resuming an install, which read it before the lock is held or the backup
+    exists, and which accept any state of the WAL files: the main file and the ``-wal`` file, as they are, are copied into
+    a private folder beside the store and the copy is read. Nothing of the store or its side files is written or
+    checkpointed, and an incomplete ``-wal``/``-shm`` pair is not refused here."""
     database = _database_path(paths)
     if not os.path.lexists(database):
         return ()
     _require_store_file(database)
-    connection = _connect(database, mode)
-    try:
-        if mode == "ro":
+    if not untouched:
+        connection = _connect(database, "ro")
+        try:
             connection.execute("PRAGMA query_only = ON")
-        return recorded(connection)
-    except sqlite3.Error as exc:
-        raise DomainError("invalid_database", "The existing Operations database cannot be read") from exc
-    finally:
-        connection.close()
+            return recorded(connection)
+        except sqlite3.Error as exc:
+            raise DomainError("invalid_database", "The existing Operations database cannot be read") from exc
+        finally:
+            connection.close()
+    with tempfile.TemporaryDirectory(prefix=".extension-tables-", dir=database.parent) as folder:
+        copy = Path(folder) / database.name
+        shutil.copyfile(database, copy)
+        wal = Path(str(database) + "-wal")
+        if os.path.lexists(wal):
+            shutil.copyfile(wal, Path(str(copy) + "-wal"))
+        try:
+            connection = sqlite3.connect(copy)
+        except sqlite3.Error as exc:
+            raise DomainError("invalid_database", "The existing Operations database cannot be read") from exc
+        try:
+            return recorded(connection)
+        except sqlite3.Error as exc:
+            raise DomainError("invalid_database", "The existing Operations database cannot be read") from exc
+        finally:
+            connection.close()
 
 
 def _connect(database: Path, mode: str):
@@ -641,7 +664,7 @@ def prepare_extension_storage(paths, *, previous, selected):
 
 
 def apply_extension_storage(paths, plan, *, previous, selected, backup, ownership):
-    transition = extension_transition(previous, selected, tables=_recorded_tables(paths, "rw"))
+    transition = extension_transition(previous, selected, tables=_recorded_tables(paths, untouched=True))
     validated = _validated_plan(paths, plan, transition)
     if transition.predecessor.target == transition.target.target:
         _caller_ownership(paths, ownership)
