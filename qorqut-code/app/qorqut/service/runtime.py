@@ -447,14 +447,15 @@ def build_runtime(workspace, *, paths, database=None, worker_profiles=None,
         found, selection, loaded = extension_registry.load_code(found, selection)
     from qorqut.agentic.installation import open_installation
     agentic_layer, agentic_view = open_installation(paths, configured.ids)
+    from qorqut.composition.extension_tables import recorded
     if database is None:
         from qorqut.service.changes import ChangeFeed
-        database = open_database(paths, host_assembly(ChangeFeed(), selection))
+        database = open_database(paths, host_assembly(ChangeFeed(), selection, tables=recorded(paths.database)))
     else:
         if database.path != paths.database:
             raise DomainError("invalid_configuration", "The database is not the selected instance database")
         database = database.open_existing()
-        require_selected_storage(database.assembly, selection)
+        require_selected_storage(database.assembly, selection, tables=recorded(paths.database))
     from qorqut import extension_index
     offered = extension_index.offered(extension_index.app_index(paths), found, app_version=version, platform=platform)
     installed = extension_registry.ExtensionRegistry(found, changes=require_change_feed(database.assembly.change_publisher),

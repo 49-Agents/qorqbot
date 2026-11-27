@@ -49,6 +49,7 @@ from qorqut_operations.storage.inventory import IDENTITY_TABLE, compile_target, 
 from qorqut_operations.storage.sqlfunctions import install_sql_functions
 
 from qorqut.composition.assembly import HostComposition, host_contributions
+from qorqut.composition.extension_tables import recorded
 from qorqut.extensions import NO_EXTENSIONS
 from qorqut.migration import action_digest, context_step_aside, installed_extensions, project_hierarchy, rule_checks
 from qorqut.service.changes import ChangeFeed
@@ -73,15 +74,16 @@ def _before(contribution, transforms):
     return contribution
 
 
-def chain(extensions=NO_EXTENSIONS):
+def chain(extensions=NO_EXTENSIONS, tables=()):
     """``(assembly, objects)`` for every state, oldest first: entry k is this build's composition with every transform
-    after the first k taken out. The last entry is the build's own target."""
+    after the first k taken out. The last entry is the build's own target. ``tables`` is what the store records of
+    extension tables (``extension_tables.recorded``); it is part of every state, and no transform touches it."""
     states = []
     for applied in range(len(TRANSFORMS) + 1):
         later = TRANSFORMS[applied:]
         # The engine seeds its own schema, so the transforms see it here and not among the host contributions.
         builder = HostComposition(core_schema=_before(StorageContribution(CORE_OWNER, schema=CORE_SCHEMA), later).schema)
-        for contribution in host_contributions(ChangeFeed(), extensions):
+        for contribution in host_contributions(ChangeFeed(), extensions, tables=tables):
             contribution = _before(contribution, later)
             if contribution is not None:
                 builder.add(contribution)
@@ -130,16 +132,17 @@ def _settle(connection, states, position):
 
 
 def inspect(connection, extensions=NO_EXTENSIONS):
-    states = chain(extensions)
+    states = chain(extensions, tables=recorded(connection))
     return _report(connection, states, recognise(connection, states))
 
 
 def apply(connection, extensions=NO_EXTENSIONS):
-    """Caller holds InstanceOwnership. Every pending transform and the target identity advance atomically."""
-    states = chain(extensions)
+    """Caller holds InstanceOwnership. Every pending transform and the target identity advance atomically. The store's
+    record of extension tables is read inside the same transaction."""
     install_sql_functions(connection)
     connection.execute('BEGIN IMMEDIATE')
     try:
+        states = chain(extensions, tables=recorded(connection))
         start = recognise(connection, states)
         for position in range(start + 1, len(states)):
             TRANSFORMS[position - 1].forward(connection, states[position][1])
@@ -159,10 +162,10 @@ def revert(connection, extensions=NO_EXTENSIONS, *, to, discard_rows=False):
     if to not in STATES:
         raise DomainError('validation_error', f'Revert goes to one of: {", ".join(STATES)}')
     goal = STATES.index(to)
-    states = chain(extensions)
     install_sql_functions(connection)
     connection.execute('BEGIN IMMEDIATE')
     try:
+        states = chain(extensions, tables=recorded(connection))
         start = recognise(connection, states)
         if start < goal:
             raise DomainError('validation_error', f'The store is at {STATES[start]}, which is before {to}; revert only walks back')

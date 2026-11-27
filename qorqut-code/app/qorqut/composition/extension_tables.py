@@ -11,15 +11,24 @@ insert, an update of every column and a delete on every own table, and foreign k
 
 ``row_of`` turns a declaration into the one canonical row the store keeps for the extension, and ``contribution_of``
 turns such a row back into a contribution, checking its statements first. A store's target is always composed from
-contributions that went through both, so the composition and the record are built by the same code."""
+contributions that went through both, so the composition and the record are built by the same code.
+
+The store keeps one row per extension that has tables in it, in the table ``extensiontables``. That table exists only once
+the first extension has its tables, and its name has no underscore, so no extension object can take it. Every place that
+opens the store reads it first with ``recorded`` and composes ``host_assembly(..., tables=recorded(...))``: without the
+table that is one query and today's composition, byte for byte. Its definition below is frozen, because it is part of
+every such store's identity; a row carries ``format`` so that what a row holds can change without it."""
 
 from __future__ import annotations
 
 import json
+import os
+from pathlib import Path
 import re
 import sqlite3
 
 from qorqut_operations.contracts import DomainError, canonical_bytes
+from qorqut_operations.history_exports import HistoryContribution, PRIVATE_EXCLUDED, TableClassification
 from qorqut_operations.history_exports.fields import NAME as HISTORY_TABLE_NAME
 from qorqut_operations.storage.assembly import AssemblyError, StorageContribution
 from qorqut_operations.storage.specs import TableSpec
@@ -27,6 +36,10 @@ from qorqut_operations.storage.sqlfunctions import install_sql_functions
 
 from qorqut.extensions import EXTENSION_ID
 
+RECORD_TABLE = RECORD_OWNER = "extensiontables"
+RECORD_DDL = ("CREATE TABLE extensiontables (id TEXT PRIMARY KEY NOT NULL, version TEXT NOT NULL, "
+              "contribution TEXT NOT NULL)")
+HISTORY_OWNER = "host.extension_tables"
 FORMAT = 1
 ROW_KEYS = frozenset({"id", "version", "contribution"})
 CONTRIBUTION_KEYS = frozenset({"format", "statements", "tables", "immutable"})
@@ -278,3 +291,65 @@ def _unique(pairs):
             raise ValueError("duplicate JSON key")
         result[key] = value
     return result
+
+
+# -- the record in the store -------------------------------------------------------------------------------------
+
+def record_contribution():
+    """The record table itself, composed first among the recorded contributions."""
+    return StorageContribution(RECORD_OWNER, schema=(RECORD_DDL,))
+
+
+def recorded(source):
+    """The recorded contributions of a store: the record table, then one per extension in id order; ``()`` without it.
+
+    ``source`` is an open connection to the store (read on it, as it is) or the store's path. A path is read as
+    ``Database.open_existing`` reads it: a store that is a link, or crosses one, is refused the same way, and it is read
+    over a read-only, query-only connection, which sees the pending WAL content and waits as ``open_existing`` does for a
+    store another connection writes. A missing path gives ``()``, so the opener reports the missing store as it does
+    today. Every recorded statement is checked before anything composes or compiles it; a row that fails the check, or
+    is not exactly what ``row_of`` writes, refuses the store with ``invalid_database``."""
+    if isinstance(source, sqlite3.Connection):
+        return _recorded(source)
+    path = Path(source).absolute()
+    if not os.path.lexists(path):
+        return ()
+    if not path.is_file() or any(item.is_symlink() for item in (path, *path.parents)):
+        raise DomainError("invalid_database", "Existing operational database is missing or crosses a symbolic link")
+    connection = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
+    try:
+        connection.execute("PRAGMA query_only = ON")
+        return _recorded(connection)
+    except sqlite3.Error as exc:
+        raise DomainError("invalid_database", "Existing operational schema cannot be read") from exc
+    finally:
+        connection.close()
+
+
+def _recorded(connection):
+    if connection.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (RECORD_TABLE,)).fetchone() is None:
+        return ()
+    contributions = [record_contribution()]
+    for row in connection.execute(f"SELECT id, version, contribution FROM {RECORD_TABLE} ORDER BY id").fetchall():
+        try:
+            contributions.append(contribution_of({"id": row[0], "version": row[1], "contribution": row[2]}))
+        except DomainError as exc:
+            raise DomainError("invalid_database", "The store's record of extension tables is refused: "
+                              + exc.message) from None
+    return tuple(contributions)
+
+
+def history(assembly):
+    """The history classification of the record table and of every recorded table of ``assembly``: none of them is
+    exported. ``()`` for an assembly composed without a record."""
+    owners = [owner for owner, _ in assembly.schema]
+    if RECORD_OWNER not in owners:
+        return ()
+    classifications = [TableClassification(RECORD_TABLE, PRIVATE_EXCLUDED, "Which tables each extension brought; "
+                                                                           "kept for the store, not authored material.")]
+    for owner, statements in assembly.schema[owners.index(RECORD_OWNER) + 1:]:
+        ext_id = owner.removeprefix("extension.")
+        classifications.extend(TableClassification(name, PRIVATE_EXCLUDED, f"A table of the extension {ext_id}; what it "
+                                                   "holds is the extension's own and is not exported.")
+                               for kind, name in sorted(check_statements(ext_id, statements)) if kind == "table")
+    return (HistoryContribution(HISTORY_OWNER, classifications=tuple(classifications)),)

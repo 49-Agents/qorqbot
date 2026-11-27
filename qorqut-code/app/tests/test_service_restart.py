@@ -8,7 +8,7 @@ from unittest import mock
 import uvicorn
 
 from qorqut.bootstrap import extension_change
-from qorqut.composition import assembly
+from qorqut.composition import assembly, extension_tables
 from qorqut import extensions
 from qorqut.service import main as service_main
 from qorqut.service import restart
@@ -112,10 +112,11 @@ class ServiceExitTest(unittest.TestCase):
             order.append("selection")
             return ()
 
-        with mock.patch.object(service_main, "instance_paths_from_arguments", return_value=SimpleNamespace(runtime=None)), \
+        with mock.patch.object(service_main, "instance_paths_from_arguments", return_value=SimpleNamespace(runtime=None, database=None)), \
                 mock.patch.object(extension_change, "apply_pending", side_effect=lambda paths: order.append("pending")), \
                 mock.patch.object(extensions, "installed_selection", side_effect=selection), \
                 mock.patch.object(assembly, "host_assembly"), mock.patch.object(assembly, "open_database"), \
+                mock.patch.object(extension_tables, "recorded", return_value=()), \
                 mock.patch.object(service_main, "assemble"), mock.patch.object(uvicorn.Server, "run", run):
             status = service_main.main(["--workspace", "/nonexistent", "--port", "1"])
         return status, order

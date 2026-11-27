@@ -247,6 +247,7 @@ def main(argv=None):
         paths = instance_paths_from_arguments(args, required=("app", "dashboard"))
         # The one operational database of the instance; the engine validates its stored target identity and exact schema.
         from qorqut.composition.assembly import host_assembly, open_database
+        from qorqut.composition.extension_tables import recorded
         from qorqut.extensions import installed_selection
         from qorqut.installation import extensions_configuration
         from qorqut.service.changes import ChangeFeed
@@ -263,7 +264,8 @@ def main(argv=None):
             token = read_private_file(args.token_file, max_bytes=512).decode().strip()
             if not token:
                 raise DomainError("invalid_configuration", "The token file is empty")
-        database = open_database(paths, host_assembly(ChangeFeed(), selection))
+        # The store's own record of extension tables is part of the composition it is opened with.
+        database = open_database(paths, host_assembly(ChangeFeed(), selection, tables=recorded(paths.database)))
         if args.project:
             with database.read() as uow:
                 registered = {str(Path(row["workspace"]).resolve()) for row in uow.repository("projects").list()}

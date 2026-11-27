@@ -134,7 +134,7 @@ def install(paths, export_root, entry, *, bundle_sha256, resume=False):
             state["after"],) if state["phase"] == "complete" else (state["before"],)
         if observed_config not in accepted:
             raise DomainError("operation_conflict", "Extension configuration changed during installation")
-        transition = storage.extension_transition(previous, selected)
+        transition = storage.extension_transition(previous, selected, tables=storage._recorded_tables(paths))
         storage._validated_plan(paths, state["schema"], transition)
         managed_plan.validate_plan(paths, state["managed"])
         backup = Path(state["backup"])

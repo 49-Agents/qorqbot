@@ -95,7 +95,10 @@ def history_for(database, paths, extensions=()):
 
 
 def bind(runtime):
-    runtime.history = history_for(runtime.database, runtime.paths, runtime.selection.history())
+    # The store's recorded extension tables, and the record itself, are classified and not exported.
+    from qorqut.composition.extension_tables import history
+    runtime.history = history_for(runtime.database, runtime.paths,
+                                  (*runtime.selection.history(), *history(runtime.database.assembly)))
     runtime.history_observer = HistoryObserver(runtime.history.snapshot, interval=SNAPSHOT_SECONDS)
     runtime.changes.add_commit_listener(runtime.history_observer.notify_commit)
 
