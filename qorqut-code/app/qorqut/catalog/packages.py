@@ -19,6 +19,7 @@ from jsonschema import Draft202012Validator
 from qorqut_operations.contracts import DomainError, freeze
 from qorqut_operations.storage.database import unit_memo
 from qorqut_operations.storage.structured import parse_yaml
+from qorqut_system import private_files
 
 
 
@@ -250,7 +251,7 @@ def load_package(source: Path, manifest_path: str, kind: str, registry: Any) -> 
                 _error(f"Skill contains a symlink: {child.relative_to(root)}")
             if not child.is_file():
                 continue
-            if child.suffix.lower() not in SKILL_FILE_SUFFIXES or child.stat().st_mode & 0o111:
+            if child.suffix.lower() not in SKILL_FILE_SUFFIXES or private_files.mode_of(child.stat(), mask=0o111):
                 _error(f"Executable or unsupported skill file: {child.relative_to(root)}")
             child_path = child.relative_to(root).as_posix()
             problem = skill_file_problem(child_path, read(child_path))

@@ -43,6 +43,7 @@ from qorqut_operations.global_agents import SUPPORTED_GLOBAL_ROLES
 from qorqut_operations.tasks.models import FIELD_TYPES, definition_problem, field_name_accepted
 from qorqut_operations.tasks.record_types import TYPE_ID
 from qorqut_operations.tasks.types import TYPES
+from qorqut_system import private_files
 
 MANIFEST = "extension.yaml"
 VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
@@ -376,7 +377,7 @@ def _skill_file_findings(plugin: Path, folder: Path) -> list[str]:
     found = []
     for path in _files(folder):
         name = path.relative_to(plugin).as_posix()
-        if path.stat().st_mode & 0o111:
+        if private_files.mode_of(path.stat(), mask=0o111):
             found.append(f"The skill file {name} is executable.")
         try:
             problem = skill_file_problem(name, artifact_file(root, name))

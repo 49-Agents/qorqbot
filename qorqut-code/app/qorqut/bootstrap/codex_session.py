@@ -8,6 +8,7 @@ import sys
 import uuid
 
 from qorqut_operations.contracts import DomainError
+from qorqut_system import platform, private_files
 from .client import load_registration
 from .transcript_snapshot import run as snapshot_transcript
 
@@ -30,7 +31,7 @@ def runs_app_server(argv):
 def process_identity(pid):
     """PID plus kernel process birth identity prevents attaching to a recycled PID."""
     try:
-        if sys.platform == 'darwin':
+        if platform.family() == "mac":
             from qorqut.process_info import pid_identity
             return pid_identity(pid)
         fields = (PROC_ROOT / str(pid) / "stat").read_text().rsplit(")", 1)[1].split()
@@ -50,7 +51,7 @@ def owner_alive(owner):
         return False
     if len(parts) == 2:
         return True
-    if sys.platform == 'darwin':
+    if platform.family() == "mac":
         # psutil open-files data cannot attest an exact per-thread held writer lock.
         return False
     pid, _, descriptor, device, inode = parts
@@ -82,7 +83,7 @@ def owner_process(owner):
 def thread_owner(pid, session_id, home=None):
     """The held-lock owner of ``session_id`` in process ``pid``: its writer lock under ``home`` (default ``$CODEX_HOME`` or
     ``~/.codex``), or, with ``home=False``, under any Codex home (the process, not the folder, is what the caller anchors on)."""
-    if sys.platform == 'darwin':
+    if platform.family() == "mac":
         return None
     try:
         name = str(uuid.UUID(session_id)) + ".lock"
@@ -102,7 +103,7 @@ def thread_owner(pid, session_id, home=None):
         return None
     for descriptor in descriptors:
         try:
-            target = descriptor.readlink()
+            target = Path(private_files.read_link(descriptor))
             if (target != expected) if expected is not None else (target.name != name or target.parent.name != WRITER_LOCKS):
                 continue
             current = descriptor.stat()
@@ -128,7 +129,7 @@ def hosted_session_process(session_id, workspace, agent_id):
     for _ in range(12):
         try:
             process = PROC_ROOT / str(pid)
-            if sys.platform == 'darwin':
+            if platform.family() == "mac":
                 from qorqut import process_info
                 observed_start = process_info.start_token(pid)
                 executable = process_info.exe(pid)
@@ -136,19 +137,19 @@ def hosted_session_process(session_id, workspace, agent_id):
                 if process_info.start_token(pid) != observed_start:
                     return None
             else:
-                executable = Path(str((process / "exe").readlink()).removesuffix(" (deleted)"))
+                executable = Path(str(private_files.read_link(process / "exe")).removesuffix(" (deleted)"))
                 argv = (process / "cmdline").read_bytes().split(b"\0")
             if executable.name == "codex":
                 if not runs_app_server(argv):
                     return None
                 host = managed_host(workspace, pid, agent_id, runtime="codex")
                 identity = process_identity(pid)
-                if host is None or identity is None or (sys.platform == 'darwin' and identity != f"{pid}:{observed_start}"):
+                if host is None or identity is None or (platform.family() == "mac" and identity != f"{pid}:{observed_start}"):
                     return None
-                if sys.platform != 'darwin' and owner_process(thread_owner(pid, session_id) or "") != identity:
+                if platform.family() != "mac" and owner_process(thread_owner(pid, session_id) or "") != identity:
                     return None
                 return identity, host
-            if sys.platform == 'darwin':
+            if platform.family() == "mac":
                 pid = process_info.parent_pid(pid)
             else:
                 pid = int((process / "stat").read_text().rsplit(")", 1)[1].split()[1])

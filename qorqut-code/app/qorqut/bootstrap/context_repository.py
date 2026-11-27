@@ -17,6 +17,7 @@ from pathlib import Path
 
 from qorqut.instance_paths import InstancePaths
 from qorqut.service.instance_arguments import add_instance_arguments, instance_paths_from_arguments
+from qorqut_system import private_files
 
 
 @dataclass(frozen=True)
@@ -43,15 +44,13 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Create the Context repository of an instance when it is missing (starts nothing).")
     add_instance_arguments(parser)
     args = parser.parse_args(argv)
-    previous_umask = os.umask(0o077)
-    try:
-        paths = instance_paths_from_arguments(args, required=("context_engine",))
-        result = provision_context_repository(paths)
-    except Exception as exc:                  # includes the Context engine's own errors
-        print(f"context repository: failed: {type(exc).__name__}: {exc}", file=sys.stderr)
-        return 1
-    finally:
-        os.umask(previous_umask)
+    with private_files.private_umask():
+        try:
+            paths = instance_paths_from_arguments(args, required=("context_engine",))
+            result = provision_context_repository(paths)
+        except Exception as exc:                  # includes the Context engine's own errors
+            print(f"context repository: failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 1
     print(f"context repository: {result.path} " + (f"created at {result.revision}" if result.created else "already existed; left untouched"))
     return 0
 

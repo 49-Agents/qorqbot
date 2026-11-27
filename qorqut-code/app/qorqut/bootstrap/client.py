@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 
 from qorqut_operations.errors import DomainError
 from qorqut_operations.storage.safe_io import read_bytes
+from qorqut_system import private_files
 
 
 # These budgets cover actual service work, including configuration resolution
@@ -72,7 +73,7 @@ def load_registration(path: Path) -> dict:
 
 def auth_headers(registration: dict) -> dict[str, str]:
     credential = Path(registration["workspace"]) / registration["credential_file"]
-    if path_has_symlink(credential) or not credential.is_file() or credential.stat().st_mode & 0o077:
+    if path_has_symlink(credential) or not credential.is_file() or not private_files.is_private(credential.stat()):
         raise DomainError("missing_credential", "Scoped credential is missing or must have mode 0600")
     try:
         token = read_bytes(credential, limit=1024, private=True).decode().strip()

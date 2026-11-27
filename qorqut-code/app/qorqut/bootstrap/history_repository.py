@@ -31,6 +31,7 @@ import stat
 import subprocess
 
 from qorqut_operations.contracts import DomainError, utc_now
+from qorqut_system import private_files
 
 BRANCH = "qorqut-instance"
 EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"       # Git's empty tree under the pinned sha1 object format
@@ -69,7 +70,7 @@ def operations_root(value) -> Path:
         info = os.lstat(path)
     except OSError as exc:
         raise _refuse("The operations root is missing") from exc
-    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+    if not stat.S_ISDIR(info.st_mode) or not private_files.is_private_and_mine(info):
         raise _refuse("The operations root must be a directory owned by the service user with mode 0700")
     return path
 
@@ -123,8 +124,7 @@ def provision_history_repository(operations, *, runner=None, created_at=None) ->
         return HistoryRepository(root, created=False)
     git = _Git(root, runner or subprocess.run, created_at or utc_now())
     # The caller's umask keeps the new repository owner-only; this makes it independent of the caller.
-    previous_umask = os.umask(0o077)
-    try:
+    with private_files.private_umask():
         git("init", "--quiet", "--template=", "--object-format=sha1", f"--initial-branch={BRANCH}", str(root), repository=False)
         tree = git.oid("mktree", data=b"")
         if tree != EMPTY_TREE:
@@ -132,8 +132,6 @@ def provision_history_repository(operations, *, runner=None, created_at=None) ->
         commit = git.oid("commit-tree", tree, "-m", MESSAGE)
         git("update-ref", f"refs/heads/{BRANCH}", commit, "0" * len(commit))
         _verify(git, commit)
-    finally:
-        os.umask(previous_umask)
     return HistoryRepository(root, created=True, branch=BRANCH, commit=commit)
 
 
@@ -156,5 +154,5 @@ def _verify(git: _Git, commit: str) -> None:
     if os.path.lexists(git.git_dir / "index") or os.path.lexists(git.git_dir / "hooks"):
         raise _failed("The new repository has an index or hooks")
     for path in (git.git_dir, *git.git_dir.rglob("*")):
-        if not path.is_symlink() and path.lstat().st_mode & 0o077:
+        if not path.is_symlink() and not private_files.is_private(path.lstat()):
             raise _failed("The new repository is not owner-private")

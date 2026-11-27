@@ -1,8 +1,9 @@
 """Confined filesystem access for the authoring root.
 
-Every operation resolves a root-relative path one component at a time with
-``O_NOFOLLOW`` and directory file descriptors, so a symlink anywhere on the path
-is rejected rather than followed, even if it appears after a check.
+Every operation resolves a root-relative path one component at a time through the
+system layer, which opens each one without following a link and without leaving its
+folder, so a symlink anywhere on the path is rejected rather than followed, even if
+it appears after a check.
 """
 
 from __future__ import annotations
@@ -15,6 +16,8 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
+
+from qorqut_system import private_files
 
 from .errors import AgenticError, ConflictError, StateConflictError, UnsafePathError
 from .util import sha256_hex
@@ -75,7 +78,7 @@ class SafeTree:
 
     # -- directory descriptors -------------------------------------------------
     def _open_root(self) -> int:
-        return os.open(self.root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        return private_files.open_folder(self.root).descriptor
 
     def _open_dir(self, parts: tuple[str, ...], *, create: bool = False) -> int | None:
         """Open the directory ``parts`` beneath the root; ``None`` if absent."""
@@ -83,17 +86,17 @@ class SafeTree:
         try:
             for index, name in enumerate(parts):
                 try:
-                    child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+                    child = private_files.open_folder(fd, name).descriptor
                 except FileNotFoundError:
                     if not create:
                         os.close(fd)
                         return None
                     try:
-                        os.mkdir(name, 0o755, dir_fd=fd)
+                        private_files.make_folder(fd, name, mode=0o755)
                     except FileExistsError:
                         pass
-                    os.fsync(fd)
-                    child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+                    private_files.sync_folder(fd)
+                    child = private_files.open_folder(fd, name).descriptor
                 except OSError as exc:
                     if exc.errno in (errno.ELOOP, errno.ENOTDIR):
                         kind = self._lstat_kind(fd, name)
@@ -118,7 +121,7 @@ class SafeTree:
     @staticmethod
     def _lstat_kind(dir_fd: int, name: str) -> str:
         try:
-            info = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+            info = private_files.stat_entry(dir_fd, name)
         except FileNotFoundError:
             return "missing"
         mode = info.st_mode
@@ -156,7 +159,7 @@ class SafeTree:
             return None
         try:
             try:
-                fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, dir_fd=parent)
+                fd = private_files.open_read(parent, parts[-1], nonblock=True)
             except FileNotFoundError:
                 return None
             except OSError as exc:
@@ -201,7 +204,7 @@ class SafeTree:
             return None
         try:
             try:
-                return stat.S_IMODE(os.stat(parts[-1], dir_fd=parent, follow_symlinks=False).st_mode)
+                return private_files.mode_of(private_files.stat_entry(parent, parts[-1]), mask=0o7777)
             except FileNotFoundError:
                 return None
         finally:
@@ -225,30 +228,30 @@ class SafeTree:
                 )
             if mode is None:
                 mode = (
-                    stat.S_IMODE(os.stat(name, dir_fd=parent, follow_symlinks=False).st_mode)
+                    private_files.mode_of(private_files.stat_entry(parent, name), mask=0o7777)
                     if kind == "file"
                     else 0o644
                 )
             tmp = f"{TMP_PREFIX}{uuid.uuid4().hex}"
-            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=parent)
+            fd = private_files.open_entry(parent, tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode=0o600)
             try:
                 view = memoryview(data)
                 while view:
                     written = os.write(fd, view)
                     view = view[written:]
-                os.fchmod(fd, mode)
+                private_files.set_private(fd, mode=mode)
                 os.fsync(fd)
             finally:
                 os.close(fd)
             try:
-                os.replace(tmp, name, src_dir_fd=parent, dst_dir_fd=parent)
+                private_files.rename_entry(parent, tmp, name)
             except BaseException:
                 try:
-                    os.unlink(tmp, dir_fd=parent)
+                    private_files.remove_entry(parent, tmp, missing_ok=True)
                 except OSError:
                     pass
                 raise
-            os.fsync(parent)
+            private_files.sync_folder(parent)
         finally:
             os.close(parent)
 
@@ -264,8 +267,8 @@ class SafeTree:
                 return False
             if kind != "file":
                 raise UnsafePathError(f"refusing to delete a {kind}: {rel}", details={"path": rel})
-            os.unlink(parts[-1], dir_fd=parent)
-            os.fsync(parent)
+            private_files.remove_entry(parent, parts[-1])
+            private_files.sync_folder(parent)
         finally:
             os.close(parent)
         if prune:
@@ -274,8 +277,8 @@ class SafeTree:
                 if grand is None:
                     break
                 try:
-                    os.rmdir(parts[depth - 1], dir_fd=grand)
-                    os.fsync(grand)
+                    private_files.remove_folder(grand, parts[depth - 1])
+                    private_files.sync_folder(grand)
                 except OSError:
                     break
                 finally:
@@ -295,13 +298,13 @@ class SafeTree:
                     continue
                 if entry.name.startswith(TMP_PREFIX) and not entry.is_dir(follow_symlinks=False):
                     try:
-                        os.unlink(entry.name, dir_fd=fd)
+                        private_files.remove_entry(fd, entry.name)
                         removed += 1
                     except OSError:
                         pass
                 elif entry.is_dir(follow_symlinks=False):
                     try:
-                        child = os.open(entry.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+                        child = private_files.open_folder(fd, entry.name).descriptor
                     except OSError:
                         continue
                     try:
@@ -344,7 +347,7 @@ class SafeTree:
                 yield rel, "symlink"
             elif entry.is_dir(follow_symlinks=False):
                 try:
-                    child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+                    child = private_files.open_folder(fd, name).descriptor
                 except OSError:
                     yield rel, "other"
                     continue
@@ -393,7 +396,7 @@ class SafeTree:
                 special[rel] = "symlink"
             elif entry.is_dir(follow_symlinks=False):
                 try:
-                    child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+                    child = private_files.open_folder(fd, name).descriptor
                 except OSError:
                     special[rel] = "other"
                     continue
@@ -411,7 +414,7 @@ class SafeTree:
     def _digest_at(self, parent: int, name: str, rel: str) -> FileEntry | None:
         """``digest`` for one entry of an already confined directory; ``None`` when the file is gone."""
         try:
-            current = _identity(os.stat(name, dir_fd=parent, follow_symlinks=False))
+            current = _identity(private_files.stat_entry(parent, name))
         except FileNotFoundError:
             return None
         known = self._digests.get(rel)
@@ -419,7 +422,7 @@ class SafeTree:
             return known[1]  # this exact path was validated when its digest was remembered
         split_path(rel)
         try:
-            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, dir_fd=parent)
+            fd = private_files.open_read(parent, name, nonblock=True)
         except FileNotFoundError:
             return None
         except OSError as exc:
@@ -463,12 +466,12 @@ def _legacy_content(tree: SafeTree) -> bool:
 
     def visit(parent, name, parts, expected=None):
         nonlocal count
-        before = os.stat(name, dir_fd=parent, follow_symlinks=False)
+        before = private_files.stat_entry(parent, name)
         if expected is not None and identity(before) != identity(expected):
             raise StateConflictError("Legacy directory changed during inspection")
         if not stat.S_ISDIR(before.st_mode):
             return True
-        fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=parent)
+        fd = private_files.open_folder(parent, name).descriptor
         try:
             opened = os.fstat(fd)
             if identity(before) != identity(opened):
@@ -482,7 +485,7 @@ def _legacy_content(tree: SafeTree) -> bool:
                     split_path('/'.join(child_parts))
                     if visit(fd, entry.name, child_parts):
                         return True
-            if identity(os.fstat(fd)) != identity(opened) or identity(os.stat(name, dir_fd=parent, follow_symlinks=False)) != identity(opened):
+            if identity(os.fstat(fd)) != identity(opened) or identity(private_files.stat_entry(parent, name)) != identity(opened):
                 raise StateConflictError("Legacy directory changed during inspection")
             return False
         finally:
@@ -490,7 +493,7 @@ def _legacy_content(tree: SafeTree) -> bool:
 
     try:
         try:
-            initial = os.stat('packages', dir_fd=root, follow_symlinks=False)
+            initial = private_files.stat_entry(root, 'packages')
         except FileNotFoundError:
             if tree._lstat_kind(root, 'packages') != 'missing':
                 raise StateConflictError("Legacy directory changed during inspection")

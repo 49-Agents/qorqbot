@@ -12,6 +12,7 @@ from qorqut_operations.application import OperationDescriptor
 from qorqut_operations.contracts import DomainError, PreviewResource, plain
 from qorqut_operations.application.plans import PlanBuilder, schema
 from qorqut.agents.worker_access import is_worker
+from qorqut_system import private_files
 
 CAPABILITY = "manage_calendar"
 READS = ("calendar_calendars_list", "calendar_events_list", "calendar_event_get")
@@ -122,7 +123,7 @@ class CalendarOperations:
         if not path.exists():
             return {}
         try:
-            if path.stat().st_mode & 0o077:
+            if not private_files.is_private(path.stat()):
                 raise ValueError("permissions")
             value = json.loads(path.read_text())
             if not isinstance(value, dict) or not isinstance(value.get("connections", {}), dict):

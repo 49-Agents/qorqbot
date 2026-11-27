@@ -38,6 +38,8 @@ import sys
 import time
 from urllib.parse import quote, urlsplit
 
+from qorqut_system import private_files
+
 IDLE_LIMIT = 30 * 60     # Seconds without use after which a tab is unloaded. Long enough to wait for an owner's answer.
 SWEEP_EVERY = 60         # Seconds between looks at the browser's tabs.
 WAKE_WAIT = 15           # Seconds a command waits at most for its tab's page to load again; then it runs anyway.
@@ -67,7 +69,7 @@ def session_directories(environ=os.environ):
     The supervisor's own home is its browser's state directory, so from there the application's home is none of these.
     The application therefore hands the supervisor it starts its own list in ``SESSIONS`` (``agent_browsers`` and
     ``native_launcher``); without it every tab looked unused to the sweeper, however recently a command ran in it."""
-    places = [Path(f"/run/user/{os.getuid()}/agent-browser"), Path.home() / ".agent-browser"]
+    places = [Path(f"/run/user/{private_files.user_key()}/agent-browser"), Path.home() / ".agent-browser"]
     if environ.get("XDG_RUNTIME_DIR"):
         places.insert(0, Path(environ["XDG_RUNTIME_DIR"]) / "agent-browser")
     places += [Path(place) for place in environ.get(SESSIONS, "").split(os.pathsep) if os.path.isabs(place)]
