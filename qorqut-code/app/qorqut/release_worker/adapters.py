@@ -12,7 +12,6 @@ from contextlib import contextmanager
 import hashlib
 import json
 import base64
-import os
 from pathlib import Path
 import shlex
 import shutil
@@ -24,6 +23,7 @@ from typing import Any, Callable, Protocol
 from . import artifact_placement, local_integration
 from .errors import ReleaseError, UncertainRemoteEffect, UnsupportedAdapter
 from .io import atomic_write, digest, file_digest
+from qorqut_system import private_files
 
 
 class Executor(Protocol):
@@ -335,7 +335,7 @@ def _artifact_entry(path: Path, relative: str) -> list[Any]:
     metadata = path.lstat()
     mode = stat.S_IMODE(metadata.st_mode)
     if stat.S_ISLNK(metadata.st_mode):
-        return [relative, "symlink", os.readlink(path)]
+        return [relative, "symlink", private_files.read_link(path)]
     if stat.S_ISREG(metadata.st_mode):
         return [relative, "file", mode, file_digest(path)]
     if stat.S_ISDIR(metadata.st_mode):
@@ -387,7 +387,7 @@ def _copy_path(source: Path, destination: Path) -> None:
     if destination.exists() or destination.is_symlink():
         _remove_path(destination)
     if source.is_symlink():
-        destination.symlink_to(os.readlink(source))
+        private_files.make_link(private_files.read_link(source), destination)
     elif source.is_dir():
         shutil.copytree(source, destination, symlinks=True)
     else:

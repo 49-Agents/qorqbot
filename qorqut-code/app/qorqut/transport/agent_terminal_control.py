@@ -4,7 +4,6 @@ import json
 import logging
 import os
 import shlex
-import sys
 import threading
 import time
 from pathlib import Path
@@ -14,6 +13,9 @@ from qorqut.managed_runtime import clients, mode, models, options
 from qorqut.native_chat.contracts import OwnerInputOutcome
 from qorqut_operations.contracts import DomainError
 from qorqut.transport import terminal_composer
+from qorqut_system import platform as _platform
+from qorqut_system import private_files as _private_files
+from qorqut_system import processes as _processes
 
 SHELLS = frozenset({'bash','zsh','sh','fish'})
 DEV_ROLE = 'dev'
@@ -182,51 +184,31 @@ class AgentTerminalBackend:
         fields = lines[0].split('|')
         if len(fields)!=6: raise DomainError('operation_unavailable', 'Invalid terminal observation')
         try:
-            # tcgetpgrp on another session's tty can fail with ENOTTY. Linux
-            # exposes the pane shell's foreground process group in /proc instead.
-            if sys.platform == 'darwin':
-                from qorqut import process_info
-                foreground = int(process_info.fields(int(fields[3]), terminal=True)[5])
-            else:
-                stat = Path(f'/proc/{fields[3]}/stat').read_text()
-                foreground = int(stat[stat.rfind(')')+2:].split()[5])
+            # tcgetpgrp on another session's tty can fail with ENOTTY. The layer exposes the pane shell's foreground
+            # process group in the terminal's own fields on both systems.
+            foreground = int(_processes.fields(int(fields[3]), terminal=True)[5])
             if foreground <= 0:
                 raise ValueError('No foreground process')
-            if sys.platform == 'darwin':
-                started = process_info.start_token(foreground)
-            else:
-                stat = Path(f'/proc/{foreground}/stat').read_text()
-                started = stat[stat.rfind(')')+2:].split()[19]
+            started = _processes.start_token(foreground)
             command, verified = fields[4], False
             # npm's launcher is node; verify a real client process in its group.
             # Native Claude (claude/claude.exe) is recognized only for Dev.
-            processes = (Path(str(pid)) for pid in process_info.pids()) if sys.platform == 'darwin' else Path('/proc').iterdir()
-            for process in processes:
-                if not process.name.isdigit():
-                    continue
+            for pid in _processes.pids():
                 try:
-                    if sys.platform == 'darwin':
-                        group = os.getpgid(int(process.name))
-                        if group != foreground:
-                            continue
-                        name = process_info.name(int(process.name))
-                        # Only the client's own arguments are read: a CLI's short-lived helpers (MCP servers started
-                        # through npx, for example) share its group, and macOS refuses their arguments while they exec.
-                        if name not in CLIENT_PROCESSES[client]:
-                            continue
-                        args = [arg.encode() for arg in process_info.cmdline(int(process.name))]
-                    else:
-                        stat = (process / 'stat').read_text()
-                        group = int(stat[stat.rfind(')')+2:].split()[2])
-                        name = (process / 'comm').read_text().strip()
-                        args = (process / 'cmdline').read_bytes().split(b'\0')
-                    if group != foreground or name not in CLIENT_PROCESSES[client]:
+                    group = _processes.process_group(pid)
+                    if group != foreground:
                         continue
+                    name = _processes.name(pid)
+                    if name not in CLIENT_PROCESSES[client]:
+                        continue
+                    # Only the client's own arguments are read: a CLI's short-lived helpers (MCP servers started
+                    # through npx, for example) share its group, and macOS refuses their arguments while they exec.
+                    _processes.cmdline(pid)
                     # Current-conversation proof for raw input lives in AttachmentService.
                     command, verified = client, True
                     break
                 except PermissionError:
-                    if sys.platform == 'darwin':
+                    if _platform.family() == 'mac':
                         raise
                 except (OSError, ValueError, IndexError):
                     continue
@@ -264,27 +246,22 @@ class AgentTerminalBackend:
         shell = int(fields[2])
         try:
             shell_fields = self._stat(shell)
-            if sys.platform == 'darwin':
-                from qorqut import process_info
-                shell_comm = process_info.name(shell)
-            else:
-                shell_comm = (Path(f'/proc/{shell}/comm')).read_text().strip()
+            shell_comm = _processes.name(shell)
             foreground = int(shell_fields[5])
             if foreground <= 0:
                 raise ValueError('No foreground process')
             members = {}
-            processes = (Path(str(pid)) for pid in process_info.pids()) if sys.platform == 'darwin' else Path('/proc').iterdir()
-            for process in processes:
-                if not process.name.isdigit():
-                    continue
+            for pid in _processes.pids():
                 try:
-                    if sys.platform == 'darwin' and os.getpgid(int(process.name)) != foreground:
+                    # On macOS the group is asked alone first: only psutil answers for another process, and the
+                    # terminal fields are needed for the group's own members only.
+                    if _platform.family() == 'mac' and _processes.process_group(pid) != foreground:
                         continue
-                    parts = self._stat(int(process.name))
+                    parts = self._stat(pid)
                     if int(parts[2]) == foreground:
-                        members[int(process.name)] = parts
+                        members[pid] = parts
                 except PermissionError:
-                    if sys.platform == 'darwin':
+                    if _platform.family() == 'mac':
                         raise
                 except (OSError, ValueError, IndexError):
                     continue
@@ -297,13 +274,12 @@ class AgentTerminalBackend:
                 for pid, parts in sorted(members.items()):
                     if parts[3] != shell_fields[3] or parts[4] != shell_fields[4]:
                         continue
-                    name = process_info.name(pid) if sys.platform == 'darwin' else (Path(f'/proc/{pid}/comm')).read_text().strip()
+                    name = _processes.name(pid)
                     if name not in CLIENT_PROCESSES[client]:
                         continue
                     if not self._descends(pid, shell):
                         continue
-                    argv = (process_info.cmdline(pid) if sys.platform == 'darwin' else
-                            [item.decode('utf-8', 'replace') for item in (Path(f'/proc/{pid}/cmdline')).read_bytes().split(b'\0') if item])
+                    argv = _processes.cmdline(pid)
                     matches.append({'pid': pid, 'started': parts[19], 'argv': argv})
                 if len(matches) == 1:
                     kind, found = 'client', matches[0]
@@ -314,24 +290,16 @@ class AgentTerminalBackend:
 
     @staticmethod
     def _stat(pid):
-        """The fields of ``/proc/<pid>/stat`` after the command name: [0] state, [1] ppid, [2] pgrp, [3] session, [4] tty,
+        """The process's stat fields after the command name: [0] state, [1] ppid, [2] pgrp, [3] session, [4] tty,
         [5] foreground group of that tty, [19] start ticks."""
-        if sys.platform == 'darwin':
-            from qorqut.process_info import fields
-            return fields(pid, terminal=True)
-        text = Path(f'/proc/{pid}/stat').read_text()
-        return text[text.rfind(')')+2:].split()
+        return _processes.fields(pid, terminal=True)
 
     def _descends(self, pid, ancestor):
         """Whether ``ancestor`` is on ``pid``'s parent chain (the exact pane ancestry), within a bounded depth."""
         for _ in range(24):
             if pid == ancestor:
                 return True
-            if sys.platform == 'darwin':
-                from qorqut.process_info import parent_pid
-                pid = parent_pid(pid)
-            else:
-                pid = int(self._stat(pid)[1])
+            pid = _processes.parent_pid(pid)
             if pid <= 1:
                 return False
         return False
@@ -357,12 +325,11 @@ class AgentTerminalBackend:
         """Refuse unless the observed foreground shell is, physically, in the prepared agent workspace root. Both folders are
         resolved through symlinks, and anything that cannot be established (the process, its folder, the workspace) refuses
         too. Nothing is changed or typed."""
-        from qorqut import process_info
         pid = snap.get('foreground_pid')
         try:
             if type(pid) is not int or pid <= 0 or workspace is None:
                 raise ValueError('No foreground shell to inspect')
-            here, root = self._physical(process_info.cwd(pid)), self._physical(workspace)
+            here, root = self._physical(_processes.cwd(pid)), self._physical(workspace)
         except (OSError, ValueError) as exc:
             raise DomainError('operation_unavailable', "Cannot verify which folder the agent's terminal is in, so nothing was "
                               "started. Return the agent terminal to its own folder, then press Start again.") from exc
@@ -733,7 +700,8 @@ class AgentTerminalBackend:
         buffer = 'qorqut-owner-' + uuid4().hex
         try:
             path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+            descriptor = _private_files.open_entry(path.parent, path.name,
+                                                   os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC, mode=0o600)
             try:
                 os.write(descriptor, text.encode('utf-8'))
             finally:

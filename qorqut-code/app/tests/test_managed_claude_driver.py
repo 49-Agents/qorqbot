@@ -1360,9 +1360,9 @@ class FailureTests(DriverCase):
         transport = session._transport
         self.assertTrue(transport._reaped)
         with mock.patch.object(claude_driver.os, "killpg") as killpg, mock.patch.object(claude_driver.os, "kill") as kill:
-            transport._signal(claude_driver.signal.SIGKILL, group_only=True)
-            transport._signal(claude_driver.signal.SIGTERM)
-            transport._signal(claude_driver.signal.SIGKILL)
+            transport._signal(gentle=False, group_only=True)
+            transport._signal()
+            transport._signal(gentle=False)
             session.close()
         killpg.assert_not_called()
         kill.assert_not_called()
@@ -1380,7 +1380,7 @@ class FailureTests(DriverCase):
         self.send(session, "QUIETKID go")
         with mock.patch.object(claude_driver.os, "killpg", spy):
             recorder.wait("exited", timeout=15)
-        sweeps = [call for call in calls if call[1] == claude_driver.signal.SIGKILL]
+        sweeps = [call for call in calls if call[1] == signal.SIGKILL]
         self.assertTrue(sweeps)
         self.assertEqual({state for _, _, state in sweeps}, {"Z"})          # a zombie still owns the pid: it cannot have been reused
         session.close()

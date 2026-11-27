@@ -63,6 +63,10 @@ KINDS = {
     "platform_check": ("a test of the operating system", "places and background running", "qorqut_system.platform"),
 }
 
+# The kernel tables that are not process observations: the mount table and the interface addresses.
+HOST_TABLES = ("/proc/self/mountinfo", "/proc/net/")
+HOST_TABLE = ("a host table read", "the host", "qorqut_system.host")
+
 PATTERNS = {
     "safe_file_access": ("O_NOFOLLOW", "O_DIRECTORY", "O_TMPFILE", "dir_fd=", "src_dir_fd", "dst_dir_fd"),
     "owner_check": ("os.getuid(", "os.geteuid(", ".st_uid", "os.chown(", "os.fchown("),
@@ -109,7 +113,8 @@ def findings(text):
     for kind, patterns in PATTERNS.items():
         for pattern in patterns:
             for match in re.finditer(re.escape(pattern), text):
-                found.append((kind, line_of(text, match.start()), *KINDS[kind]))
+                described = HOST_TABLE if kind == "proc_read" and text.startswith(HOST_TABLES, match.start()) else KINDS[kind]
+                found.append((kind, line_of(text, match.start()), *described))
     for match in PERMISSION_MODE.finditer(text):
         found.append(("permission_bits", line_of(text, match.start()), *KINDS["permission_bits"]))
     for module, (what, service, path) in SYSTEM_MODULES.items():
