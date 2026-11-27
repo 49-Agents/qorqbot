@@ -119,7 +119,10 @@ rollback contract is in the host's [`docs/INSTALLATION.md`](../docs/INSTALLATION
   one are hidden, and a long list scrolls inside a fixed maximum height. Icons, working
   dots and the arrow centre on the middle of the capitals of their text line (on the
   line box where the browser cannot trim text). The pane requests only focus
-  projections and does not display Todo lists or workflow steps. Other-agent reads
+  projections and does not display Todo lists or workflow steps. A workflow focus is
+  titled by the agent's intent for the run (not repeated below), else by the last part
+  of its reference in plain words ("get-set-up" shows as "Get set up"); a workflow
+  reference is never shown. Other-agent reads
   stop while collapsed, and all focus reads stop when the chat is hidden.
   Working dots remain tied to the chat's
   own session. Check: `node --test tests/chat-focus.test.js` (requires Playwright Chromium).
