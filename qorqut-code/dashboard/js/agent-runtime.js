@@ -255,7 +255,9 @@ const agentRuntime = (() => {
       if (!disposed) onChange();
     }
 
-    function update(session) {
+    // `note`: a line of the agent's own text ({text, title}) shown after the step while it works; the step alone otherwise, and
+    // while a question waits for the owner (the line written before the question says nothing about the wait).
+    function update(session, {note = null} = {}) {
       last = session;
       const managed = managedOf(session);
       el.hidden = !managed;
@@ -263,7 +265,9 @@ const agentRuntime = (() => {
       acctSync(managed.accountProblem);
       if (managed.open) clearOffer();
       const info = activity(session);
-      line.hidden = !info.text; lineText.textContent = info.text;
+      const said = info.text && note?.text && !managed.pending.length ? note : null;
+      line.hidden = !info.text; lineText.textContent = said ? `${info.text} · ${said.text}` : info.text;
+      lineText.title = said ? said.title || said.text : '';
       stop.hidden = !info.stop || !stopHere; stop.disabled = stopping; stop.title = stopping ? 'Stopping…' : `Stop what ${label} is doing`;
       const wanted = managed.open ? managed.pending : [];
       for (const [id, card] of cards) if (!wanted.some(item => item.request_id === id)) { card.node.remove(); cards.delete(id); }

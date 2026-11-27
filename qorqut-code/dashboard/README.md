@@ -119,7 +119,10 @@ rollback contract is in the host's [`docs/INSTALLATION.md`](../docs/INSTALLATION
   one are hidden, and a long list scrolls inside a fixed maximum height. Icons, working
   dots and the arrow centre on the middle of the capitals of their text line (on the
   line box where the browser cannot trim text). The pane requests only focus
-  projections and does not display Todo lists or workflow steps. Other-agent reads
+  projections and does not display Todo lists or workflow steps. A workflow focus is
+  titled by the agent's intent for the run (not repeated below), else by the last part
+  of its reference in plain words ("get-set-up" shows as "Get set up"); a workflow
+  reference is never shown. Other-agent reads
   stop while collapsed, and all focus reads stop when the chat is hidden.
   Working dots remain tied to the chat's
   own session. Check: `node --test tests/chat-focus.test.js` (requires Playwright Chromium).
@@ -208,8 +211,8 @@ reads or writes the notes, and agents cannot place anything on Focus. Check:
   `owner_conversation_mark_read`; only a visible Chat selection/load through the latest
   sequence acknowledges it. Source-keyed drafts survive closing and reopening the record. See
   [the record workspace](docs/RECORD-WORKSPACE.md). Check: `node --test tests/chat-takeover.test.js`.
-- Focus's top area is one row: Notes, Browser and Desktop, a thin divider that shows only while the
-  queue does, then the attention queue (pending Signoffs, due reminders, calendar events and recovery
+- Focus's top area is one row: Notes, Browser and Desktop (and Calendar while a calendar is connected,
+  see [Calendar](#calendar)), a thin divider that shows only while the queue does, then the attention queue (pending Signoffs, due reminders, calendar events and recovery
   actions, `/root/attention-queue`), which scrolls sideways when it does not fit. Check:
   `node --test tests/focus-strip-row.test.js`. Reply
   notifications poll `/root/reply-notifications` every 10 seconds while visible and
@@ -260,6 +263,12 @@ the persistent native Chat (`js/global-chat.js`) over
 - The composer grows to 200px, accepts clipboard images and files (Ctrl/Cmd+V),
   drag and drop or the link button (up to ten files, 25 MB each), copies each
   into the agent's `downloads/` area and sends the local-file reference.
+- Only two things from an agent are conversation messages: the reply that ends a
+  turn and a card's message. Text an agent writes mid-work (before a tool call) is
+  not drawn; while the agent works, the newest such line shows after the step in
+  the activity line, as one clipped line with the whole text in its tooltip. Testing
+  mode draws the mid-work lines in the conversation, as it does inbox nudges. A
+  conversation of which nothing is drawn reads older pages until something is.
 - `request_user_input(message, references)` appears as an agent message with typed
   references: an inline Signoff card, a browser-desktop frame or a link.
 - Messages show their original stored time in the browser's time zone; "Load older"
@@ -364,6 +373,16 @@ host fixture) and
 `PLAYWRIGHT_MODULE=/path/to/playwright node tests/test_agent_calendar_browser.js`.
 Timezone regression checks: `node --test tests/calendar-timezone.test.js tests/calendar-focus.test.js`
 and `PLAYWRIGHT_MODULE=/path/to/playwright CHROME_PATH=/path/to/chrome node --test tests/calendar-timezone-browser.test.js`.
+
+Until a calendar can be connected from the app, a new user never meets the Calendar as a dead end. Every way into it (the
+Focus launcher, the pane's Calendar view, `?workspace=calendar` and old `#/global/calendar` links) exists only while the
+calendar list (`calendar_calendars_list`) says `configured`; while that is unknown, failed or false there is none
+(`calendarConnection` in `js/global-calendar.js`). The answer comes from the reads that already happen (the attention
+strip's calendar read, opening the Calendar) plus one check when the first agent pane mounts; a link that arrives before
+that check waits for it. The walkthrough has no Calendar step (progress saved there resumes at Projects). An empty Calendar
+says only "No calendar connected yet."; the developer guide is linked there in Testing mode alone. Checks:
+`node --test tests/testing-mode-views.test.js tests/calendar-focus.test.js tests/onboarding-plan.test.js`, and with
+Chrome `tests/focus-strip-row.test.js` and `tests/calendar-timezone-browser.test.js`.
 
 ## Tasks, notes and uploads
 

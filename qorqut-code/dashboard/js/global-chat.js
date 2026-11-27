@@ -278,12 +278,31 @@ function mountGlobalChat(pane, agent, options = {}) {
   });
   const isAgentMessage = entry => entry.speaker === 'notice' && Array.isArray(entry.agent_message?.recipients);
   const isNudge = entry => entry.speaker === 'notice' && entry.system?.verified === true && entry.system.input_type === 'inbox_nudge';
-  // Rebuild contiguous runs from the ID-keyed, ordered transcript on every render. Inbox nudges are internal bookkeeping: their marker
-  // is shown only in Testing mode.
+  // A mid-work line: agent text written during a turn (before a tool call). Only the reply that ends a turn (`partial: false`, or a
+  // completion bound to it) and a card's message (`references`) are conversation messages. The raw entry is read, since
+  // `presentEntry` folds Codex's `partial: null` into false. An entry that later gets its completion is a reply from then on.
+  const isMidWork = entry => entry?.speaker === 'agent' && entry.partial !== false && entry.completion_sequence == null && !Array.isArray(entry.references);
+  // Whether Chat draws an entry. Inbox nudges and mid-work lines are internal: they are drawn only in Testing mode.
+  const shownInChat = entry => (typeof testingModeEnabled === 'function' && testingModeEnabled()) || (!isNudge(entry) && !isMidWork(entry));
+  // While the agent works, the newest entry of the conversation Chat follows, when it is a mid-work line, is shown in the activity
+  // line instead: one line of plain text (`text`), and the whole line in `title`.
+  function midWorkNote() {
+    let newest = null;
+    for (const entry of entries.values()) if (!newest || entry.position >= newest.position) newest = entry;
+    if (!isMidWork(newest)) return null;
+    const plain = String(newest.text ?? '')
+      .replace(/```[^\n]*\n?/g, ' ').replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/^\s{0,3}(?:#{1,6}|>|[-*+]|\d+[.)])\s+/gm, '').replace(/\*\*|__|~~|`/g, '')
+      .replace(/(^|[\s(])[*_](?=\S)/g, '$1').replace(/(\S)[*_](?=[\s).,:;!?]|$)/g, '$1')
+      .replace(/\s+/g, ' ').trim();
+    return plain ? {text: plain.length > 300 ? `${plain.slice(0, 299)}…` : plain, title: plain} : null;
+  }
+  // Rebuild contiguous runs from the ID-keyed, ordered transcript on every render. Entries Chat does not draw (`shownInChat`) are
+  // left out before the runs are built, so they never split one.
   function groupActivity(sorted) {
-    const rows = [], nudges = typeof testingModeEnabled === 'function' && testingModeEnabled();
+    const rows = [];
     for (const entry of sorted) {
-      if (!nudges && isNudge(entry)) continue;
+      if (!shownInChat(entry)) continue;
       const last = rows[rows.length - 1];
       if (!isNudge(entry) && !isAgentMessage(entry)) { rows.push(entry); continue; }
       if (last?.group) last.group.push(entry);
@@ -435,7 +454,9 @@ function mountGlobalChat(pane, agent, options = {}) {
   const selectedFiles = () => GLOBAL_CHAT_FILES.get(composerScope) || [];
   // What the conversation holds, and whether a message that starts the session is on its way: the wording of the session line.
   // An earlier conversation kept on screen above a fresh one (a compaction) counts: the chat is not empty.
-  const hasHistory = () => entries.size > 0 || earlier.some(part => part.entries.size > 0) || shownInputs.length > 0 || hasLocal;
+  // Only what Chat draws counts (`shownInChat`): a conversation of mid-work lines alone reads as empty.
+  const hasHistory = () => hasShown(entries) || earlier.some(part => hasShown(part.entries)) || shownInputs.length > 0 || hasLocal;
+  const hasShown = map => [...map.values()].some(shownInChat);
   const sessionSummary = () => session && typeof agentTerminalView !== 'undefined' && agentTerminalView.isTerminal(session)
     ? agentTerminalView.summary(session, label, viewingLive()) : session ? agentRuntime.summary(session, label, viewingLive(), {history: hasHistory(),
     opening: agentRuntime.closed(session) && (GLOBAL_CHAT_INFLIGHT.has(composerScope) || GLOBAL_CHAT_OPENING.has(agentId))}) : {key: 'loading', line: ''};
@@ -471,7 +492,8 @@ function mountGlobalChat(pane, agent, options = {}) {
   }
   // ---- managed runtime: Stop, the activity line and the cards follow the session
   const runtimeSend = async (path, body) => coreData(await post(`${base}${path}`, body));
-  function syncManaged() {
+  // `note`: the newest mid-work line ({text, title}, `midWorkNote`), shown in the activity line while the agent works.
+  function syncManaged(note = null) {
     // A terminal agent has no managed session: no Stop block, no activity line, no question cards.
     const terminal = typeof agentTerminalView !== 'undefined' && agentTerminalView.isTerminal(session);
     if (session && !terminal && !managedBar && sessionLine.parentNode) {
@@ -494,7 +516,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     }
     // In Ordubashy's own chat the activity line (what it is doing, Stop) sits in the focus strip, where the focus intent is.
     if (managedBar) contextStatus?.hostActivity(managedBar.line);
-    managedBar?.update(session);
+    managedBar?.update(session, {note});
     contextStatus?.paintActivity();
   }
   // The session line says what the empty conversation does not already say in the middle of the pane.
@@ -515,7 +537,7 @@ function mountGlobalChat(pane, agent, options = {}) {
     // The question card and the activity line take room from the message list. Whether the owner was at the end of it is read before
     // they appear, so the list stays at its end (the last message is never under the card) and a list scrolled up stays where it is.
     const pinned = !!view?.isAtBottom?.();
-    syncManaged();
+    syncManaged(working && viewingLive() ? midWorkNote() : null);
     if (options.openTerminal && typeof agentTerminalView !== 'undefined') agentTerminalView.syncChat(root, session, options, terminalSync);
     sessionLine.hidden = !sessionText.textContent && (workingTag.hidden || workingTag.parentElement !== sessionLine);
     const enabled = canSend(), sending = opening.busy(composerScope) || opening.holds();
@@ -828,8 +850,8 @@ function mountGlobalChat(pane, agent, options = {}) {
     slashMenu = slashCommands.attach({input: view.elements.input, form: view.elements.composer, commands: commandCatalog});
     cleanups.push(() => slashMenu.dispose());
   }
-  // Testing mode shows or hides the inbox nudge markers (`groupActivity`).
-  if (typeof testingModeSubscribe === 'function') cleanups.push(testingModeSubscribe(() => { if (live()) paintEntries('preserve'); }));
+  // Testing mode shows or hides the inbox nudge markers and the mid-work lines (`shownInChat`).
+  if (typeof testingModeSubscribe === 'function') cleanups.push(testingModeSubscribe(() => { if (live()) { paintEntries('preserve'); fillShown(); } }));
   // The focus board keeps Ordubashy first without changing this chat's input or session identity.
   if (hasContext && view.elements?.composer) {
     contextStatus=chatFocusPanelMount(view.elements.composer,agentId,{agent,visible:contextVisible,onChange:paintSession,workingTag});
@@ -880,6 +902,7 @@ function mountGlobalChat(pane, agent, options = {}) {
       // Chat reads on across a compaction by itself: a conversation loaded to its own top that continues one not on screen brings
       // in that one's newest page at once, when Chat opens on it and when its link arrives after it.
       if (bring && older == null && !earlier.length && linked) void loadOlder(GLOBAL_CHAT_PAGE);
+      fillShown();
     } catch (problem) {
       if (live() && mine === generation) { paintSession(); showBanner("Couldn't load. Retry"); retry(() => load()); }
     } finally {
@@ -904,6 +927,8 @@ function mountGlobalChat(pane, agent, options = {}) {
     const mine = generation, requested = viewedKey(), epoch = clears, previous = before == null ? target?.continues || null : null;
     if ((before == null && !previous) || !target || olderBusy) return;
     olderBusy = true; paint();
+    // A page whose entries Chat draws none of (`shownInChat`) changes nothing on screen, so the next one is read at once.
+    let unseen = false;
     try {
       const data = coreData(await api(previous ? `${base}?limit=${limit}${globalChatQuery(previous)}`
         : `${base}/history?before=${before}&limit=${limit}${globalChatQuery(target)}`, {signal: reads.signal}));
@@ -917,28 +942,35 @@ function mountGlobalChat(pane, agent, options = {}) {
         (data.entries || []).forEach(entry => { if (!held.has(entry.id)) held.set(entry.id, entry); });
         if (part) part.older = data.older ?? null; else older = data.older ?? null;
       }
+      unseen = (data.entries || []).length > 0 && !data.entries.some(shownInChat);
       paintEntries('prepend');
     } catch (problem) { if (live()) showBanner("Couldn't load. Retry"); }
     finally { olderBusy = false; if (live()) paint(); }
+    if (unseen && live() && olderAbove()) await loadOlder(limit);
   }
+  // A loaded conversation that Chat draws nothing of while more lies above reads the older pages until something is drawn.
+  const fillShown = () => { if (!olderBusy && olderAbove() && !loadedParts().some(part => [...part.entries.values()].some(shownInChat))) void loadOlder(GLOBAL_CHAT_PAGE); };
 
   // Drops the oldest loaded entries (oldest part first) while the reader is at the bottom and more than GLOBAL_CHAT_LOADED_MAX are held. A cursor
   // `before=P` returns the entries whose position is below P, so a part that loses its oldest entries gets `older` = its oldest kept position:
   // scrolling up then loads exactly what was dropped. The cut never falls between entries of one position (one record can yield several), so
   // every kept position is strictly above every dropped one. A part dropped whole is re-read through the part above it or `continues`.
+  // Only entries Chat draws (`shownInChat`) are counted and kept; the undrawn ones among the dropped go with them, so a long run of
+  // undrawn entries can never trim away everything that is drawn.
   function trimLoaded() {
     if (!live()) return false;
-    const parts = loadedParts();
-    let drop = parts.reduce((sum, part) => sum + part.entries.size, 0) - GLOBAL_CHAT_LOADED_KEEP, changed = false;
+    const parts = loadedParts(), drawn = part => [...part.entries.values()].filter(shownInChat).length;
+    let drop = parts.reduce((sum, part) => sum + drawn(part), 0) - GLOBAL_CHAT_LOADED_KEEP, changed = false;
     if (drop + GLOBAL_CHAT_LOADED_KEEP <= GLOBAL_CHAT_LOADED_MAX || !view.isAtBottom()) return false;
     for (const part of parts) {
       if (drop <= 0) break;
       const sorted = [...part.entries.values()].sort((a, b) => a.position - b.position);
-      let cut = Math.min(drop, sorted.length);
+      let cut = 0;
+      for (let taken = 0; cut < sorted.length && taken < drop; cut++) if (shownInChat(sorted[cut])) taken++;
       while (cut > 0 && cut < sorted.length && sorted[cut].position === sorted[cut - 1].position) cut++;
       if (cut >= sorted.length) {
         if (part.entries === entries) break;           // the conversation Chat follows is never emptied
-        earlier.splice(earlier.indexOf(part), 1); drop -= sorted.length; changed = true;
+        earlier.splice(earlier.indexOf(part), 1); drop -= drawn(part); changed = true;
         continue;
       }
       sorted.slice(0, cut).forEach(entry => part.entries.delete(entry.id));
