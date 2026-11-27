@@ -810,14 +810,16 @@ def _names_tool():
     return module
 
 
-def load_findings(folder: Path, names=None) -> list[str]:
+def load_findings(folder: Path, names=None, sites=()) -> list[str]:
     """The findings of loading the code part of a folder that passes the file rules, as a start loads it, in a process
     of its own (``qorqut.bootstrap.extension_tables.declared``): its factory, the parts it uses, its tool names and the
     tables it declares (``tables()``, whose statements are checked as a recorded row is). A folder without
     ``code.factory`` has none. Nothing of its code is imported into this process.
 
     ``names`` is the release's name rules (``extension_names.py``), given by the bundle builder beside it; without it
-    they are the checkout's (``_names_tool``), and rule (b) is not checked where there is none."""
+    they are the checkout's (``_names_tool``), and rule (b) is not checked where there is none. ``sites`` are folders
+    with its dependency wheels unpacked (``extension_deps.unpack``), put after its ``code/`` as a start puts its
+    ``deps/site/``."""
     from qorqut_operations.contracts import DomainError
     from qorqut.bootstrap.extension_tables import declared
     from qorqut.composition.extension_tables import contribution_of
@@ -832,7 +834,7 @@ def load_findings(folder: Path, names=None) -> list[str]:
             return [sentence[0].upper() + sentence[1:]]
     if manifest.factory is None:
         return []
-    row, finding = declared(folder)
+    row, finding = declared(folder, others=[str(site) for site in sites])
     if finding is not None:
         return [finding]
     if row is not None:

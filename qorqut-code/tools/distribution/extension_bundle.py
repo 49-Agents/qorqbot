@@ -138,8 +138,6 @@ def build_folder(folder, platform, output, wheels=()):
 
     folder = Path(folder).absolute()
     found = check_folder(folder)
-    # Its code part is loaded as a start loads it, in a process of its own (``extension_contract --load``).
-    found = found or load_findings(folder, names=_names())
     if found:
         raise ValueError('The extension folder breaks the contract: ' + ' '.join(found))
     manifest = load_manifest(folder)
@@ -174,6 +172,21 @@ def build_folder(folder, platform, output, wheels=()):
         raise ValueError('A wheel is built for one platform, so the bundle needs that platform, not any.')
     if platform != 'any' and not specific:
         raise ValueError('No wheel is built for one platform, so the bundle is for any platform.')
+    # Its code part is loaded as a start loads it, in a process of its own (``extension_contract --load``), with its
+    # wheels unpacked after its code/ as a start has its deps/site/.
+    with tempfile.TemporaryDirectory() as unpacked:
+        sites = []
+        if wheels:
+            site = Path(unpacked) / reading.DEPS / extension_deps.SITE
+            site.parent.mkdir()
+            try:
+                extension_deps.unpack(wheels, site)
+            except extension_deps.DepsError as error:
+                raise ValueError(str(error)) from None
+            sites.append(site)
+        found = load_findings(folder, names=_names(), sites=sites)
+    if found:
+        raise ValueError('The extension folder breaks the contract: ' + ' '.join(found))
     header = {'format': reading.FORMAT, 'id': manifest.id, 'version': manifest.version, 'platform': platform,
               'files': files}
     reading.bundle_header(header)

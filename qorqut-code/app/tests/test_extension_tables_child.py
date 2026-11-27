@@ -110,25 +110,40 @@ class AnswersOnlyDataTest(ChildCase):
 
 
 class SeesWhatAStartSeesTest(ChildCase):
-    def test_the_other_installed_code_folders_are_on_its_path_in_the_order_of_a_start(self):
+    def test_it_has_the_entries_of_the_other_extensions_in_the_order_of_a_start_and_none_of_its_installed_folder(self):
+        from test_extension_tables_runtime import rename
         installed = self.root / "instance" / "extensions"
-        other = installed / "aaother" / "code"
-        (other / "helpers").mkdir(parents=True)
-        (installed / "aaother" / "extension.yaml").write_text("id: aaother\n")
-        (other / "helpers" / "__init__.py").write_text("")
-        (installed / "tablenote" / "code").mkdir(parents=True)
-        (installed / "tablenote" / "extension.yaml").write_text("id: tablenote\n")
+        early, late = rename(installed, "aaother", "aaother_items"), rename(installed, "zzother", "zzother_items")
+        (early / "code" / "helpers").mkdir()
+        (early / "code" / "helpers" / "__init__.py").write_text("")
+        for folder in (early, installed / "tablenote"):
+            if folder.name == "tablenote":
+                shutil.copytree(TABLENOTE, folder)
+            (folder / "deps" / "site").mkdir(parents=True)
+        (installed / "tablenote" / "deps" / "site" / "oldonly.py").write_text("")
         (installed / ".staging").mkdir()
         components = {name: self.root / name for name in ("app", "dashboard")}
         paths = InstancePaths(self.root / "instance", components)
-        self.assertEqual(making._code_folders(paths, "tablenote"), [str(other)])
+        own = self.root / "staged" / "code"
+        self.assertEqual(making._start_path(paths, "tablenote", own),
+                         [str(early / "code"), str(own), str(late / "code"), str(early / "deps" / "site")])
         # Its own top-level package ``helpers``: a start, with the other one earlier on the path, imports that one.
         folder = self.variant("\nfrom helpers import VALUE\n")
         (folder / "code" / "helpers").mkdir()
         (folder / "code" / "helpers" / "__init__.py").write_text("VALUE = 1\n")
         self.assertEqual(self.declared(folder, quiet=True), (example_row(), None))
-        self.assertEqual(self.declared(folder, others=making._code_folders(paths, "tablenote")),
+        self.assertEqual(self.declared(folder, others=making._start_path(paths, "tablenote", folder / "code")),
                          (None, "Its code could not be loaded: ImportError."))
+        # The deps/site of its installed folder is not on its path, even where the calling process has it; its own is.
+        shutil.rmtree(self.root / "copies")
+        folder = self.variant("\nimport oldonly\n")
+        with mock.patch.object(sys, "path", [*sys.path, str(installed / "tablenote" / "deps" / "site")]):
+            self.assertEqual(self.declared(folder), (None, "Its code could not be loaded: ModuleNotFoundError."))
+        shutil.rmtree(self.root / "copies")
+        folder = self.variant("\nimport ownonly\n")
+        (folder / "deps" / "site").mkdir(parents=True)
+        (folder / "deps" / "site" / "ownonly.py").write_text("")
+        self.assertEqual(self.declared(folder, quiet=True), (example_row(), None))
 
 
 if __name__ == "__main__":

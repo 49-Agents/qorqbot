@@ -112,8 +112,8 @@ _TYPE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,79}")
 
 
 def _declare(folder, others, channel) -> None:
-    """In the child process: load the code part of ``folder`` as a start loads it, with ``others`` (the code folders
-    of the other installed extensions, as a start has them) on the import path, and write the answer to the file
+    """In the child process: load the code part of ``folder`` as a start loads it, with ``others`` (``_start_path``:
+    the import path entries of the other extensions, as a start has them) on the import path, and write the answer to the file
     descriptor ``channel``: ``{"row": ...}`` (the canonical row of its declared tables, or None) or ``{"fault": kind,
     "detail": ...}``. Only data is written, never a sentence or the text of an exception. The process then ends at
     once, so neither a thread nor an exit handler of the loaded code keeps it alive or writes after the answer."""
@@ -122,10 +122,16 @@ def _declare(folder, others, channel) -> None:
     answer = {"fault": "fault", "detail": None}
     try:
         from qorqut import extension_contract as contract
+        from qorqut.bootstrap.extension_deps import is_site
         from qorqut.extension_registry import CODE_FOLDER
-        # The path is the calling process's without the code folder of any extension, then what a start has.
-        sys.path[:] = [entry for entry in sys.path
-                       if not (Path(entry).name == CODE_FOLDER and (Path(entry).parent / contract.MANIFEST).is_file())]
+
+        def of_an_extension(entry):
+            entry = Path(entry)
+            return (entry.name == CODE_FOLDER and (entry.parent / contract.MANIFEST).is_file()
+                    or is_site(entry) and (entry.parent.parent / contract.MANIFEST).is_file())
+        # The path is the calling process's without the code and deps/site folders of any extension, the same id's
+        # installed folder included, then what a start has; loading the folder adds its own code/ and deps/site/.
+        sys.path[:] = [entry for entry in sys.path if not of_an_extension(entry)]
         sys.path.extend(json.loads(others))
         answer = _answer(Path(folder).resolve())
     except BaseException as exc:  # noqa: BLE001 - whatever the loaded code raised, only its type name is answered
@@ -166,14 +172,26 @@ def _answer(folder) -> dict:
         return {"fault": TABLES_FORM, "detail": None}
 
 
-def _code_folders(paths, ext_id) -> list[str]:
-    """The ``code/`` folders a start has on its import path besides the one of ``ext_id``: each other extension folder
-    with a code part, in the order a start finds them."""
-    from qorqut import extension_contract as contract
-    from qorqut.extension_registry import CODE_FOLDER, extension_roots
-    return [str(folder / CODE_FOLDER) for root, _ in extension_roots(paths) if root.is_dir()
-            for folder in sorted(root.iterdir())
-            if folder.name != ext_id and (folder / contract.MANIFEST).is_file() and (folder / CODE_FOLDER).is_dir()]
+def _start_path(paths, ext_id, own=None) -> list[str]:
+    """The import path entries of extensions a start would have besides those of ``ext_id``: the ``code/`` of each
+    other fine extension with a code part, in the order a start finds them, then their ``deps/site/`` where unpacked,
+    every ``code/`` before every ``deps/site/``. ``own``, the code folder of the staged ``ext_id``, is put where a start
+    would find it among the downloaded ones; loading it puts it there again before the first ``deps/site/``, and adds its
+    own ``deps/site/`` last."""
+    from qorqut.bootstrap import extension_deps
+    from qorqut import extension_registry as registry
+    found = registry.discover(paths, app_version=registry.app_version(), platform=registry.current_platform())
+    chosen = [item for item in found if item.fine and item.manifest.factory is not None and item.id != ext_id]
+    codes = []
+    for item in chosen:
+        if own is not None and item.delivery == registry.DOWNLOADABLE and item.id > ext_id:
+            codes.append(str(own))
+            own = None
+        codes.append(str(item.folder / registry.CODE_FOLDER))
+    if own is not None:
+        codes.append(str(own))
+    sites = [str(extension_deps.site(item.folder)) for item in chosen if extension_deps.site(item.folder).is_dir()]
+    return codes + sites
 
 
 def _sentence(answer, manifest) -> tuple[str | None, str | None]:
@@ -205,7 +223,7 @@ def _sentence(answer, manifest) -> tuple[str | None, str | None]:
 
 def declared(folder, *, others=()) -> tuple[dict | None, str | None]:
     """``(row or None, finding or None)`` for the code part of ``folder``, loaded in a process of its own with this
-    process's import path and ``others`` (``_code_folders``): the canonical row of the tables it declares (None when it
+    process's import path and ``others`` (``_start_path``): the canonical row of the tables it declares (None when it
     declares none), or why its code could not be loaded. The child answers on a pipe of its own and only with data;
     every sentence is written here, and a failure is logged with the kind of fault and a type name only."""
     from qorqut import extension_contract as contract
@@ -269,7 +287,8 @@ def make_staged(paths, selection, change_id, folder, ext_id, version, *, ownersh
 
     def failed(note):
         return f"{note} {KEPT}" if holds_tables(paths, ext_id) else note
-    row, finding = declared(folder, others=_code_folders(paths, ext_id))
+    from qorqut.extension_registry import CODE_FOLDER
+    row, finding = declared(folder, others=_start_path(paths, ext_id, Path(folder).resolve() / CODE_FOLDER))
     if finding is not None:
         return failed(finding)
     if row is None:
