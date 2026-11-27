@@ -361,12 +361,18 @@ function agviewboxSurfacesMount(p, host) {
     const bound = view === 'browser' ? found.browsers.length > 0 || !!p.liveBrowser : !!found.desktop;
     return bound ? [true, name] : [false, `${name} unavailable: no configured ${view} for this agent`];
   };
+  // Calendar shows only while a calendar is known to be connected (js/global-calendar.js); until then there is no launcher at all.
+  const calendarShown = () => typeof calendarConnection === 'object' && calendarConnection.connected();
   const paintLaunchers = () => {
     for (const chip of host.querySelectorAll('[data-focus-surface]')) {
       const [on, text] = launcher(chip.dataset.focusSurface);
       chip.title = text; chip.setAttribute('aria-label', text);
       if (on) chip.removeAttribute('aria-disabled'); else chip.setAttribute('aria-disabled', 'true');
+      if (chip.dataset.focusSurface === 'calendar') chip.hidden = !calendarShown();
     }
+    const fixed = calendarShown() ? 'Notes, Browser, Desktop and Calendar' : 'Notes, Browser and Desktop';
+    host.setAttribute('aria-label', `${fixed.replace(' and ', ', ')} and attention queue`);
+    $('.agfocus-fixed', host)?.setAttribute('aria-label', fixed);
     agfocusDesktopTab(p);
   };
   // Reuses the pane's cached or pending discovery; only an explicit retry after failure forces another read.

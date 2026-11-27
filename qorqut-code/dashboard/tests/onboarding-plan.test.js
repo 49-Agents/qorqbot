@@ -9,7 +9,7 @@ const plan = require('../js/onboarding-plan.js');
 const steps = [
   {id: 'assistant', chapter: 'online'}, {id: 'intro', chapter: 'online'},
   {id: 'intro-more', progressStep: 'intro', chapter: 'online'}, {id: 'chat', chapter: 'online'},
-  {id: 'focus', chapter: 'workspace'}, {id: 'calendar', chapter: 'workspace'},
+  {id: 'focus', chapter: 'workspace'}, {id: 'projects', chapter: 'workspace'},
   {id: 'learning', chapter: 'yours'},
 ];
 
@@ -44,14 +44,14 @@ test('resumeIndex starts over for new, finished or unknown progress', () => {
   }
 });
 
-test('resumeIndex maps the retired activity step to calendar unless activity exists', () => {
+test('resumeIndex maps the retired activity step to projects unless activity exists', () => {
   assert.equal(plan.resumeIndex(steps, {status: 'in_progress', step: 'activity'}), 5);
   const withActivity = [...steps.slice(0, 5), {id: 'activity', chapter: 'workspace'}, ...steps.slice(5)];
   assert.equal(plan.resumeIndex(withActivity, {status: 'in_progress', step: 'activity'}), 5);
   assert.equal(plan.resumeIndex(steps, {status: 'completed', step: 'activity'}), 0);
 });
 
-test('resumeIndex maps the retired Todo board step to calendar', () => {
+test('resumeIndex maps the retired Todo board step to projects', () => {
   assert.equal(plan.resumeIndex(steps, {status: 'in_progress', step: 'attention'}), 5);
   assert.equal(plan.resumeIndex(steps, {status: 'completed', step: 'attention'}), 0);
   const tour = fs.readFileSync(path.join(__dirname, '../js/onboarding.js'), 'utf8');
@@ -64,6 +64,13 @@ test('resumeIndex maps the retired connector steps to the browser step', () => {
   const withBrowser = [...steps, {id: 'browser-setup', chapter: 'connect'}];
   for (const step of ['connectors', 'connect-more'])
     assert.equal(plan.resumeIndex(withBrowser, {status: 'in_progress', step}), withBrowser.length - 1);
+});
+
+test('resumeIndex continues the retired Calendar step at the step that followed it', () => {
+  assert.equal(plan.resumeIndex(steps, {status: 'in_progress', step: 'calendar'}), 5);
+  const withCalendar = [...steps.slice(0, 5), {id: 'calendar', chapter: 'workspace'}, ...steps.slice(5)];
+  assert.equal(plan.resumeIndex(withCalendar, {status: 'in_progress', step: 'calendar'}), 5);
+  assert.equal(plan.resumeIndex(steps, {status: 'completed', step: 'calendar'}), 0);
 });
 
 test('saveId uses the shared progress id when present', () => {
@@ -133,6 +140,8 @@ test('other keys and an empty Tab list are left alone on every step', () => {
 test('the retired Activity step stays gone and the tour uses the plan’s key handling', () => {
   const source = fs.readFileSync(path.join(__dirname, '../js/onboarding.js'), 'utf8');
   assert.doesNotMatch(source, /\{id: 'activity'/);
+  // No Calendar step and no link to the developer guide: a new user never meets the Calendar as a dead end.
+  assert.doesNotMatch(source, /\{id: 'calendar'|view: 'calendar'|CALENDAR_GUIDE_URL|github\.com/);
   assert.match(source, /onboardingPlan\.handleKey\(/);
 });
 
@@ -172,13 +181,13 @@ test('a failed step never highlights a previously visible target', () => {
 // ---- the one tour: the real step list, the retired step ids, and the hello's readiness rule
 const source = fs.readFileSync(path.join(__dirname, '../js/onboarding.js'), 'utf8');
 const listText = source.slice(source.indexOf('  const allSteps = ['), source.indexOf('\n  ];', source.indexOf('  const allSteps = [')) + 5);
-const ctx = {CALENDAR_GUIDE_URL: 'x', agentButton: () => null, pane: () => null, sgAttentionNavigate: () => {}, document: {querySelector: () => null}};
+const ctx = {agentButton: () => null, pane: () => null, sgAttentionNavigate: () => {}, document: {querySelector: () => null}};
 require('node:vm').createContext(ctx); require('node:vm').runInContext(listText.replace('const allSteps', 'this.allSteps'), ctx);
 const real = [...ctx.allSteps];
 const ids = list => list.map(step => step.id);
 
 test('the tour is one list: no start, consent, terminal or managed-start step', () => {
-  assert.deepEqual(ids(real), ['assistant', 'focus', 'calendar', 'projects', 'signoffs', 'settings', 'privacy',
+  assert.deepEqual(ids(real), ['assistant', 'focus', 'projects', 'signoffs', 'settings', 'privacy',
     'connect-overview', 'browser-setup', 'chat']);
   assert.ok(real.every(step => !step.variant && !step.managed && !step.terminal && !step.launch && !step.consent && !step.managedStart));
   assert.deepEqual(plan.chapters(real).map(c => c.id), ['online', 'workspace', 'projects', 'yours', 'connect']);
@@ -191,7 +200,8 @@ test('progress saved at a retired start step continues at the step after Ordubas
     assert.equal(ids(real)[plan.resumeIndex(real, {status: 'in_progress', step})], 'focus', step);
   // Every other saved id still resumes at itself, and the older retired ids at theirs.
   for (const step of ids(real)) assert.equal(ids(real)[plan.resumeIndex(real, {status: 'in_progress', step})], step, step);
-  assert.equal(ids(real)[plan.resumeIndex(real, {status: 'in_progress', step: 'activity'})], 'calendar');
+  assert.equal(ids(real)[plan.resumeIndex(real, {status: 'in_progress', step: 'activity'})], 'projects');
+  assert.equal(ids(real)[plan.resumeIndex(real, {status: 'in_progress', step: 'calendar'})], 'projects');
   assert.equal(ids(real)[plan.resumeIndex(real, {status: 'in_progress', step: 'learning'})], 'settings');
   assert.equal(ids(real)[plan.resumeIndex(real, {status: 'in_progress', step: 'connectors'})], 'browser-setup');
   assert.equal(ids(real)[plan.resumeIndex(real, {status: 'in_progress', step: 'journal'})], 'projects');

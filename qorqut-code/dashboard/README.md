@@ -211,8 +211,8 @@ reads or writes the notes, and agents cannot place anything on Focus. Check:
   `owner_conversation_mark_read`; only a visible Chat selection/load through the latest
   sequence acknowledges it. Source-keyed drafts survive closing and reopening the record. See
   [the record workspace](docs/RECORD-WORKSPACE.md). Check: `node --test tests/chat-takeover.test.js`.
-- Focus's top area is one row: Notes, Browser and Desktop, a thin divider that shows only while the
-  queue does, then the attention queue (pending Signoffs, due reminders, calendar events and recovery
+- Focus's top area is one row: Notes, Browser and Desktop (and Calendar while a calendar is connected,
+  see [Calendar](#calendar)), a thin divider that shows only while the queue does, then the attention queue (pending Signoffs, due reminders, calendar events and recovery
   actions, `/root/attention-queue`), which scrolls sideways when it does not fit. Check:
   `node --test tests/focus-strip-row.test.js`. Reply
   notifications poll `/root/reply-notifications` every 10 seconds while visible and
@@ -367,6 +367,16 @@ host fixture) and
 `PLAYWRIGHT_MODULE=/path/to/playwright node tests/test_agent_calendar_browser.js`.
 Timezone regression checks: `node --test tests/calendar-timezone.test.js tests/calendar-focus.test.js`
 and `PLAYWRIGHT_MODULE=/path/to/playwright CHROME_PATH=/path/to/chrome node --test tests/calendar-timezone-browser.test.js`.
+
+Until a calendar can be connected from the app, a new user never meets the Calendar as a dead end. Every way into it (the
+Focus launcher, the pane's Calendar view, `?workspace=calendar` and old `#/global/calendar` links) exists only while the
+calendar list (`calendar_calendars_list`) says `configured`; while that is unknown, failed or false there is none
+(`calendarConnection` in `js/global-calendar.js`). The answer comes from the reads that already happen (the attention
+strip's calendar read, opening the Calendar) plus one check when the first agent pane mounts; a link that arrives before
+that check waits for it. The walkthrough has no Calendar step (progress saved there resumes at Projects). An empty Calendar
+says only "No calendar connected yet."; the developer guide is linked there in Testing mode alone. Checks:
+`node --test tests/testing-mode-views.test.js tests/calendar-focus.test.js tests/onboarding-plan.test.js`, and with
+Chrome `tests/focus-strip-row.test.js` and `tests/calendar-timezone-browser.test.js`.
 
 ## Tasks, notes and uploads
 
