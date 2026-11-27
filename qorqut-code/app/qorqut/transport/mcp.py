@@ -569,9 +569,64 @@ class MCPTransport:
         started = time.perf_counter()
         try:
             value = await self._single_result_timed(name, arguments, actor, request_id, timing)
-            return self._bounded(name, value, request_id)
+            value = self._bounded(name, value, request_id)
+            if isinstance(self.caller, RegisteredAgentCaller) and isinstance(value, dict) and value.get("status") == "ok":
+                value = await self._extension_notes(name, timing["operation"], value, actor, request_id)
+            return value
         finally:
             _log_slow_tool(timing, request_id, started)
+
+    async def _extension_notes(self, name, operation, value, actor, request_id):
+        """The result with the ``after_tool`` notes of the agent's extensions beside it (``extension_hooks``). The result
+        itself is never changed, and a failure here leaves it as it was. With no extension in effect for the agent, this
+        asks the registry once and returns the result as it is."""
+        registry = getattr(self.runtime, "extension_registry", None)
+        if registry is None or not registry.found:
+            return value  # no extension was found at start: nothing is read
+        try:
+            actor = actor or self._request_actor(authority=False)
+            request = self.server.request_context
+            headers, meta = request.request.headers, request.meta
+        except (DomainError, LookupError, AttributeError):
+            return value
+        agent_id = actor.principal.id
+
+        def notes():
+            from qorqut import extension_hooks
+            entries = extension_hooks.tool_entries(extension_hooks.entries_for(registry, agent_id, "after_tool"),
+                                                   (name, operation))
+            if not entries:
+                return value
+            used = None
+            if any(entry.if_used or entry.unless_used for entry in entries):
+                from qorqut.agents.checkpoints import native_checkpoint
+                session = conversation_id(headers, meta)
+                native = native_checkpoint(self.runtime, agent_id, session) if session else None
+                # This call counts as used in the turn; the activity hook notes it only after the result.
+                used = [*native.get("used", ()), operation, name] if native else None
+            instructions = self.runtime.resolver.require_agentic_view().runtime_instructions()
+            noted, composition = extension_hooks.tool_notes(
+                value, entries, used, instructions, budget=mcp_presentation.RESULT_CHARACTER_BUDGET,
+                size=lambda result: len(mcp_presentation.serialize(mcp_presentation._unprotected(result))))
+            if composition is None:
+                return value
+            from qorqut.composition.locations import agent_workspace_of
+            extension_hooks.write_rest(agent_workspace_of(self.runtime.paths, agent_id), composition)
+            try:
+                from qorqut_operations.contracts import utc_now
+                with self.runtime.database.transaction(operation="mcp.extension_deliveries") as uow:
+                    self.runtime.application.ensure_writes_open(uow)
+                    extension_hooks.record(uow.connection, agent_id, "after_tool", extension_hooks.deliveries(composition),
+                                           at=utc_now(), session_id=conversation_id(headers, meta), request_id=request_id)
+            except Exception:
+                logger.exception("The delivery of extension notes could not be recorded: %s", request_id)
+            return noted
+
+        try:
+            return await anyio.to_thread.run_sync(notes)
+        except Exception:
+            logger.exception("Extension notes failed; the result is returned without them: %s", request_id)
+            return value
 
     def _bounded(self, name, value, request_id):
         """The result cut to the size a harness accepts, each cut named in it. Every entry of a batch is bounded by

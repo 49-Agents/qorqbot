@@ -4,6 +4,8 @@
 // `rtGlobal()`/`rtVisible()` check make a global (every-project) subscription
 // safe to over-fire; each still keeps a 60s safety poll (section 2.3: a
 // missed event delays a view by at most 60s, never breaks correctness).
+// The record types extensions add (js/tasks.js), read once so their labels show; a type editor reads them again.
+if (typeof taskRecordTypesLoad === 'function') void taskRecordTypesLoad();
 if (agentWorkspaceEmbedded()) {
   window.agentWorkspaceReady = agentWorkspaceBootEmbedded();
 } else {

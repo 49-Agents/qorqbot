@@ -612,7 +612,9 @@ function tDetail(t,{host=null,onClose=null,recordPanelOpen=false,embedded=false,
   // An embedded workspace dashboard owns the one private Chat tab instead.
   const special = !embedded && TASK_SPECIAL_TYPES.includes(t.task_type) && typeof recordSurfaceMount === 'function';
   const renderBody = () => {
-  const extra = Object.entries(t.fields || {}).map(([k, v]) => fld(k, esc(String(v)))).join("");
+  // The fields an active record type draws in the type editor are left out; any other value, an inactive type's included,
+  // is listed here read-only by its field id.
+  const extra = taskFieldsLeftOver(t).map(([k, v]) => fld(k, esc(String(v)))).join("");
   const stateChip = task => !taskShowsState(task) ? taskTypeIcon(task.task_type) + customerStateChip(task) : `<span class="task-state-chip"><span class="sdot ${esc(task.status)}" aria-hidden="true"></span>${esc(T_LABEL[task.status] || task.status)}</span>`;
   const relatedTask = task => `<button type="button" class="chip task-link-chip" data-open-task="${esc(task.id)}" title="${esc(task.title)}">${stateChip(task)} ${esc(tChipLabel(task.title))}</button>`;
   const children = (t.children || []).map(relatedTask).join(' ');
@@ -964,6 +966,54 @@ function taskTypeIcon(type) {
   if(!TASK_SPECIAL_TYPES.includes(type))return '';
   return `<span class="task-type-icon task-type-icon-${type}" role="img" aria-label="${TASK_TYPE_LABELS[type]}" title="${TASK_TYPE_LABELS[type]}"></span>`;
 }
+// Record types extensions add on top of the Task types: the owner's list of active types from tasks_config_get. A record is
+// stored as its base type with `record_type` set, so everything keyed by `task_type` (icons, panels, Focus) treats it as its
+// base; only its label and its extra fields come from here. A record whose type is not in the list shows as its base type.
+let taskRecordTypes = [];
+// Read at start and again when a type editor opens; resolves true when the list changed.
+async function taskRecordTypesLoad() {
+  try {
+    const data = await uiReads.read('task-record-types', () => workCall(null, 'tasks_config_get'));
+    const list = Array.isArray(data?.record_types) ? data.record_types : [];
+    const changed = JSON.stringify(list) !== JSON.stringify(taskRecordTypes);
+    taskRecordTypes = list;
+    return changed;
+  } catch (_) { return false; }
+}
+const taskRecordType = task => task?.record_type ? taskRecordTypes.find(item => item.id === task.record_type && item.based_on === task.task_type) || null : null;
+// The type a Task is shown as: its active record type's label, else its base type's.
+const taskTypeLabel = task => taskRecordType(task)?.label || TASK_TYPE_LABELS[task?.task_type] || 'Task';
+// The Type select's options: the base types, then each active record type by label, as `<base>:<record type>`. With
+// `sameBase` only the Task's own base type and the record types on it are offered, so the base never changes.
+function taskTypeOptionsHtml(task = {}, {sameBase = false} = {}) {
+  const base = task.task_type || 'task', record = taskRecordType(task), selected = record ? `${record.based_on}:${record.id}` : base;
+  const options = [...Object.entries(TASK_TYPE_LABELS).filter(([value]) => sameBase ? value === base : value !== 'email' || task.task_type === 'email'),
+    ...taskRecordTypes.filter(item => !sameBase || item.based_on === base).map(item => [`${item.based_on}:${item.id}`, esc(item.label)])];
+  return options.map(([value, label]) => `<option value="${esc(value)}" ${selected === value ? 'selected' : ''}>${label}</option>`).join('');
+}
+// One "<Label> details" fieldset per active record type, shown while that type is chosen; values come from the Task's fields.
+function taskRecordFieldsHtml(task = {}) {
+  const values = task.fields || {};
+  const control = field => {
+    const attrs = `data-record-field="${esc(field.id)}" data-record-kind="${esc(field.type)}"`, value = values[field.id];
+    if (field.type === 'bool') return `<label class="ef-label"><input type="checkbox" ${attrs} ${value === true ? 'checked' : ''}> ${esc(field.label)}</label>`;
+    if (field.type === 'enum') {
+      // A stored value that is not one of the choices shows as its own selected option.
+      const choices = field.values || [], own = value != null && value !== '' && !choices.some(choice => choice === value) ? [value] : [];
+      return `<label class="ef-label">${esc(field.label)}<select class="ef-control" ${attrs}><option value=""></option>${[...own, ...choices].map(choice => `<option value="${esc(choice)}" ${choice === value ? 'selected' : ''}>${esc(choice)}</option>`).join('')}</select></label>`;
+    }
+    const input = field.type === 'int' ? 'number" step="1' : field.type === 'date' ? 'date' : 'text';
+    return `<label class="ef-label">${esc(field.label)}<input class="editable-field" type="${input}" ${attrs} autocomplete="off" value="${esc(value ?? '')}"></label>`;
+  };
+  return taskRecordTypes.map(item => `<fieldset class="task-record-fields global-task-wide" data-task-record="${esc(item.id)}" hidden><legend>${esc(item.label)} details</legend>${(item.fields || []).map(control).join('')}</fieldset>`).join('');
+}
+// The Task's custom values its active record type does not draw, by field id: what the detail lists read-only, an inactive
+// record type's leftover values included.
+function taskFieldsLeftOver(task = {}) {
+  const drawn = new Set((taskRecordType(task)?.fields || []).map(field => field.id));
+  const fields = task.fields && typeof task.fields === 'object' ? task.fields : {};
+  return Object.entries(fields).filter(([id]) => !drawn.has(id));
+}
 // A Customer's free-text state label. It is a label only and never moves the Task's status.
 const customerStateText = task => task?.task_type === 'customer' ? String(task.customer_state || '') : '';
 const customerStateChip = task => customerStateText(task) ? `<span class="customer-state-chip" title="Customer state">${esc(customerStateText(task))}</span>` : '';
@@ -1017,22 +1067,25 @@ function customerStatesMount(root, project) {
   return {load, extend, dispose() { generation++; }};
 }
 // `overviewOwned`: an existing Story or Customer edits its overview in the record panel, so the generic editor hides it.
-function taskTypeFields(task = {}) {
+function taskTypeFields(task = {}, {sameBase = false} = {}) {
   const ownedElsewhere = !!task.id && ['story', 'customer'].includes(task.task_type);
-  return `<div class="task-type-editor global-task-wide"><label class="ef-label">Type<select class="ef-control" data-task-type aria-label="Task type">${Object.entries(TASK_TYPE_LABELS).filter(([value])=>value!=='email' || task.task_type==='email').map(([value,label])=>`<option value="${value}" ${(task.task_type || 'task')===value?'selected':''}>${label}</option>`).join('')}</select></label>
+  return `<div class="task-type-editor global-task-wide"><label class="ef-label">Type<select class="ef-control" data-task-type aria-label="Task type">${taskTypeOptionsHtml(task, {sameBase})}</select></label>
     <label class="ef-label" data-task-overview-field ${ownedElsewhere ? 'hidden' : ''}>Overview<textarea class="editable-field" data-task-overview aria-label="Overview" rows="3" maxlength="20000" placeholder="Context, current situation and next steps…">${esc(task.overview || '')}</textarea></label>
-    ${customerFieldsHtml(task)}
+    ${customerFieldsHtml(task)}${taskRecordFieldsHtml(task)}
     </div>`;
 }
 // What the type editor changed relative to the Task as last known. A type change sends every deliberate value;
 // an unchanged Story or Customer is edited in its record panel, so the generic editor sends none of its fields.
 const taskSameValue = (a, b) => JSON.stringify(a, (_, v) => v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([x], [y]) => x < y ? -1 : x > y ? 1 : 0)) : v) === JSON.stringify(b, (_, v) => v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([x], [y]) => x < y ? -1 : x > y ? 1 : 0)) : v);
+// A record type and its fields are sent only when they changed, also for a Story or Customer.
 function taskTypeChanges(task, values) {
   const type = task.task_type || 'task';
   if (values.task_type !== type) return values;
-  if (task.id && ['story', 'customer'].includes(type)) return {};
-  const known = {task_type: type, overview: task.overview || '', customer_kind: task.customer_kind ?? null, customer_state: task.customer_state || '', customer_profile: task.customer_profile || {}};
-  return Object.fromEntries(Object.entries(values).filter(([key, value]) => !taskSameValue(value, known[key])));
+  const known = {task_type: type, overview: task.overview || '', customer_kind: task.customer_kind ?? null, customer_state: task.customer_state || '', customer_profile: task.customer_profile || {},
+    record_type: task.record_type ?? null, fields: task.fields || {}};
+  const changed = ([key, value]) => !taskSameValue(value, known[key]);
+  if (task.id && ['story', 'customer'].includes(type)) return Object.fromEntries(Object.entries(values).filter(([key]) => key === 'record_type' || key === 'fields').filter(changed));
+  return Object.fromEntries(Object.entries(values).filter(changed));
 }
 // Shared confirmation for a deliberate, destructive conversion. Resolves false on cancel, Escape or backdrop.
 function taskConfirm({title, message, confirmLabel}) {
@@ -1045,34 +1098,82 @@ function taskConfirm({title, message, confirmLabel}) {
   });
 }
 // `saved`: the owner wires Save / Discard for these fields itself (the Task detail); otherwise every field is live.
-function taskTypeMount(host, project, task = {}, {saved = false} = {}) {
+// `sameBase`: the editor was drawn with `taskTypeFields(task, {sameBase: true})` and is redrawn the same way.
+function taskTypeMount(host, project, task = {}, {saved = false, sameBase = false} = {}) {
   const type=host.querySelector('[data-task-type]');
   const customerBox=host.querySelector('[data-task-customer]'), overviewField=host.querySelector('[data-task-overview-field]');
   const originalType=task.task_type || 'task', ownedElsewhere=!!task.id && ['story','customer'].includes(originalType);
+  // A record type is chosen as `<base>:<record type>`. The record's own type comes from the Task, never from the select,
+  // so a select that already holds an unsaved choice when the editor is mounted again does not become the original.
+  const base=()=>type.value.split(':')[0], recordChosen=()=>type.value.split(':')[1] || null;
+  const recordOfTask=()=>typeof taskRecordType==='function'?taskRecordType(task)?.id || null:null;
+  let originalRecord=recordOfTask(), originalValue=originalRecord?`${originalType}:${originalRecord}`:originalType;
   let disposed=false, confirmation=null;
   let statesLoaded=false;
   const states=customerStatesMount(customerBox,project);
   function update(){
-    const showState=type.value==='task';
+    const showState=base()==='task';
     host.querySelectorAll('[data-task-status-field], #td-status').forEach(el=>{el.hidden=!showState;});
     const status=host.querySelector('[name=status]');if(status)status.disabled=!showState;
     // Existing Customers edit their details in the record panel; a conversion to Customer shows them here.
-    customerBox.hidden=type.value!=='customer' || originalType==='customer' && ownedElsewhere;
-    if(type.value==='customer' && !customerBox.hidden && !statesLoaded){statesLoaded=true;states.load();}
-    if(overviewField)overviewField.hidden=ownedElsewhere && type.value===originalType;
+    customerBox.hidden=base()!=='customer' || originalType==='customer' && ownedElsewhere;
+    if(base()==='customer' && !customerBox.hidden && !statesLoaded){statesLoaded=true;states.load();}
+    if(overviewField)overviewField.hidden=ownedElsewhere && base()===originalType;
+    host.querySelectorAll('[data-task-record]').forEach(box=>{box.hidden=box.dataset.taskRecord!==recordChosen();});
     // A Customer's title is its name.
     const title=host.querySelector('input[name=title]'), label=title?.closest('label');
-    if(label && label.firstChild?.nodeType===Node.TEXT_NODE && /^(Title|Name)$/.test(label.firstChild.textContent.trim()))label.firstChild.textContent=type.value==='customer'?'Name':'Title';
+    if(label && label.firstChild?.nodeType===Node.TEXT_NODE && /^(Title|Name)$/.test(label.firstChild.textContent.trim()))label.firstChild.textContent=base()==='customer'?'Name':'Title';
   }
+  // The owner's edits mark the record field they touched; a field not touched keeps its stored value exactly.
+  const touch=event=>{const input=event.target;if(input?.dataset?.recordField!==undefined)input.dataset.recordTouched='1';};
+  host.addEventListener?.('input',touch);host.addEventListener?.('change',touch);
+  // The record type values laid over the Task's other custom fields, which the write replaces as a whole. A touched field
+  // that was emptied is left out.
+  function recordFields(record){
+    const fields={...(task.fields||{})}, definition=(typeof taskRecordTypes!=='undefined'?taskRecordTypes:[]).find(item=>item.id===record);
+    host.querySelectorAll(`[data-task-record="${record}"] [data-record-field]`).forEach(input=>{
+      if(!input.dataset.recordTouched)return;
+      const name=input.dataset.recordField, kind=input.dataset.recordKind;
+      let value=input.value===''?undefined:input.value;
+      if(kind==='bool')value=input.checked?true:name in fields?false:undefined;
+      else if(kind==='int'&&value!==undefined&&/^-?[0-9]+$/.test(value))value=Number(value);
+      else if(kind==='enum'&&value!==undefined){
+        const choice=(definition?.fields||[]).find(field=>field.id===name)?.values?.find(item=>String(item)===value);
+        if(choice!==undefined)value=choice;
+      }
+      if(value===undefined)delete fields[name];else fields[name]=value;
+    });
+    return fields;
+  }
+  function recordReset(){
+    const values=task.fields||{};
+    host.querySelectorAll('[data-record-field]').forEach(input=>{
+      delete input.dataset.recordTouched;
+      const value=values[input.dataset.recordField];
+      if(input.dataset.recordKind==='bool')input.checked=value===true;else input.value=value??'';
+    });
+  }
+  // A record type switched on or off since the page loaded: the choices and fieldsets are drawn again from the new list.
+  if(typeof taskRecordTypesLoad==='function')taskRecordTypesLoad().then(changed=>{
+    if(!changed || disposed || !host.isConnected)return;
+    // A choice the owner made is kept while it is still offered; otherwise the Task's own type is selected as drawn.
+    const chosen=type.value, untouched=chosen===originalValue;
+    type.innerHTML=taskTypeOptionsHtml(task,{sameBase});
+    originalRecord=recordOfTask();originalValue=originalRecord?`${originalType}:${originalRecord}`:originalType;
+    if(!untouched&&[...type.options].some(option=>option.value===chosen))type.value=chosen;
+    host.querySelectorAll('[data-task-record]').forEach(box=>box.remove());
+    customerBox.insertAdjacentHTML('afterend',taskRecordFieldsHtml(task));
+    update();
+  });
   type.onchange=update;
   update();
   if(!saved && typeof efMount==='function')efMount(host,{live:true});
   return {
     // Converting a Customer away clears its kind, state and profile; the owner confirms that first.
     async confirmConversion(){
-      if(originalType!=='customer' || type.value==='customer')return true;
+      if(originalType!=='customer' || base()==='customer')return true;
       const selectedType=type.value;
-      const message=`Changing this Customer to ${TASK_TYPE_LABELS[selectedType]} clears its kind, state, profile and notes. Its conversation and links stay.`;
+      const message=`Changing this Customer to ${TASK_TYPE_LABELS[selectedType] || type.selectedOptions?.[0]?.textContent} clears its kind, state, profile and notes. Its conversation and links stay.`;
       if(!host.closest('.agfocus'))return taskConfirm({title:'Remove customer details?',message,confirmLabel:'Change type'});
       if(disposed || !host.isConnected || confirmation)return false;
       const children=[...host.children].map(node=>({node,hidden:node.hidden,inert:node.inert}));
@@ -1097,16 +1198,20 @@ function taskTypeMount(host, project, task = {}, {saved = false} = {}) {
     },
     values(){
       // The legacy email link is display-only: it is never sent in a create, update or type change.
-      const task_type=type.value, values={task_type};
+      const task_type=base(), record=recordChosen(), values={task_type};
       if(!overviewField?.hidden)values.overview=host.querySelector('[data-task-overview]').value;
       if(task_type==='customer'&&!customerBox.hidden)Object.assign(values,customerFieldsRead(customerBox));
       else if(task_type==='customer'&&originalType!=='customer')values.customer_kind='person';
       else if(originalType==='customer'&&task_type!=='customer')Object.assign(values,{customer_kind:null,customer_state:'',customer_profile:{}});
+      // A record type is sent while one is chosen, and cleared only when the Task had one drawn here (an inactive one stays).
+      if(record)Object.assign(values,{record_type:record,fields:recordFields(record)});
+      else if(originalRecord)values.record_type=null;
       return values;
     },
     // Back to the Task as last known: type, overview and Customer fields.
     reset(){
-      type.value=originalType;
+      type.value=originalValue;
+      recordReset();
       const overview=host.querySelector('[data-task-overview]');if(overview)overview.value=task.overview||'';
       const profile=task.customer_profile||{};
       host.querySelectorAll('[data-customer-profile]').forEach(input=>{input.value=profile[input.dataset.customerProfile]||'';});

@@ -10,8 +10,9 @@ later transforms taken out, so a store at any state of the chain is recognised
 and walked to the build's target. The chain is empty while the stores in use
 match the build's target; its only state is then ``base``. It holds ``rule_checks`` (the owner's check of a rule an agent
 filed), ``project_hierarchy`` (subprojects), ``context_step_aside`` (a blocked Context input no longer holds the queue),
-``action_digest`` (the daily Action digest's backlog and cursor) and ``installed_extensions`` (the status of each installed
-extension and the agents it is switched on for).
+``action_digest`` (the daily Action digest's backlog and cursor), ``installed_extensions`` (the status of each installed
+extension and the agents it is switched on for) and ``extension_deliveries`` (the record of extension texts delivered to
+agents).
 
 Run ``python -m qorqut.migration.upgrade COMMAND --instance-root ROOT`` with the
 target component selection and optional --extensions-config.
@@ -50,7 +51,8 @@ from qorqut_operations.storage.sqlfunctions import install_sql_functions
 
 from qorqut.composition.assembly import HostComposition, host_contributions
 from qorqut.extensions import NO_EXTENSIONS
-from qorqut.migration import action_digest, context_step_aside, installed_extensions, project_hierarchy, rule_checks
+from qorqut.migration import (action_digest, context_step_aside, extension_deliveries, installed_extensions,
+                              project_hierarchy, rule_checks)
 from qorqut.service.changes import ChangeFeed
 from qorqut.service.instance_arguments import add_instance_arguments, instance_paths_from_arguments
 from qorqut.service.ownership import InstanceOwnership
@@ -58,7 +60,7 @@ from qorqut.service.ownership import InstanceOwnership
 # Release order, oldest first. A new schema transform is appended here; it provides NAME, OBJECTS (what it adds),
 # strip(contribution), forward(connection, objects), backward(connection) and held_rows(connection). One that changes
 # the definition of an existing object also names it in CHANGED.
-TRANSFORMS = (rule_checks, project_hierarchy, context_step_aside, action_digest, installed_extensions)
+TRANSFORMS = (rule_checks, project_hierarchy, context_step_aside, action_digest, installed_extensions, extension_deliveries)
 BASE = 'base'
 STATES = (BASE, *(transform.NAME for transform in TRANSFORMS))
 

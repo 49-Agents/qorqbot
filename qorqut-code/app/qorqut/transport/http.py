@@ -256,7 +256,8 @@ class HTTPAPI:
         parts = request.path_params.get("path", "").strip("/").split("/")
         if parts[:1] == ["agent"]:
             return "agent." + parts[1] if len(parts) > 1 and parts[1] in {
-                "readiness", "bootstrap", "browser", "focus", "inbox", "checkpoint", "connector-gate"} else "agent"
+                "readiness", "bootstrap", "browser", "focus", "inbox", "checkpoint", "connector-gate",
+                "extension-deliveries"} else "agent"
         if parts[:2] == ["root", "operations"]:
             return "root.operation"
         if parts[:1] == ["project"]:
@@ -1515,6 +1516,18 @@ class HTTPAPI:
             value = await anyio.to_thread.run_sync(partial(connector_gate.check, self.runtime, context,
                                                            body["tool_name"], body["tool_input"]))
             return response(OperationResult.ok(value, request_id=new_id()))
+        if request.method == "POST" and parts == ["agent", "extension-deliveries"]:
+            await anyio.to_thread.run_sync(self.runtime.require_authority)
+            actor = await anyio.to_thread.run_sync(lambda: self.authentication.agent(request.headers.get("authorization")))
+            request.scope["qorqut.auth"] = actor
+            body = await read_json(request, limit=65536)
+            checked_fields(body, {"registration_id", "session_id", "point", "deliveries"},
+                           {"registration_id", "session_id", "point", "deliveries"})
+            if body["registration_id"] != actor.registration_id:
+                raise DomainError("forbidden", "Extension deliveries are not bound to this credential")
+            await anyio.to_thread.run_sync(partial(self.runtime.agent_context, actor.principal, diagnostic=True))
+            value = await anyio.to_thread.run_sync(partial(self._extension_deliveries, actor, body))
+            return response(OperationResult.ok(value, request_id=new_id()))
         if request.method != "POST" or parts not in (["agent", "bootstrap"], ["agent", "bootstrap", "receipt"]):
             raise DomainError("not_found", "Agent endpoint is not registered")
         await anyio.to_thread.run_sync(self.runtime.require_authority)
@@ -1569,4 +1582,50 @@ class HTTPAPI:
             context = await anyio.to_thread.run_sync(partial(self.runtime.agent_context, actor.principal))
             value['environment'] = await anyio.to_thread.run_sync(
                 partial(bootstrap_environment, self.runtime, context))
+        if len(parts) == 2 and value.get('ready'):
+            # The start and owner-message texts of the agent's extensions; the key is absent when there is none, so the
+            # answer is unchanged for an agent with no extension in effect.
+            hooks = await anyio.to_thread.run_sync(partial(self._extension_hook_entries, actor.principal.id))
+            if hooks:
+                value['extension_hooks'] = hooks
         return response(OperationResult.ok(value, request_id=new_id()))
+
+    def _extension_hook_entries(self, agent_id):
+        from qorqut import extension_hooks
+        registry = getattr(self.runtime, 'extension_registry', None)
+        entries = extension_hooks.entries_for(registry, agent_id)
+        hooks = {}
+        for point in ('start', 'owner_message'):
+            chosen = [entry for entry in entries if entry.at == point]
+            if chosen:
+                hooks[point] = extension_hooks.hook_entries(chosen)
+        return hooks
+
+    def _extension_deliveries(self, actor, body):
+        """Record what the start hook delivered. Each item must be an entry at that point of an extension in effect for
+        the agent now, with the digest of its text."""
+        from qorqut import extension_hooks
+        point, items, session = body['point'], body['deliveries'], body['session_id']
+        if (point not in ('start', 'owner_message') or not isinstance(items, list) or not items
+                or not isinstance(session, str) or not 1 <= len(session) <= 200):
+            raise DomainError('validation_error', 'Extension deliveries need a start point, a session and a list of deliveries')
+        seen = set()
+        for item in items:
+            if (not isinstance(item, dict) or set(item) != {'extension_id', 'entry_id', 'place', 'text_sha256'}
+                    or not all(isinstance(item[key], str) for key in item) or item['place'] not in ('shown', 'rest_file')):
+                raise DomainError('validation_error', 'Invalid extension delivery')
+            if (item['extension_id'], item['entry_id']) in seen:
+                # One row per own entry per call: an entry is delivered once at a point.
+                raise DomainError('validation_error', 'An entry is named twice in one call')
+            seen.add((item['extension_id'], item['entry_id']))
+        registry = getattr(self.runtime, 'extension_registry', None)
+        current = {(entry.extension_id, entry.entry_id): extension_hooks.text_digest(entry.text)
+                   for entry in extension_hooks.entries_for(registry, actor.principal.id, point)}
+        accepted = [item for item in items if current.get((item['extension_id'], item['entry_id'])) == item['text_sha256']]
+        if accepted:
+            from qorqut_operations.contracts import utc_now
+            with self.runtime.database.transaction(operation="agent.extension_deliveries") as uow:
+                self.runtime.application.ensure_writes_open(uow)
+                extension_hooks.record(uow.connection, actor.principal.id, point, accepted, at=utc_now(),
+                                       session_id=body['session_id'])
+        return {'recorded': len(accepted)}
