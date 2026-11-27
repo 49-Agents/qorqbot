@@ -9,6 +9,7 @@ import stat
 
 from qorqut_operations.errors import DomainError
 from qorqut.instance_paths import InstancePaths
+from qorqut_system import private_files
 
 
 @lru_cache(maxsize=1)
@@ -54,7 +55,8 @@ def extensions_configuration(path):
     ``extensions`` list in the trusted factory format. Read once, never through a link; ``installed_selection`` is still the
     one place that validates, imports and builds the selection."""
     try:
-        with os.fdopen(os.open(Path(path), os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC), "rb") as stream:
+        target = Path(path)
+        with os.fdopen(private_files.open_read(target.parent, target.name), "rb") as stream:
             if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
                 raise ValueError
             data = stream.read(65537)

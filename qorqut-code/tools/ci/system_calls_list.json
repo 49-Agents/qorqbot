@@ -111,12 +111,6 @@
     "qorqut-code/app/qorqut/connectors.py": {
       "proc_read": 1
     },
-    "qorqut-code/app/qorqut/file_viewer/files.py": {
-      "safe_file_access": 7
-    },
-    "qorqut-code/app/qorqut/installation.py": {
-      "safe_file_access": 1
-    },
     "qorqut-code/app/qorqut/managed_runtime/claude_driver.py": {
       "platform_check": 4,
       "process_control": 8
@@ -131,26 +125,12 @@
     "qorqut-code/app/qorqut/managed_runtime/model_catalog.py": {
       "process_control": 3
     },
-    "qorqut-code/app/qorqut/managed_runtime/options.py": {
-      "permission_bits": 2
-    },
     "qorqut-code/app/qorqut/migration/managed_cutover.py": {
       "link": 2,
       "owner_check": 2,
       "platform_check": 1,
       "proc_read": 1,
       "process_control": 2
-    },
-    "qorqut-code/app/qorqut/migration/snapshots.py": {
-      "permission_bits": 2,
-      "safe_file_access": 1
-    },
-    "qorqut-code/app/qorqut/native_archive/_archive.py": {
-      "safe_file_access": 2
-    },
-    "qorqut-code/app/qorqut/native_chat/attachment.py": {
-      "link": 4,
-      "platform_check": 1
     },
     "qorqut-code/app/qorqut/native_chat/liveness.py": {
       "platform_check": 2
@@ -161,9 +141,6 @@
     "qorqut-code/app/qorqut/native_paths.py": {
       "platform_check": 1
     },
-    "qorqut-code/app/qorqut/overseer/evidence.py": {
-      "safe_file_access": 1
-    },
     "qorqut-code/app/qorqut/release_worker/adapters.py": {
       "file_lock": 1,
       "link": 9,
@@ -173,9 +150,6 @@
     "qorqut-code/app/qorqut/release_worker/adoption_runtime.py": {
       "proc_read": 2,
       "service_manager": 1
-    },
-    "qorqut-code/app/qorqut/release_worker/artifact_placement.py": {
-      "owner_check": 1
     },
     "qorqut-code/app/qorqut/release_worker/io.py": {
       "file_lock": 7,
@@ -194,26 +168,13 @@
       "safe_file_access": 1,
       "system_module": 1
     },
-    "qorqut-code/app/qorqut/release_worker/plugin_adoption.py": {
-      "permission_bits": 1
-    },
     "qorqut-code/app/qorqut/release_worker/session_backup.py": {
       "proc_read": 3
-    },
-    "qorqut-code/app/qorqut/shared_context/service.py": {
-      "safe_file_access": 1
     },
     "qorqut-code/app/qorqut/source_snapshot.py": {
       "link": 2,
       "permission_bits": 1,
       "safe_file_access": 13
-    },
-    "qorqut-code/app/qorqut/storage/full_recovery.py": {
-      "permission_bits": 2,
-      "safe_file_access": 1
-    },
-    "qorqut-code/app/qorqut/storage/recovery.py": {
-      "permission_bits": 3
     },
     "qorqut-code/app/qorqut/transport/agent_terminal_control.py": {
       "platform_check": 13,
@@ -302,12 +263,6 @@
     },
     "qorqut-code/qorqut-context/qorqut_context/claude_tools.py": {
       "local_socket": 1
-    },
-    "qorqut-code/qorqut-context/qorqut_context/git_store.py": {
-      "owner_check": 3
-    },
-    "qorqut-code/qorqut-context/qorqut_context/integration/questions/store.py": {
-      "safe_file_access": 1
     },
     "qorqut-code/qorqut-context/qorqut_context/integration/recovery.py": {
       "safe_file_access": 1

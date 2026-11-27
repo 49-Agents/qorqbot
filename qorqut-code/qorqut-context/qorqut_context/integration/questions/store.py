@@ -24,6 +24,8 @@ import os
 import sqlite3
 import uuid
 
+from qorqut_system import private_files
+
 KINDS = ("event", "node", "edge", "note")
 ACTIONS = ("create", "update", "delete")
 DEFAULT_LIMIT = 50
@@ -211,7 +213,7 @@ class QuestionStore:
 
     def _materialize(self):
         try:
-            os.close(os.open(self.path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600))
+            private_files.ensure_entry(os.path.dirname(self.path), os.path.basename(self.path))
         except OSError as error:
             raise QuestionStoreError(f"cannot open question database {self.path}: {error}") from error
 

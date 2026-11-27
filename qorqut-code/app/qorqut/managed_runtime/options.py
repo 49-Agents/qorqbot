@@ -19,11 +19,12 @@ Nothing here starts a process or reads a credential: ``ready`` is supplied by th
 from __future__ import annotations
 
 import json
-import os
 import re
 import threading
 from dataclasses import dataclass
 from pathlib import Path
+
+from qorqut_system import private_files
 
 from . import clients, state as layout
 
@@ -114,7 +115,7 @@ def write(paths, agent_id, **changes) -> Options:
             if folder.is_symlink():
                 raise OSError("managed state paths cannot follow symlinks")
             folder.mkdir(parents=True, exist_ok=True, mode=0o700)
-            os.chmod(folder, 0o700)
+            private_files.set_private(folder, mode=0o700)
         layout.write_json_private(path, {"schema_version": SCHEMA_VERSION, **merged})
     return Options(**merged)
 
