@@ -318,8 +318,13 @@ def _apply_transition(paths, transition, validated, *, backup, ownership=None, i
             _require_store(connection, transition, "predecessor")
             _verify_ownership(owner)
             preserved = _preserved_store_properties(connection)
-            destination = backup() if callable(backup) else backup
-            backup_report = None if destination is None else _publish_backup(connection, destination, transition)
+            try:
+                destination = backup() if callable(backup) else backup
+                backup_report = None if destination is None else _publish_backup(connection, destination, transition)
+            except DomainError as exc:
+                # Said as the copy's failure, whatever its kind (``extension_registry.tables_note``).
+                raise DomainError(exc.code, exc.message, retryable=exc.retryable,
+                                  details={**(exc.details or {}), "step": COPY_STEP}) from exc
             phase("backup")
             _verify_ownership(owner)
             connection.execute("BEGIN IMMEDIATE")
@@ -623,6 +628,9 @@ def _update_identity(connection, target: Assembly) -> None:
 
 
 # -- verified private backup --------------------------------------------------------------------------------------
+
+COPY_STEP = "copy"
+
 
 def _publish_backup(connection, destination, transition: _Transition) -> dict:
     """A SQLite-API backup of the whole validated predecessor, published once at an explicit new destination.

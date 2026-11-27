@@ -111,7 +111,8 @@ class SentenceTest(unittest.TestCase):
 
     def test_each_kind_has_its_sentence_and_the_rest_one_general_sentence(self):
         from qorqut.composition.extension_tables import check_statements
-        from qorqut.extension_registry import TABLES_CHANGED, TABLES_NOT_COPIED, TABLES_NOT_MADE, tables_note
+        from qorqut.extension_registry import (TABLES_CHANGED, TABLES_NOT_COPIED, TABLES_NOT_MADE, TABLES_NOT_MADE_NOW,
+                                               tables_note)
         made = record_contribution(), contribution_of(ROW)
         other_spec = row_of("tablenote", "2", (StorageContribution("tablenote", {"tablenote_items": TableSpec(("text",))},
                                                                    schema=tuple(contribution_of(ROW).schema)),))
@@ -126,11 +127,34 @@ class SentenceTest(unittest.TestCase):
                                                        "CREATE INDEX x_by_id ON clashc_x(id)")),
              "Its index x_by_id is not named clashc_…"),
             (self.refusal(check_statements, "clashc", ("ATTACH DATABASE 'x.sqlite3' AS other",)), TABLES_NOT_MADE),
-            (DomainError("invalid_database", "Operations database could not be read"), TABLES_NOT_MADE),
+            (DomainError("invalid_database", "Operations database could not be read"), TABLES_NOT_MADE_NOW),
             (PermissionError("/a/path"), TABLES_NOT_COPIED))
         for refusal, sentence in cases:
             with self.subTest(sentence):
                 self.assertEqual(tables_note("clashc", refusal), sentence)
+
+    def test_only_a_refusal_of_the_declaration_blames_the_declaration(self):
+        """Every kind raised where tables are made, read from the code that raises it: the modules that compose, judge,
+        try, copy and apply them, the instance lock and the store they open."""
+        import ast
+        import importlib
+        from qorqut.extension_registry import DECLARATION, TABLES_NOT_MADE, tables_note
+        modules = ("qorqut.composition.extension_tables", "qorqut.bootstrap.extension_tables",
+                   "qorqut.bootstrap.agentic_migration", "qorqut.service.ownership",
+                   "qorqut_operations.storage.database", "qorqut_operations.storage.assembly")
+        kinds = set()
+        for name in modules:
+            tree = ast.parse(Path(importlib.import_module(name).__file__).read_text())
+            kinds |= {node.args[0].value for node in ast.walk(tree)
+                      if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "DomainError" and node.args
+                      and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str)}
+        self.assertTrue({DECLARATION, "instance_in_use", "invalid_backup", "storage_error", "ownership_lost",
+                         "migration_verification_failed", "invalid_database"} <= kinds, kinds)
+        for kind in sorted(kinds):
+            with self.subTest(kind):
+                said = tables_note("tablenote", DomainError(kind, "an inner text"))
+                self.assertEqual(said == TABLES_NOT_MADE, kind == DECLARATION, said)
+                self.assertNotIn("inner", said)
 
     def test_no_sentence_uses_the_words_of_the_code(self):
         from qorqut import extension_registry as registry
@@ -302,6 +326,20 @@ class MakingFaultsTest(PlainStoreCase):
                                                 "made first could not be written."})
         self.assertIn("code=os_error error=PermissionError", logged.output[-1])
         self.assertEqual(objects(self.paths.database), before)
+
+    def test_a_copy_that_fails_inside_the_store_says_so(self):
+        """The copy refused by the store itself (here its destination exists, so it is never replaced)."""
+        from qorqut.extension_registry import TABLES_NOT_COPIED
+        folder = self.paths.instance_root / making.BACKUPS
+        folder.mkdir(mode=0o700)
+        (folder / making.AT_START).mkdir(mode=0o700)
+        taken = folder / making.AT_START / "taken.sqlite3"
+        taken.write_bytes(b"")
+        due = {"tablenote": Loaded(None, (), Path("/nowhere"), ROW)}
+        with mock.patch.object(making, "copy_for", lambda paths, attempt: lambda: taken), \
+                self.assertLogs("qorqut.bootstrap.extension_tables", "WARNING") as logged:
+            self.assertEqual(making.make(self.paths, NO_EXTENSIONS, due), {"tablenote": TABLES_NOT_COPIED})
+        self.assertIn("code=backup_exists", logged.output[-1])
 
     def test_tables_already_made_are_opened_and_closed_again(self):
         making.make_one(self.paths, NO_EXTENSIONS, "tablenote", ROW)

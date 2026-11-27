@@ -7,7 +7,7 @@ import logging
 import sqlite3
 from unittest import mock
 
-from qorqut.extension_registry import TABLES_NOT_MADE
+from qorqut.extension_registry import TABLES_NOT_MADE_NOW
 
 from test_extension_tables_runtime import TablesRuntimeCase
 
@@ -23,7 +23,7 @@ class InterruptedStartTest(TablesRuntimeCase):
             runtime = self.start()
         entry = self.entry(runtime, "tablenote")
         self.assertEqual(entry["status"], "needs_attention")
-        self.assertEqual(entry["note"], TABLES_NOT_MADE)
+        self.assertEqual(entry["note"], TABLES_NOT_MADE_NOW)
         self.assertEqual((len(self.copies()), self.store("SELECT name FROM sqlite_master WHERE name LIKE 'tablenote%'")),
                          (1, []))
         runtime.stop()

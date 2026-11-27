@@ -167,6 +167,9 @@ TABLES_STATEMENT_FAILED = "A change to its tables failed in the database."
 TABLES_NOT_COPIED = "Its tables were not made, because the copy of the database that is made first could not be written."
 TABLES_FORM = "Its tables are declared in a form Qorqbot cannot record."
 TABLES_NOT_MADE = "Its tables could not be made, because Qorqbot does not accept the way they are declared."
+TABLES_NOT_MADE_NOW = "Its tables could not be made at this start."
+# The kind of refusal whose cause is the declaration itself: its statements, its record or what they would change.
+DECLARATION = "invalid_installation"
 TABLES_AT_NEXT_START = "Its tables are made at Qorqbot's next start; until then it is not loaded."
 NOT_LOADED = "Its code could not be loaded: {}."
 CODE_FOLDER = "code"
@@ -191,11 +194,13 @@ class Loaded:
 def tables_note(ext_id, exc) -> str:
     """The sentence a person reads when the tables of ``ext_id`` are refused or could not be made, written from the kind
     of the failure (``exc``: the ``DomainError``, or the ``OSError`` of a copy that could not be written) and never from
-    its text, with one general sentence for every kind not told apart here."""
+    its text: a refusal of the declaration it cannot name more exactly blames the declaration, and any other failure
+    gets a sentence that claims no cause."""
+    from qorqut.bootstrap.agentic_migration import COPY_STEP
     from qorqut.composition import extension_tables as tables
-    if isinstance(exc, OSError):
-        return TABLES_NOT_COPIED
     details = getattr(exc, "details", None) or {}
+    if isinstance(exc, OSError) or details.get("step") == COPY_STEP:
+        return TABLES_NOT_COPIED
     reason, kind, name = (details.get(key) for key in ("reason", "kind", "name"))
     if reason == tables.CHANGES_MADE:
         return TABLES_CHANGED
@@ -203,8 +208,8 @@ def tables_note(ext_id, exc) -> str:
         return TABLE_TAKEN.format({"table": "a table", "index": "an index", "trigger": "a trigger"}[kind], name)
     if reason == tables.NOT_NAMED and kind in ("table", "index", "trigger") and isinstance(name, str):
         return NOT_NAMED.format(kind, name, ext_id)
-    return {"tables_do_not_fit_rows": TABLES_NOT_FIT_ROWS,
-            "tables_statement_failed": TABLES_STATEMENT_FAILED}.get(getattr(exc, "code", None), TABLES_NOT_MADE)
+    return {DECLARATION: TABLES_NOT_MADE, "tables_do_not_fit_rows": TABLES_NOT_FIT_ROWS,
+            "tables_statement_failed": TABLES_STATEMENT_FAILED}.get(getattr(exc, "code", None), TABLES_NOT_MADE_NOW)
 
 
 def tables_refused(ext_id, exc, *, logger=LOGGER, event="extension_tables_refused") -> str:
