@@ -85,14 +85,14 @@ def _contract_items(runtime) -> tuple[list, set]:
     the registry holds, and the ids of those whose folder is fine; no set-up handler is asked. Empty while none is
     found."""
     registry = getattr(runtime, "extension_registry", None)
-    if registry is None or not registry.found:
+    if registry is None or not registry.in_use():
         return [], set()
     from qorqut import extension_connections
     with runtime.database.read() as uow:
         entries = registry.list(connection=uow.connection)
-        existing = extension_connections.agents(uow.connection)
+        listed = extension_connections.items(registry, uow.connection, runtime=runtime)
     fine = {entry.id for entry in entries if entry.manifest is not None and not entry.refused_findings}
-    return [extension_connections.item(entry, existing) for entry in entries], fine
+    return listed, fine
 
 
 def view(runtime, *, environ=None) -> dict:

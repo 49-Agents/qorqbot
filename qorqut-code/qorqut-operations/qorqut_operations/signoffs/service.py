@@ -596,7 +596,10 @@ class SignoffService:
                 staged = self.stage(proposer, descriptor, plan, InvocationOptions(
                     supersedes_signoff_id=row["id"], expected_superseded_status_revision=row["status_revision"]), uow)
                 revised = self._row(context, staged.signoff["id"], uow)
-                self.notes.append(context, revised, "Edited the proposed message. Approval is still required.", uow)
+                # The operation may say in its revised preview what the owner's edit was; a message edit says the usual.
+                note = plain(plan.preview).get("amend_note")
+                self.notes.append(context, revised, note if isinstance(note, str) and note.strip()
+                                  else "Edited the proposed message. Approval is still required.", uow)
                 result = self._decision_result(context, revised, uow)
                 receipts.save(context.principal_id, namespace, "signoffs_amend", idempotency_key, input_hash, result)
             return result

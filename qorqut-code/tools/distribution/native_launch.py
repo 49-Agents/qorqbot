@@ -872,6 +872,77 @@ def require_completed_update(root):
         raise RuntimeError('An update was interrupted. Run ./qorqbot update --recover before starting Qorqbot.')
 
 
+# The service's exit code asking to be started again (qorqut/service/restart.py EXIT_RESTART): sysexits' EX_TEMPFAIL.
+RESTART = os.EX_TEMPFAIL
+
+
+def run_service(argv, *, env, cwd, log, state, url, show):
+    """Run the service child until it stops, starting it again whenever it exits with ``RESTART``.
+
+    The caller holds the app lock for the whole run; the record file names this launcher and stays while the child
+    restarts. Every restart uses the same arguments and the same readiness wait. Any other exit ends the run as before.
+    """
+    def start():
+        return subprocess.Popen(list(map(str, argv)), env=env, cwd=cwd, stdout=log, stderr=log)
+    child = start()
+    stop_requested = False
+    def stop(signum, frame):
+        nonlocal stop_requested
+        stop_requested = True
+        if child.poll() is None:
+            child.send_signal(signal.SIGTERM)
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+    save_json(state, {'pid': os.getpid(), 'identity': identity(os.getpid()), 'url': url,
+                      'terminal': sys.stdin.isatty()})
+    try:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        restarted = False
+        while True:
+            for _ in range(300):
+                if child.poll() is not None:
+                    if stop_requested and child.returncode in (0, -signal.SIGTERM, -signal.SIGINT):
+                        return 0
+                    raise RuntimeError('Qorqbot exited during startup. Details are in instance/logs/application.log')
+                try:
+                    with opener.open(url, timeout=1) as response:
+                        if response.status == 200:
+                            break
+                except OSError:
+                    time.sleep(.2)
+            else:
+                child.terminate()
+                child.wait(timeout=30)
+                raise RuntimeError('Qorqbot did not become ready. Details are in instance/logs/application.log')
+            if restarted:
+                print(f'Qorqbot restarted and is running at {url}', flush=True)
+            else:
+                print(f'Qorqbot is running at {url}\nPress Ctrl+C to stop.', flush=True)
+                if sys.stdout.isatty():
+                    for note in readiness_notes(env.get('PATH')):
+                        print(note, flush=True)
+                if show and not open_browser(url):
+                    print('Open the address above in your browser.', flush=True)
+            code = child.wait()
+            if code == RESTART and not stop_requested:
+                child, restarted = start(), True
+                # A stop that arrived while the old child was being replaced still reaches the new one.
+                if stop_requested:
+                    child.send_signal(signal.SIGTERM)
+                continue
+            # Uvicorn can finish graceful shutdown by re-raising the received
+            # signal. An owner-requested stop is a successful launcher exit,
+            # also when the service had just asked to be started again.
+            if stop_requested and code in (0, -signal.SIGTERM, -signal.SIGINT, RESTART):
+                return 0
+            return code if code >= 0 else 128 - code
+    finally:
+        if child.poll() is None:
+            child.terminate()
+            child.wait(timeout=30)
+        state.unlink(missing_ok=True)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description='Run Qorqbot in this folder.')
     parser.add_argument('command', nargs='?', default='start',
@@ -980,52 +1051,7 @@ def main(argv=None):
         logdir = root / 'instance/logs'
         logdir.mkdir(mode=0o700, exist_ok=True)
         with (logdir / 'application.log').open('ab') as log:
-            child = subprocess.Popen(list(map(str, argv)), env=env, cwd=root, stdout=log, stderr=log)
-            stop_requested = False
-            def stop(signum, frame):
-                nonlocal stop_requested
-                stop_requested = True
-                if child.poll() is None:
-                    child.send_signal(signal.SIGTERM)
-            signal.signal(signal.SIGTERM, stop)
-            signal.signal(signal.SIGINT, stop)
-            url = f'http://127.0.0.1:{args.port}'
-            save_json(state, {'pid': os.getpid(), 'identity': identity(os.getpid()), 'url': url,
-                              'terminal': sys.stdin.isatty()})
-            try:
-                opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-                for _ in range(300):
-                    if child.poll() is not None:
-                        if stop_requested and child.returncode in (0, -signal.SIGTERM, -signal.SIGINT):
-                            return 0
-                        raise RuntimeError('Qorqbot exited during startup. Details are in instance/logs/application.log')
-                    try:
-                        with opener.open(url, timeout=1) as response:
-                            if response.status == 200:
-                                break
-                    except OSError:
-                        time.sleep(.2)
-                else:
-                    child.terminate()
-                    child.wait(timeout=30)
-                    raise RuntimeError('Qorqbot did not become ready. Details are in instance/logs/application.log')
-                print(f'Qorqbot is running at {url}\nPress Ctrl+C to stop.', flush=True)
-                if sys.stdout.isatty():
-                    for note in readiness_notes(env.get('PATH')):
-                        print(note, flush=True)
-                if show and not open_browser(url):
-                    print('Open the address above in your browser.', flush=True)
-                code = child.wait()
-                # Uvicorn can finish graceful shutdown by re-raising the received
-                # signal. An owner-requested stop is a successful launcher exit.
-                if stop_requested and code in (0, -signal.SIGTERM, -signal.SIGINT):
-                    return 0
-                return code if code >= 0 else 128 - code
-            finally:
-                if child.poll() is None:
-                    child.terminate()
-                    child.wait(timeout=30)
-                state.unlink(missing_ok=True)
+            return run_service(argv, env=env, cwd=root, log=log, state=state, url=f'http://127.0.0.1:{args.port}', show=show)
 
 
 if __name__ == '__main__':

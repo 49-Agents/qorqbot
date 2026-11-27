@@ -147,6 +147,8 @@ EXPERIENCE_FILING = frozenset({"experience_observation_file"})
 # The owner's check of a rule an agent filed from the owner's words: always held for the owner, whatever a role file or an
 # override says, because the card is the check. Only the filing stages it, in its own transaction.
 EXPERIENCE_RULE_CHECK = "experience_rule_check"
+# Ordubashy's asks to install, update or remove a downloaded extension (``qorqut.domains.extension_tools``).
+EXTENSION_DOWNLOADS = frozenset({"extensions_install", "extensions_remove"})
 # Operations the host itself stages as an agent's proposal: offered to no agent as a tool and refused over MCP.
 HOST_STAGED_OPERATIONS = frozenset({EXPERIENCE_RULE_CHECK})
 
@@ -185,6 +187,14 @@ def _owner_approvals(name, defaults, overrides, registry, *, role_id, scope, res
             return PolicyDecision("deny", "terminal_control_role")
         # Owner standing authority: Ordubashy's lifecycle actions on workers need no Signoff.
         return PolicyDecision("allow", "terminal_control_owner_authority")
+    if name in EXTENSION_DOWNLOADS:
+        # Installing, updating or removing a downloaded extension is the owner's decision: always held for his approval,
+        # whatever an override says, and Ordubashy's alone to ask for. An explicit deny override is still respected.
+        # Global is not judged here: the tools' only scope is Global, and their handler admits Ordubashy only there. The
+        # tool listing judges a tool in the project scope, so a scope condition here would hide them from him.
+        if role_id != ORDUBASHY_ROLE or overrides.get(name) == "deny":
+            return PolicyDecision("deny", "extension_changes_ordubashy_only")
+        return PolicyDecision("signoff", "extension_changes_owner_approval")
     if name == "owner_action_propose":
         # This is delegation of an exact change, never an owner identity/grant.
         # Even an 'allow' override must not remove the human approval boundary.

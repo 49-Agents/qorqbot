@@ -389,6 +389,19 @@ registerSignoffRenderer('experience_rule_check', {
   }
 });
 
+// A proposal may name its Approve button, and offer one more button that makes the owner's edit of its editable fields
+// and approves the edited proposal in one click. Both come from the proposal's own preview, never from a list here.
+function sgApproveLabel(s) {
+  const label = s?.preview?.approve_label;
+  return typeof label === 'string' && label.trim() ? label : 'Approve';
+}
+function sgAmendAndApprove(s) {
+  const offer = s?.preview?.amend_and_approve;
+  if (!sgPlain(offer) || typeof offer.label !== 'string' || !offer.label.trim() || !sgPlain(offer.changes)) return null;
+  const keys = Object.keys(offer.changes);
+  return keys.length && keys.every(key => Array.isArray(s.editable_fields) && s.editable_fields.includes(key)) ? offer : null;
+}
+
 // Returns {ok, html} for operations with an exact-content renderer, or null for generic changes.
 function sgProposal(s, effects) {
   const custom=SG_MESSAGE_RENDERERS.get(s.operation_name);
@@ -943,7 +956,7 @@ function sgCreateView(options) {
     let controls = "";
     const withFeedback = !s.input && !!draft(s).trim();
     const plainDecisionControls = s.state === "pending" && owner() && completePreview(s) && !s.superseded_by_id
-      ? `<div class="sg-actions">${verified ? `<button type="button" class="sg-approve${withFeedback ? "" : " sg-primary-action"}" data-sg="approve"${disabled}>${SVG_CHECK}Approve</button>` : ""}<button type="button" class="sg-reject${withFeedback ? " sg-primary-action" : ""}" data-sg="reject"${disabled}>${SVG_X}Reject</button></div>` : "";
+      ? `<div class="sg-actions">${verified ? `<button type="button" class="sg-approve${withFeedback ? "" : " sg-primary-action"}" data-sg="approve"${disabled}>${SVG_CHECK}${esc(sgApproveLabel(s))}</button>` : ""}${verified && sgAmendAndApprove(s) ? `<button type="button" class="sg-approve" data-sg="amend-approve"${disabled}>${esc(sgAmendAndApprove(s).label)}</button>` : ""}<button type="button" class="sg-reject${withFeedback ? " sg-primary-action" : ""}" data-sg="reject"${disabled}>${SVG_X}Reject</button></div>` : "";
     const reviewLocked = disabled || (reviewEdits.get(s.id)?.saving || reviewEdits.get(s.id)?.receipt || (reviewEdits.has(s.id) && reviewEdits.get(s.id).revision !== s.status_revision) ? ' disabled' : '');
     // Two answers, each sent with the note through the ordinary respond request.
     if (sgIsBrowserAction(s)) controls = s.state === "pending" && owner() && completePreview(s) && !s.superseded_by_id ? `<div class="sg-actions"><button type="button" class="sg-reject" data-sg="respond" data-answer="not_done"${reviewLocked}>Could not do it</button><button type="button" class="sg-approve sg-primary-action" data-sg="respond" data-answer="done"${reviewLocked}>Done</button></div>` : "";
@@ -1364,6 +1377,44 @@ function sgCreateView(options) {
 
     sgViews.forEach(peer => peer.render()); submit(receipt);
   }
+  // The second approve button: the owner's edit first, then the approval of the edited proposal. Once the edit is saved
+  // the card is the edited proposal, so an approval that then fails leaves it waiting for a decision, never half done.
+  async function amendAndApprove() {
+    const s = sg.items.get(sg.selected), offer = sgAmendAndApprove(s);
+    if (!offer || !active() || !expected(s) || !owner() || !completePreview(s) || sg.error || sg.detailErrors.has(s.id)
+        || sg.verified.get(s.id) !== s.status_revision || s.superseded_by_id || s.state !== "pending" || messageEdits.has(s.id)) return;
+    const c = capture(), key = busyKey(c.slug, s), feedback = draft(s).trim() || null;
+    if (sg.busy.has(key)) return;
+    ownedWrites.add(key); sg.busy.set(key, { key, loading: true }); render();
+    let next;
+    try {
+      next = coreData(await post(path(c.slug, s.id) + "/amend", { changes: offer.changes, proposal_revision: s.proposal_revision,
+        payload_hash: s.payload_hash, expected_status_revision: s.status_revision, idempotency_key: newRequestId() })).signoff;
+      if (!next || next.supersedes_id !== s.id || next.operation_name !== s.operation_name || next.review_project_id !== s.review_project_id
+          || next.state !== "pending") throw new Error("The edited proposal could not be verified. Reload it before deciding.");
+    } catch (error) {
+      sg.busy.delete(key);
+      if (current(c)) { if (error.details?.signoff) merge(error.details.signoff); sg.detailErrors.set(s.id, error); toast(error.message || "Could not save the choice."); }
+      render(); return;
+    }
+    sg.busy.delete(key);
+    if (options.expectedBinding?.signoff_id === s.id) options.expectedBinding = {
+      signoff_id: next.id, proposal_revision: next.proposal_revision, payload_hash: next.payload_hash, actionable: next.actionable !== false };
+    if (!current(c)) return;
+    // Reads started before the edit cannot bring the old card back.
+    sg.listRequest++; sg.detailRequest++; sg.loading = false; sg.detailLoading = null;
+    sg.items.delete(s.id); sg.order = sg.order.filter(id => id !== s.id); sg.verified.delete(s.id);
+    merge(next); sg.selected = next.id; sg.selections.set(sg.slug, next.id); sg.verified.set(next.id, next.status_revision);
+    const nextKey = busyKey(c.slug, next);
+    const receipt = { key: nextKey, slug: c.slug, projectId: next.review_project_id || null, id: next.id, binding: binding(next),
+      draftKey: draftKey(next), action: "approve", body: { proposal_revision: next.proposal_revision, payload_hash: next.payload_hash,
+        expected_status_revision: next.status_revision, idempotency_key: newRequestId(), feedback }, unknown: false };
+    ownedWrites.add(nextKey); sg.busy.set(nextKey, receipt);
+    sgViews.forEach(peer => peer.render());
+    await submit(receipt);
+    sgViews.forEach(peer => { if (peer !== view) peer.refresh(); });
+    if (typeof attentionQueue !== "undefined") void attentionQueue.refreshSignoffs();
+  }
   async function executionCommand(action) {
     const s = sg.items.get(sg.selected);
     if (!options.execution || !active() || !s || !owner()) return;
@@ -1495,6 +1546,7 @@ function sgCreateView(options) {
         else if (action === "detail") loadDetail(sg.selected, true);
         else if (action === "reconcile") { const s = sg.items.get(sg.selected); const receipt = s && sg.busy.get(busyKey(sg.slug, s)); if (receipt) reconcile(receipt); }
         else if (["cancel-execution", "retry-execution", "check-execution"].includes(action)) executionCommand(action);
+        else if (action === "amend-approve") void amendAndApprove();
         else decide(action, command.dataset.answer);
         return;
       }

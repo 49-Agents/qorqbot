@@ -307,3 +307,197 @@ test('a contract extension gets the generic card: the key is posted once, the fo
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   } finally { await browser.close(); }
 });
+
+test('the owner installs and removes a downloadable extension on its card, and sees the result after the restart', {skip: !available && 'Playwright Chromium unavailable'}, async () => {
+  const browser = await chromium.launch({headless: true});
+  try {
+    const page = await browser.newPage({viewport: {width: 1120, height: 900}});
+    await page.setContent('<main id="panel"></main>');
+    await page.addStyleTag({path: path.join(__dirname, '../css/connectors.css')});
+    await page.evaluate(() => {
+      window.esc = value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
+      window.coreData = value => value;
+      const base = {id: 'network', kind: 'contract', name: 'Network', summary: 'Network tools.', version: '1.0.0', delivery: 'downloadable',
+        note: null, setup: null, agents: [], result: null, restarting: false};
+      window.network = {...base, status: 'not_installed', offers: [{action: 'install', version: '1.0.0'}]};
+      window.sent = [];
+      window.down = 0;   // reads that fail while Qorqbot restarts
+      window.api = async url => {
+        if (url === '/root/browser-setup') return {kind: 'built_in', tool_installed: true, chrome_installed: true, ready: true, state: 'healthy', explanation: '', agents: []};
+        if (url === '/root/browser-accounts') return {sites: []};
+        if (window.down > 0) { window.down -= 1; throw new Error('Qorqbot is restarting'); }
+        return {platform: 'linux', clients: [], connectors: [window.network]};
+      };
+      window.post = async (url, body) => {
+        window.sent.push({url, body});
+        if (window.gate) await window.gate;
+        const waiting = {...window.network, offers: [], result: 'Qorqbot restarts to apply this change.', restarting: true};
+        window.down = 1;
+        window.network = body.action === 'install'
+          ? {...base, status: 'not_set_up', setup: {kind: 'none', fields: []}, offers: [{action: 'remove'}], result: 'Installed Network 1.0.0. Qorqbot restarted.'}
+          : {...base, status: 'not_installed', offers: [{action: 'install', version: '1.0.0'}],
+             result: body.delete_data ? 'Removed Network. Its private data was deleted.' : 'Removed Network.'};
+        return waiting;
+      };
+    });
+    await page.addScriptTag({path: path.join(__dirname, '../js/extension-cards.js')});
+    await page.addScriptTag({path: path.join(__dirname, '../js/connectors.js')});
+    await page.evaluate(() => connectorsPanel.mount(document.querySelector('#panel'), {rows: true}));
+    const card = page.locator('[data-cx-card="network"]');
+    await card.locator('.cx-status').getByText('Not installed').waitFor();
+    await card.getByRole('button', {name: 'Install'}).click();
+    await card.getByText('Qorqbot restarts to apply this change.').waitFor();
+    assert.equal(await card.getByRole('button').count(), 0, 'nothing more to click while the change waits');
+    await card.getByText('Installed Network 1.0.0. Qorqbot restarted.').waitFor({timeout: 15000});
+    assert.deepEqual(await page.evaluate(() => window.sent.at(-1)), {url: '/root/connections/network', body: {action: 'install', version: '1.0.0'}});
+    // Remove opens the same two choices as the card for Ordubashy's ask.
+    await card.getByRole('button', {name: 'Remove', exact: true}).click();
+    const choices = card.locator('[data-ext-remove]');
+    await choices.getByText('Qorqbot restarts once. Projects, tables and records it created stay.').waitFor();
+    // Pressing one of the two choices disables both until the answer is back.
+    await page.evaluate(() => { window.gate = new Promise(resolve => { window.answer = resolve; }); });
+    await choices.getByRole('button', {name: 'Remove and delete its data'}).click();
+    await page.waitForFunction(() => window.sent.length === 2);
+    assert.deepEqual(await choices.locator('[data-ext-action]').evaluateAll(buttons => buttons.map(button => button.disabled)), [true, true]);
+    await page.evaluate(() => { window.gate = null; window.answer(); });
+    await card.getByText('Removed Network. Its private data was deleted.').waitFor({timeout: 15000});
+    assert.deepEqual(await page.evaluate(() => window.sent.at(-1)), {url: '/root/connections/network', body: {action: 'remove', delete_data: true}});
+    assert.equal(await page.evaluate(() => window.sent.length), 2);
+  } finally { await browser.close(); }
+});
+
+test('a refused change shows its sentence on the card, no answer says so and is checked again, and a waiting change offers nothing', {skip: !available && 'Playwright Chromium unavailable'}, async () => {
+  const browser = await chromium.launch({headless: true});
+  try {
+    const page = await browser.newPage({viewport: {width: 1120, height: 900}});
+    await page.setContent('<main id="panel"></main>');
+    await page.addStyleTag({path: path.join(__dirname, '../css/connectors.css')});
+    await page.evaluate(() => {
+      window.esc = value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
+      window.coreData = value => value;
+      const keyed = {id: 'keyed', kind: 'contract', name: 'Keyed', summary: 'Tells its agents whether a token is saved.', version: '1.0.0',
+        delivery: 'downloadable', status: 'ready', note: null, can_set_up: true, setup: {kind: 'key', fields: [{id: 'token', label: 'Token', secret: true}]},
+        agents: [{agent_id: 'agent-1', name: 'Ordubashy', role: 'ordubashy', on: true, in_effect: true}],
+        offers: [{action: 'update', version: '1.0.1'}, {action: 'remove'}], result: null, restarting: false};
+      window.listed = [keyed];
+      window.reads = 0;
+      window.api = async url => {
+        if (url === '/root/browser-setup') return {kind: 'built_in', tool_installed: true, chrome_installed: true, ready: true, state: 'healthy', explanation: '', agents: []};
+        if (url === '/root/browser-accounts') return {sites: []};
+        window.reads += 1;
+        return {platform: 'linux', clients: [], connectors: structuredClone(window.listed)};
+      };
+      window.answer = null;
+      window.post = async () => window.answer();
+    });
+    await page.addScriptTag({path: path.join(__dirname, '../js/extension-cards.js')});
+    await page.addScriptTag({path: path.join(__dirname, '../js/connectors.js')});
+    await page.evaluate(() => connectorsPanel.mount(document.querySelector('#panel'), {rows: true}));
+    const card = page.locator('[data-cx-card="keyed"]');
+    await card.locator('.cx-status').getByText('Ready').waitFor();
+    // The removal choices open in place of the card's own Remove.
+    await card.getByRole('button', {name: 'Remove', exact: true}).click();
+    assert.equal(await card.locator('[data-ext-action="remove-choose"]').isVisible(), false);
+    await card.locator('[data-ext-remove-cancel]').click();
+    assert.equal(await card.locator('[data-ext-action="remove-choose"]').isVisible(), true);
+    // A change refused before the restart is an ordinary answer: its sentence on the card, as a warning.
+    await page.evaluate(() => { window.answer = async () => ({...window.listed[0], failed: true,
+      result: 'Keyed was not updated. The downloaded bundle does not have the checksum the index gives.'}); });
+    await card.getByRole('button', {name: 'Update to 1.0.1'}).click();
+    const said = card.locator('[data-ext-result]');
+    await said.getByText('Keyed was not updated. The downloaded bundle does not have the checksum the index gives.').waitFor();
+    assert.equal(await said.getAttribute('data-tone'), 'warn');
+    // No answer at all: the card says so, and the list is read again until Qorqbot answers.
+    const before = await page.evaluate(() => window.reads);
+    await page.evaluate(() => { window.answer = async () => { const failure = new Error("Qorqbot isn't responding."); failure.code = 'network_unavailable'; throw failure; }; });
+    await card.getByRole('button', {name: 'Update to 1.0.1'}).click();
+    await said.getByText('Qorqbot did not answer. It may be restarting. This card is checked again until it answers.').waitFor();
+    assert.equal(await page.locator('[data-cx-error]').isVisible(), false, 'nothing at the top of the page');
+    await page.evaluate(() => { window.listed = [{...window.listed[0], offers: [], restarting: true, result: 'Qorqbot restarts to apply this change.'}]; });
+    await card.getByText('Qorqbot restarts to apply this change.').waitFor({timeout: 10000});
+    assert.ok(await page.evaluate(() => window.reads) > before);
+    // While its change waits for the restart the card offers nothing: no Disconnect, no switch.
+    assert.equal(await card.locator('button, input').count(), 0);
+  } finally { await browser.close(); }
+});
+
+test('lines saying Qorqbot does not answer go once it answers, and a change that failed at the start is a warning', {skip: !available && 'Playwright Chromium unavailable'}, async () => {
+  const browser = await chromium.launch({headless: true});
+  try {
+    const page = await browser.newPage({viewport: {width: 1120, height: 900}});
+    await page.setContent('<main id="panel"></main>');
+    await page.addStyleTag({path: path.join(__dirname, '../css/connectors.css')});
+    await page.evaluate(() => {
+      window.esc = value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
+      window.coreData = value => value;
+      const card = (id, result, failed) => ({id, kind: 'contract', name: id, summary: 'A test extension.', version: '1.0.0',
+        delivery: 'downloadable', status: 'ready', note: null, can_set_up: false, setup: {kind: 'none', fields: []}, agents: [],
+        offers: [{action: 'remove'}], result, failed, restarting: false});
+      window.down = true;
+      window.api = async url => {
+        if (window.down) { const failure = new Error("Qorqbot isn't responding."); failure.code = 'network_unavailable'; throw failure; }
+        if (url === '/root/browser-setup') return {kind: 'built_in', tool_installed: true, chrome_installed: true, ready: true, state: 'healthy', explanation: '', agents: []};
+        if (url === '/root/browser-accounts') return {sites: []};
+        return {platform: 'linux', clients: [], connectors: [
+          card('tablenote', 'Table Note was not updated. Its tables could not be made.', true),
+          card('network', 'Installed network 1.0.0. Qorqbot restarted.', false)]};
+      };
+      window.post = async () => { throw new Error('nothing is posted here'); };
+    });
+    await page.addScriptTag({path: path.join(__dirname, '../js/extension-cards.js')});
+    await page.addScriptTag({path: path.join(__dirname, '../js/connectors.js')});
+    await page.evaluate(() => connectorsPanel.mount(document.querySelector('#panel'), {rows: true}));
+    // Opened while Qorqbot restarts: the page and the website sign-ins say it does not answer.
+    await page.locator('[data-cx-error]').getByText("Qorqbot isn't responding.").waitFor();
+    // (The sign-ins line is checked by its text and its own hidden flag: its section waits for a first list.)
+    await page.waitForFunction(() => { const line = document.querySelector('[data-cx-accounts-error]');
+      return !line.hidden && line.textContent === "Qorqbot isn't responding."; });
+    // Back: both lines go by themselves, without a click or a focus.
+    await page.evaluate(() => { window.down = false; });
+    await page.locator('[data-cx-error]').waitFor({state: 'hidden', timeout: 10000});
+    await page.waitForFunction(() => document.querySelector('[data-cx-accounts-error]').hidden, null, {timeout: 10000});
+    const failed = page.locator('[data-cx-card="tablenote"] [data-ext-result]');
+    await failed.getByText('Table Note was not updated. Its tables could not be made.').waitFor();
+    assert.equal(await failed.getAttribute('data-tone'), 'warn');
+    assert.equal(await page.locator('[data-cx-card="network"] [data-ext-result]').getAttribute('data-tone'), 'info');
+  } finally { await browser.close(); }
+});
+
+test('a refused sign-ins list is not read again, and an older answer never paints over a newer one', {skip: !available && 'Playwright Chromium unavailable'}, async () => {
+  const browser = await chromium.launch({headless: true});
+  try {
+    const page = await browser.newPage({viewport: {width: 1120, height: 900}});
+    await page.setContent('<main id="panel"></main>');
+    await page.addStyleTag({path: path.join(__dirname, '../css/connectors.css')});
+    await page.evaluate(() => {
+      window.esc = value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
+      window.coreData = value => value;
+      const card = result => ({id: 'network', kind: 'contract', name: 'network', summary: 'A test extension.', version: '1.0.0',
+        delivery: 'downloadable', status: 'ready', note: null, can_set_up: false, setup: {kind: 'none', fields: []}, agents: [],
+        offers: [{action: 'remove'}], result, failed: false, restarting: false});
+      window.reads = {accounts: 0, list: 0};
+      window.api = async url => {
+        if (url === '/root/browser-setup') return {kind: 'built_in', tool_installed: true, chrome_installed: true, ready: true, state: 'healthy', explanation: '', agents: []};
+        if (url === '/root/browser-accounts') {
+          window.reads.accounts += 1;
+          const failure = new Error('Only the owner can see website sign-ins.'); failure.code = 'forbidden'; failure.httpStatus = 403; throw failure;
+        }
+        // The first list answers late with what was true before; the second answers at once with what is true now.
+        const read = ++window.reads.list;
+        if (read === 1) { await new Promise(done => setTimeout(done, 1500)); return {platform: 'linux', clients: [], connectors: [card('Older answer.')]}; }
+        return {platform: 'linux', clients: [], connectors: [card('Newer answer.')]};
+      };
+      window.post = async () => { throw new Error('nothing is posted here'); };
+    });
+    await page.addScriptTag({path: path.join(__dirname, '../js/extension-cards.js')});
+    await page.addScriptTag({path: path.join(__dirname, '../js/connectors.js')});
+    await page.evaluate(() => { window.panel = connectorsPanel.mount(document.querySelector('#panel'), {rows: true}); window.panel.reload(); });
+    const result = page.locator('[data-cx-card="network"] [data-ext-result]');
+    await result.getByText('Newer answer.').waitFor();
+    await page.waitForTimeout(6500);
+    assert.equal(await result.textContent(), 'Newer answer.');
+    // Qorqbot answered with a refusal: its sentence stays, and the list is not asked for again.
+    assert.equal(await page.evaluate(() => window.reads.accounts), 1);
+    assert.equal(await page.evaluate(() => document.querySelector('[data-cx-accounts-error]').textContent), 'Only the owner can see website sign-ins.');
+  } finally { await browser.close(); }
+});

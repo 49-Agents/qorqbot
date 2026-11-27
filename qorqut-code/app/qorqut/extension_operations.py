@@ -25,6 +25,9 @@ from qorqut.extensions import SetupStart
 from qorqut.native_chat.extension_restart import SESSION
 
 TOOLS = frozenset({"extensions_list", "extensions_setup", "extensions_switch"})
+# Every tool that manages extensions, these three and the two of downloadable extensions (``domains.extension_tools``):
+# no agent's while the registry has nothing in use (``ExtensionRegistry.in_use``), each by its policy once it has.
+MANAGING = TOOLS | {"extensions_install", "extensions_remove"}
 COMMON = {"scope_kinds": frozenset({"global"}), "global_capability": "read_global_context", "supports_signoff": False,
           "resolve_namespace": lambda ctx, args: "global"}
 SCOPE = {"scope": {"const": "global"}}
@@ -48,8 +51,7 @@ NEXT = {
 
 def entry_view(item) -> dict:
     """What the tools show of one extension. Never a set-up value."""
-    return {"id": item.id, "name": item.manifest.name if item.manifest else None,
-            "summary": item.manifest.summary if item.manifest else None, "delivery": item.delivery,
+    return {"id": item.id, "name": item.name, "summary": item.summary, "delivery": item.delivery,
             "version": item.version, "status": item.status, "note": item.note, "agents": list(item.agents)}
 
 

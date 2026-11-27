@@ -271,6 +271,12 @@ class Runtime:
             # Record the installed extensions and copy their plugin parts, once the instance is owned and writable.
             if self.extension_registry is not None:
                 self.extension_registry.sync(self.database, self.agentic_layer)
+                # The worker of the extension change program, then the result of a change applied at this start to the
+                # one who asked.
+                with self.database.transaction() as uow:
+                    self.extension_tools.register_worker(uow)
+                from qorqut.bootstrap.extension_change import finish
+                finish(self.paths, report=self.extension_tools.report)
 
         def start_chat(chat):
             chat.start()
@@ -427,9 +433,9 @@ def build_runtime(workspace, *, paths, database=None, worker_profiles=None,
         raise DomainError("invalid_configuration", "Extensions are the owner's startup selection")
     from qorqut import extension_registry
     # Extensions that follow the contract are found next to today's selection; an id selected both ways is refused.
+    version, platform = extension_registry.app_version(), extension_registry.current_platform()
     found = extension_registry.discover(
-        paths, selected=selection.ids, app_version=extension_registry.app_version(),
-        platform=extension_registry.current_platform(),
+        paths, selected=selection.ids, app_version=version, platform=platform,
         # The names come from this installation's own package map, wherever the app's files are.
         shipped=lambda: extension_registry.contract.skill_names_of(load_sources(workspace, paths=paths)))
     configured = selection
@@ -449,8 +455,10 @@ def build_runtime(workspace, *, paths, database=None, worker_profiles=None,
             raise DomainError("invalid_configuration", "The database is not the selected instance database")
         database = database.open_existing()
         require_selected_storage(database.assembly, selection)
+    from qorqut import extension_index
+    offered = extension_index.offered(extension_index.app_index(paths), found, app_version=version, platform=platform)
     installed = extension_registry.ExtensionRegistry(found, changes=require_change_feed(database.assembly.change_publisher),
-                                                     code=loaded)
+                                                     code=loaded, offered=offered)
     return compose_runtime(workspace, paths=paths, database=database, selection=selection, agentic_layer=agentic_layer,
                            agentic_view=agentic_view, registry=builtin_registry(configured), worker_profiles=worker_profiles,
                            job_consequence_verifier=job_consequence_verifier,
@@ -592,6 +600,9 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
         runtime.extension_restarts = ExtensionRestarts(runtime.native_chat, extension_registry, held=True)
         from qorqut.extension_operations import register as register_extension_operations
         register_extension_operations(registry, extension_registry, runtime.extension_restarts, runtime=runtime)
+        # Ordubashy's asks to install, update or remove a downloaded extension, held for the owner's approval.
+        from qorqut.domains.extension_tools import ExtensionTools
+        runtime.extension_tools = ExtensionTools(runtime, extension_registry).register()
     # The terminal backend is installed later by service composition and read late (``runtime.terminal_control.backend``), so it
     # is not needed here. The switch reads everything late too; the service recovers an interrupted one once all of it exists.
     from qorqut.native_chat.runtime_switch import RuntimeSwitch

@@ -98,6 +98,31 @@ test('the requests follow the shapes of qorqut.extension_connections', () => {
   for (const action of ['start', 'accept', 'cancel', 'disconnect', 'switch']) assert.ok(shapes.includes(`{"action": "${action}"`), action);
 });
 
+test('a downloadable extension offers the owner Install, Update and Remove from its offers, and shows the result', () => {
+  assert.deepEqual(cards.downloads(entry('not_installed', {setup: null, offers: [{action: 'install', version: '1.0.0'}]})),
+    [{kind: 'install', label: 'Install', version: '1.0.0'}]);
+  assert.deepEqual(cards.downloads(entry('ready', {offers: [{action: 'update', version: '1.0.1'}, {action: 'remove'}]})),
+    [{kind: 'update', label: 'Update to 1.0.1', version: '1.0.1'}, {kind: 'remove-choose', label: 'Remove', quiet: true}]);
+  assert.deepEqual(cards.downloads(entry('ready')), []);
+  const html = cards.render(entry('ready', {offers: [{action: 'remove'}], result: 'Installed Keyed 1.0.0. Qorqbot restarted.'}), {rows: true, esc});
+  assert.match(html, /data-ext-result>Installed Keyed 1\.0\.0\. Qorqbot restarted\.</);
+  assert.match(html, /<div class="cx-key" data-ext-remove="keyed" hidden>/);
+  for (const label of ['Remove', 'Remove and delete its data', cards.REMOVE_AFTER]) assert.ok(html.includes(label), label);
+  assert.doesNotMatch(cards.render(entry('ready'), {rows: true, esc}), /data-ext-remove|data-ext-result/);
+  assert.deepEqual(cards.request.install('1.0.0'), {action: 'install', version: '1.0.0'});
+  assert.deepEqual(cards.request.update('1.0.1'), {action: 'update', version: '1.0.1'});
+  assert.deepEqual(cards.request.remove(), {action: 'remove', delete_data: false});
+  assert.deepEqual(cards.request['remove-delete'](), {action: 'remove', delete_data: true});
+  const shapes = read('../app/qorqut/extension_connections.py');
+  for (const shape of ['{"action": "install", "version"', '{"action": "remove", "delete_data"']) assert.ok(shapes.includes(shape), shape);
+});
+
+test('a card whose change waits for the restart offers no set-up step and no switch', () => {
+  const waiting = entry('ready', {can_set_up: true, restarting: true});
+  assert.deepEqual([cards.steps(waiting), cards.switches(waiting)], [[], []]);
+  assert.ok(cards.steps(entry('ready', {can_set_up: true})).length > 0);
+});
+
 test('the card script is loaded before the Connections panel', () => {
   const index = read('index.html');
   assert.ok(index.indexOf('/js/extension-cards.js') > 0 && index.indexOf('/js/extension-cards.js') < index.indexOf('/js/connectors.js'));

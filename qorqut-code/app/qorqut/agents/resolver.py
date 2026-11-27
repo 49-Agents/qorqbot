@@ -56,12 +56,12 @@ EXPLICIT_CAPABILITY_OPERATIONS = frozenset({"manage_calendar"})
 def contract_tools_in_effect(extensions, profile: AgentProfile, *, connection=None, in_effect=None):
     """Whether a tool on extensions is the agent's now: ``check(name)`` is False for a tool of an extension that follows
     the contract while that extension is not in effect for the agent, and for the tools that manage extensions
-    (``qorqut.extension_operations.TOOLS``) while no extension is installed. Every other tool is True. ``in_effect`` is
+    (``qorqut.extension_operations.MANAGING``) while the registry has nothing in use. Every other tool is True. ``in_effect`` is
     what a snapshot already read (the ``ExtensionRegistry.in_effect`` triples); without it the registry is read on
     ``connection``."""
-    from qorqut.extension_operations import TOOLS
-    if extensions is None or not extensions.installed_any():
-        return lambda name: name not in TOOLS
+    from qorqut.extension_operations import MANAGING
+    if extensions is None or not extensions.in_use():
+        return lambda name: name not in MANAGING
     if not extensions.routes_tools():
         return lambda name: True
     if in_effect is None:
@@ -375,11 +375,11 @@ class AgentConfigResolver:
 
     def operation_available(self, context: InvocationContext, basis: AgentPolicyBasis, descriptor, uow) -> bool:
         """False for a tool of a contract extension that is not in effect for the calling agent, read in the caller's
-        transaction, and for the tools that manage extensions while none is installed (``contract_tools_in_effect``)."""
-        from qorqut.extension_operations import TOOLS
+        transaction, and for the tools that manage extensions while nothing is in use (``contract_tools_in_effect``)."""
+        from qorqut.extension_operations import MANAGING
         extensions = getattr(self, "extensions", None)
-        if descriptor.name in TOOLS:
-            return extensions is not None and extensions.installed_any()
+        if descriptor.name in MANAGING:
+            return extensions is not None and extensions.in_use()
         owner = extensions.extension_of(descriptor.name) if extensions is not None else None
         return owner is None or extensions.is_on(owner, context.principal_id, connection=uow.connection,
                                                  role=basis.role["id"])

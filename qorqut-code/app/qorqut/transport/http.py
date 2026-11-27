@@ -548,7 +548,7 @@ class HTTPAPI:
                     owner = uow.repository("installation").get("service")
                 if context.principal_kind != "human" or not owner or owner["owner_principal_id"] != context.principal_id:
                     raise DomainError("forbidden", "Only the installation owner can set up extensions")
-                if self.runtime.extension_registry is None:
+                if self.runtime.extension_registry is None or not self.runtime.extension_registry.in_use():
                     raise DomainError("not_found", "No extension is installed.")
                 from qorqut import extension_connections
                 ext_id = parts[2]

@@ -187,7 +187,13 @@ const connectorsPanel = (() => {
       </section>`;
     container.appendChild(root);
     let view = null, browserView = null, browserTimer = 0, browserChecks = 0;
-    let accountsView = null, accountsTimer = 0, waTimer = 0, waVersion = 0;
+    let accountsView = null, accountsTimer = 0, waTimer = 0, waVersion = 0, restartTimer = 0, loadTimer = 0;
+    // Each read of a list is numbered: only the answer to the newest one is painted, so an older answer that comes later
+    // (a read started by focus beside the timer's) never paints over a newer one.
+    let listRead = 0, accountsRead = 0;
+    // A request that got no answer from Qorqbot at all, as opposed to one it answered with a refusal.
+    const unreached = failure => !failure?.code || failure.code === 'network_unavailable' || failure.code === 'invalid_response'
+      || failure.httpStatus >= 500;
     const SIGN_IN_STATUS = {true: ['Session saved', 'ok'], false: ['No session', 'warn'], null: ['Status unavailable while the browser is off', '']};
     function paintAccounts() {
       const section = root.querySelector('[data-cx-accounts]'), rows = accountsView?.sites;
@@ -208,13 +214,18 @@ const connectorsPanel = (() => {
     }
     const accountsError = text => { const el = root.querySelector('[data-cx-accounts-error]'); el.textContent = text || ''; el.hidden = !text; };
     async function loadAccounts(change) {
+      const mine = ++accountsRead;
       try {
         const next = coreData(change ? await post('/root/browser-accounts', change) : await api('/root/browser-accounts'));
-        if (!live()) return true;
+        if (!live() || mine !== accountsRead) return true;   // a newer read was asked for meanwhile: its answer counts
         accountsView = next; accountsError(''); paintAccounts();
         return true;
       } catch (failure) {
-        if (live()) accountsError(failure.message || 'Website sign-ins could not be loaded.');
+        if (live() && mine === accountsRead) {
+          accountsError(failure.message || 'Website sign-ins could not be loaded.');
+          // While Qorqbot gives no answer the list keeps being read, so the sentence goes once it answers again.
+          if (!change && unreached(failure)) { clearTimeout(accountsTimer); accountsTimer = setTimeout(loadAccounts, 5000); }
+        }
         return false;
       }
     }
@@ -283,6 +294,32 @@ const connectorsPanel = (() => {
       options.onChange?.(view);
       root.dispatchEvent(new CustomEvent('connectors-painted', {bubbles: true}));
       watchWhatsApp();
+      watchRestart();
+    }
+    // While an extension's change waits for Qorqbot's restart, read the list again every few seconds; a read that
+    // fails while Qorqbot restarts is tried again, and the card shows the result once Qorqbot is back.
+    // The same after a card's request got no answer (Qorqbot may be restarting): until the list loads again.
+    function watchRestart() {
+      clearTimeout(restartTimer);
+      if (!view?.connectors.some(item => item.kind === 'contract' && (item.restarting || item.unreached)) || !live()) return;
+      restartTimer = setTimeout(async () => {
+        if (!live()) return;
+        const mine = ++listRead;
+        try {
+          const next = coreData(await api('/root/connectors'));
+          if (live() && mine === listRead) { view = next; error(''); paint(); }
+        } catch { if (mine === listRead) watchRestart(); }
+      }, 3000);
+    }
+    // A request of a contract card that failed: its sentence on that card. With no answer at all (Qorqbot stopping or
+    // restarting) the card says so and the list is read again until Qorqbot answers.
+    function cardFailure(id, failure, fallback) {
+      if (!live() || !view) return;
+      const none = unreached(failure);
+      const text = none ? extensionCards.UNREACHED : failure.message || fallback;
+      view.connectors = view.connectors.map(item => item.kind === 'contract' && item.id === id
+        ? {...item, result: text, failed: true, unreached: none} : item);
+      paint();
     }
     // WhatsApp's own setup state replaces the card's entry: {state, note, qr, send_ready} from its route.
     function setWhatsApp(setup) {
@@ -314,11 +351,17 @@ const connectorsPanel = (() => {
     }
     async function load() {
       if (!live()) return;
+      const mine = ++listRead;
       try {
-        view = coreData(await api('/root/connectors'));
-        if (!live()) return;
-        error(''); paint();
-      } catch (failure) { if (live()) error(failure.message || 'Extensions could not be loaded.'); }
+        const next = coreData(await api('/root/connectors'));
+        if (!live() || mine !== listRead) return;
+        view = next; error(''); paint();
+      } catch (failure) {
+        if (!live() || mine !== listRead) return;
+        error(failure.message || 'Extensions could not be loaded.');
+        // No answer at all (Qorqbot stopping or restarting): read again until it answers, which clears the line.
+        if (unreached(failure)) { clearTimeout(loadTimer); loadTimer = setTimeout(load, 3000); }
+      }
     }
     // A contract extension's action: one POST to its connection route, answered with its entry as it is then.
     async function connection(id, body) {
@@ -330,6 +373,8 @@ const connectorsPanel = (() => {
     root.addEventListener('click', async event => {
       const fieldsForm = event.target.closest('[data-ext-form]');
       if (fieldsForm && event.target.closest('[data-ext-form-cancel]')) { fieldsForm.reset(); fieldsForm.hidden = true; return; }
+      const choices = event.target.closest('[data-ext-remove]');
+      if (choices && event.target.closest('[data-ext-remove-cancel]')) { choices.hidden = true; return; }
       const extAction = event.target.closest('[data-ext-action]');
       if (extAction) {
         const id = extAction.dataset.cxId;
@@ -339,9 +384,16 @@ const connectorsPanel = (() => {
           if (!form.hidden) form.querySelector('input')?.focus();
           return;
         }
-        extAction.disabled = true;
-        try { await connection(id, extensionCards.request[extAction.dataset.extAction]()); }
-        catch (failure) { if (live()) { error(failure.message || 'The extension could not be changed.'); extAction.disabled = false; } }
+        if (extAction.dataset.extAction === 'remove-choose') {
+          const panel = root.querySelector(`[data-ext-remove="${CSS.escape(id)}"]`);
+          panel.hidden = !panel.hidden;
+          return;
+        }
+        // The two removal choices are one question: pressing either disables both until the answer is back.
+        const pressed = extAction.closest('[data-ext-remove]') ? [...extAction.closest('[data-ext-remove]').querySelectorAll('[data-ext-action]')] : [extAction];
+        pressed.forEach(button => { button.disabled = true; });
+        try { await connection(id, extensionCards.request[extAction.dataset.extAction](extAction.dataset.extVersion)); }
+        catch (failure) { cardFailure(id, failure, 'The extension could not be changed.'); }
         return;
       }
       const siteAction = event.target.closest('[data-cx-site-action]');
@@ -392,7 +444,7 @@ const connectorsPanel = (() => {
       if (!toggle) return;
       toggle.disabled = true;
       try { await connection(toggle.dataset.cxId, extensionCards.request.switch(toggle.dataset.agentId, toggle.checked)); }
-      catch (failure) { if (live()) { error(failure.message || 'The extension could not be switched.'); toggle.checked = !toggle.checked; toggle.disabled = false; } }
+      catch (failure) { cardFailure(toggle.dataset.cxId, failure, 'The extension could not be switched.'); }
     });
     root.addEventListener('submit', async event => {
       const fieldsForm = event.target.closest('[data-ext-form]');
@@ -422,7 +474,7 @@ const connectorsPanel = (() => {
     document.addEventListener('visibilitychange', focus);
     const watch = new MutationObserver(() => {
       if (live()) return;
-      clearTimeout(browserTimer); clearTimeout(accountsTimer); clearTimeout(waTimer); watch.disconnect();
+      clearTimeout(browserTimer); clearTimeout(accountsTimer); clearTimeout(waTimer); clearTimeout(restartTimer); clearTimeout(loadTimer); watch.disconnect();
       window.removeEventListener('focus', focus); document.removeEventListener('visibilitychange', focus);
     });
     watch.observe(container.ownerDocument.body, {childList: true, subtree: true});

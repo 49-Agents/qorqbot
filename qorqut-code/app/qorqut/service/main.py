@@ -196,6 +196,25 @@ def terminal_shell():
     return shell if Path(shell).name in {"bash", "sh", "dash", "zsh", "fish"} else "/bin/bash"
 
 
+def server_class():
+    """The service's ``uvicorn.Server``: a stop signal first tells open event streams to finish, and ``stop`` is the same
+    stop asked for from inside (``service/restart.py``) with no signal recorded, so the process is not ended by a signal
+    raised again after serving and ``main`` returns the restart code."""
+    import uvicorn
+    from qorqut.transport.http import STOPPING
+
+    class Server(uvicorn.Server):
+        def handle_exit(self, sig, frame):
+            # Open event streams (a dashboard tab) never end by themselves: tell them to finish before the drain starts.
+            STOPPING.set()
+            super().handle_exit(sig, frame)
+
+        def stop(self):
+            STOPPING.set()
+            self.should_exit = True
+    return Server
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=instruction_text('main-shared-qorqut-dashboard-and-http-mcp-service'))
     parser.add_argument("--workspace", type=Path, default=None)
@@ -232,6 +251,9 @@ def main(argv=None):
         from qorqut.installation import extensions_configuration
         from qorqut.service.changes import ChangeFeed
         from qorqut.private_files import read_private_file
+        # A pending extension change (install, update or removal) is applied here, before the selection is read.
+        from qorqut.bootstrap.extension_change import apply_pending
+        apply_pending(paths)
         # The owner's startup selection of installed extensions is fixed for this process; the store must match it.
         selection = installed_selection() if args.extensions_config is None else installed_selection(extensions_configuration(args.extensions_config))
         token = args.token
@@ -278,20 +300,14 @@ def main(argv=None):
                 print(json.dumps(result, sort_keys=True))
                 return 0
         import uvicorn
-        from qorqut.transport.http import STOPPING
-
-        class Server(uvicorn.Server):
-            def handle_exit(self, sig, frame):
-                # Open event streams (a dashboard tab) never end by themselves: tell them to finish before the drain starts.
-                STOPPING.set()
-                super().handle_exit(sig, frame)
-
-        server = Server(uvicorn.Config(app, host=args.host, port=args.port, proxy_headers=False, server_header=False, access_log=False,
+        server = server_class()(uvicorn.Config(app, host=args.host, port=args.port, proxy_headers=False, server_header=False, access_log=False,
             timeout_graceful_shutdown=10, limit_concurrency=200, log_level="info"))
+        from qorqut.service import restart
+        restart.attach(server)
         server.run()
         if not server.started:
             return 3
-        return 0
+        return restart.EXIT_RESTART if restart.requested() else 0
     except (DomainError, OSError, ValueError) as exc:
         logging.getLogger(__name__).error("Service configuration rejected: %s", exc)
         return 1
