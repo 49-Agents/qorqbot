@@ -193,18 +193,63 @@ function sgAttachSection(ref) {
   names.append(sgAttachNode('strong', 'sg-attachment-title', ref.label), sgAttachNode('span', 'sg-attachment-kind', SG_ATTACH_KIND[ref.kind]), subtitle);
   const open = sgAttachNode('button', 'sg-command sg-attachment-open', 'Open'); open.type = 'button';
   open.setAttribute('aria-label', `Open ${ref.label}`);
-  head.append(names, open);
+  const full = sgAttachNode('button', 'quiet sg-attachment-full-toggle'); full.type = 'button';
+  head.append(names, full, open);
   const body = sgAttachNode('div', 'sg-attachment-body');
   body.append(sgAttachNode('p', 'sg-notice', 'Loading…'));
   section.append(head, body);
   const control = {setSubtitle: text => { subtitle.textContent = text ? `· ${text}` : ''; }, setTall: () => body.classList.add('sg-attachment-body-pdf'),
     open: () => sgAttachOpen(ref, control), record: null};
   open.onclick = event => { event.stopPropagation(); void control.open(); };
+  sgAttachFullView(section, full, ref.label);
   const reader = ref.kind === 'file' ? sgAttachFileBody : ref.kind === 'table' ? sgAttachTableBody : sgAttachTaskBody;
   const what = ref.kind === 'file' ? 'file' : ref.kind === 'table' ? 'table' : 'record';
   Promise.resolve().then(() => reader(ref, control)).then(nodes => { if (section.isConnected || section.parentNode) body.replaceChildren(...nodes); },
     error => { if (section.isConnected || section.parentNode) body.replaceChildren(sgAttachNode('p', 'sg-notice sg-attachment-error', sgAttachFailure(error, what))); });
   return section;
+}
+
+// "View in full": the attachment covers the whole right pane it sits in (the Focus board, else the page), showing only its
+// body and one minimize button in the top right corner. Escape or the button brings it back. The cover follows the pane's
+// size while open.
+const SG_ATTACH_EXPAND = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>';
+const SG_ATTACH_SHRINK = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/></svg>';
+function sgAttachFullView(section, button, label) {
+  let observer = null;
+  const pane = () => section.closest('.agfocus') || section.closest('.tbody') || document.documentElement;
+  const place = () => {
+    const box = pane().getBoundingClientRect();
+    Object.assign(section.style, {top: `${Math.max(0, box.top)}px`, left: `${Math.max(0, box.left)}px`,
+      width: `${Math.min(box.width, innerWidth)}px`, height: `${Math.min(box.height, innerHeight - Math.max(0, box.top))}px`});
+  };
+  const paint = on => {
+    button.innerHTML = on ? SG_ATTACH_SHRINK : SG_ATTACH_EXPAND;
+    const text = on ? 'Minimize' : `View ${label} in full`;
+    button.setAttribute('aria-label', text); button.title = on ? 'Minimize' : 'View in full';
+    button.setAttribute('aria-expanded', on ? 'true' : 'false');
+  };
+  const onKey = event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); set(false); } };
+  function set(on) {
+    if (on === section.classList.contains('sg-attachment-full')) return;
+    section.classList.toggle('sg-attachment-full', on);
+    paint(on);
+    if (on) {
+      place();
+      observer = new ResizeObserver(place); observer.observe(pane());
+      addEventListener('resize', place); section.addEventListener('keydown', onKey);
+      section.focus({preventScroll: true});
+    } else {
+      observer?.disconnect(); observer = null;
+      removeEventListener('resize', place); section.removeEventListener('keydown', onKey);
+      for (const key of ['top', 'left', 'width', 'height']) section.style[key] = '';
+      button.focus({preventScroll: true});
+    }
+  }
+  paint(false);
+  button.onclick = event => { event.stopPropagation(); set(!section.classList.contains('sg-attachment-full')); };
+  // A Signoff that closes or rerenders takes its attachment out of the page; the pane watcher goes with it.
+  new MutationObserver((_, watcher) => { if (!section.isConnected && observer) { set(false); watcher.disconnect(); } })
+    .observe(document.body, {childList: true, subtree: true});
 }
 
 // Mounts (or keeps) the attachments for a Signoff detail: `host` is its attachments area, `source` the rendered preview.
