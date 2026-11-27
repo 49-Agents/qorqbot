@@ -96,7 +96,7 @@ jobs:
           python -I -B -m unittest discover -s qorqut-code/tools/distribution/tests
 
   backend-mac:
-    # Reports first: a red Mac job does not block a merge until it is added to checks-passed.
+    # Required: the Mac job is listed in checks-passed, so a red one blocks a merge.
     needs: changes
     if: needs.changes.outputs.backend == 'true'
     runs-on: macos-15
@@ -151,7 +151,7 @@ jobs:
   checks-passed:
     # The one check the branch rules require. A job that calls another workflow is
     # reported under a different name when it runs, so its own name cannot be required.
-    needs: [changes, backend, dashboard, distribution]
+    needs: [changes, backend, backend-mac, dashboard, distribution]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 2
@@ -160,7 +160,7 @@ jobs:
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
-          echo "changes, backend, dashboard, distribution: $RESULTS"
+          echo "changes, backend, backend-mac, dashboard, distribution: $RESULTS"
           case " $RESULTS " in
             *" failure "*|*" cancelled "*) exit 1 ;;
           esac
