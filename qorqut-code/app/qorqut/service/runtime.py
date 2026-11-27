@@ -496,6 +496,9 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     domains = register_domains(registry, application, paths, catalog=catalog, agent_resolver=resolver, job_programs=job_programs,
                                filing=composed.filing, graph_edits=composed.graph_edits, queue=composed.queue,
                                on_revision=composed.on_revision, extensions=selection)
+    if extension_registry is not None and getattr(domains, "tasks", None) is not None:
+        from qorqut.extension_records import HostRecordTypes
+        domains.tasks.record_types = HostRecordTypes(extension_registry)
 
     from qorqut.inbox.service import InboxService
     inbox = InboxService(application, domains, resolver=resolver, sources=selection.sources).register()

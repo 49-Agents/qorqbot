@@ -75,6 +75,31 @@ class ExtensionRuntimeTest(unittest.TestCase):
         config = runtime.resolver.resolve_agent_config(Principal(agent_id, "agent"), include_preparation=False)
         return {item["name"] for item in config.to_dict()["skills"]}
 
+    def ok(self, result):
+        self.assertEqual(result.status, "ok", plain(result.error))
+        return plain(result.data)
+
+    def record_types(self, runtime, ordubashy):
+        """The example's record type through the real Task operations: listed while the extension is in effect for an
+        agent, a record of it made and read back, and once it is off for everyone the record reads as its base type."""
+        listed = self.ok(self.invoke(runtime, "tasks_config_get", {}))["record_types"]
+        self.assertEqual([(item["id"], item["based_on"], item["extension"]) for item in listed],
+                         [("connection", "customer", "network")])
+        values = {"met_at": "Lisbon", "closeness": "friendly", "last_contact": "2026-11-20"}
+        made = self.ok(self.invoke(runtime, "tasks_create", {"title": "Ayla Demir", "record_type": "connection",
+                                                             "fields": values}))["task"]
+        task = self.ok(self.invoke(runtime, "tasks_get", {"task_id": made["id"]}))["task"]
+        self.assertEqual((task["task_type"], task["record_type"], task["fields"]), ("customer", "connection", values))
+
+        self.ok(self.invoke(runtime, "extensions_switch", {"extension": "network", "agent_id": ordubashy, "on": False}))
+        self.assertEqual(self.ok(self.invoke(runtime, "tasks_config_get", {}))["record_types"], [])
+        task = self.ok(self.invoke(runtime, "tasks_get", {"task_id": made["id"]}))["task"]
+        self.assertEqual((task["task_type"], task["fields"]), ("customer", values))
+        refused = self.invoke(runtime, "tasks_create", {"title": "Other", "record_type": "connection"})
+        self.assertIn("Unknown record type", plain(refused.error)["message"])
+        # The record whose type is off can still be edited; its kept values are not judged again.
+        self.ok(self.invoke(runtime, "tasks_update", {"task_id": made["id"], "changes": {"title": "Ayla"}}))
+
     def test_install_switch_compose_and_removal(self):
         ordubashy, applier = self.created["agents"]["ordubashy"], self.created["agents"]["learning-applier"]
         runtime = self.start()
@@ -98,6 +123,9 @@ class ExtensionRuntimeTest(unittest.TestCase):
         self.assertNotIn("qorqut-plugin-network", self.skills(runtime, applier))
         refused = self.invoke(runtime, "extensions_switch", {"extension": "network", "agent_id": applier, "on": True})
         self.assertEqual(plain(refused.error)["code"], "forbidden")
+        self.record_types(runtime, ordubashy)
+        # Back on for Ordubashy, so that the removal below changes something for him.
+        self.ok(self.invoke(runtime, "extensions_switch", {"extension": "network", "agent_id": ordubashy, "on": True}))
         runtime.stop()
 
         # The next start with the folder gone forgets the extension and removes its package. Ordubashy's session is

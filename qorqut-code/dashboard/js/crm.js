@@ -49,7 +49,7 @@ function crmRecordRef(entry) {
 function crmRecordDescriptor(ref, entry) {
   const record = entry?.record;
   return rwRecordFromItem({source: {type: 'task', id: ref.id, project_id: ref.project_id ?? null, label: record?.title,
-    task_type: record?.task_type, state: record?.status}}, {can_thread: true});
+    task_type: record?.task_type, record_type: record?.record_type ?? null, state: record?.status}}, {can_thread: true});
 }
 // Shared fields open the existing Task editor inside the shared record workspace; nothing is edited in a CRM cell.
 function crmOpenRecord(entry, {onClosed = null} = {}) {
@@ -367,7 +367,7 @@ function crmChooseRecords({scopeId = null, selected = [], onChange, onRevoke = n
       select.value = held ? held.value : '';
       const paintPicked = () => {
         picked.replaceChildren(...[...chosen.values()].map(item => {
-          const li = crmNode('li', '', `${item.title} · ${TASK_TYPE_LABELS[item.task_type] || 'Task'} · ${item.scope_label}`);
+          const li = crmNode('li', '', `${item.title} · ${taskTypeLabel(item)} · ${item.scope_label}`);
           const remove = crmButton(`Remove ${item.title} from selection`, 'quiet', 'Remove');
           remove.onclick = () => { chosen.delete(crmScopeKey(item.ref)); paintPicked(); for (const box of list.querySelectorAll('input[data-key]')) if (box.dataset.key === crmScopeKey(item.ref)) box.checked = false; };
           li.append(' ', remove); return li;
@@ -391,9 +391,9 @@ function crmChooseRecords({scopeId = null, selected = [], onChange, onRevoke = n
             shown.add(key);
             const row = crmNode('label', 'work-association-choice');
             const box = crmNode('input'); box.type = 'checkbox'; box.dataset.key = key; box.checked = chosen.has(key);
-            box.onchange = () => { if (box.checked) chosen.set(key, {ref, title: task.title || task.id, task_type: task.task_type || 'task', scope_label: scope.label}); else chosen.delete(key); paintPicked(); };
+            box.onchange = () => { if (box.checked) chosen.set(key, {ref, title: task.title || task.id, task_type: task.task_type || 'task', record_type: task.record_type ?? null, scope_label: scope.label}); else chosen.delete(key); paintPicked(); };
             const text = crmNode('span', '', task.title || task.id);
-            text.append(crmNode('small', '', ` ${TASK_TYPE_LABELS[task.task_type] || 'Task'} · ${scope.label}`));
+            text.append(crmNode('small', '', ` ${taskTypeLabel(task)} · ${scope.label}`));
             row.append(box, text); list.append(row);
           }
           cursor = data.next_cursor || null;
