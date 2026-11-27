@@ -2,7 +2,7 @@
 
 Run from qorqut-code/app:  python -m unittest tests.test_managed_update_staging_preflight
 
-macOS is simulated (``posix_files._darwin`` patched) and a second file system is simulated by reporting another st_dev
+macOS is simulated (``publication_unix._darwin`` patched) and a second file system is simulated by reporting another st_dev
 for one directory; every effect of ``apply`` is replaced by a recorder, so nothing here is a native macOS run.
 """
 import contextlib
@@ -17,6 +17,7 @@ import unittest
 from unittest import mock
 
 from qorqut import posix_files
+from qorqut_system import publication_unix
 from qorqut.agentic import managed_update as module
 
 PD = "a" * 64
@@ -48,7 +49,7 @@ class Harness(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.root)
-        self.previous = dict(posix_files._staging)
+        self.previous = dict(publication_unix._staging)
         self.addCleanup(self.restore_staging)
         self.stack = contextlib.ExitStack()
         self.addCleanup(self.stack.close)
@@ -85,11 +86,11 @@ class Harness(unittest.TestCase):
         return self.stack.enter_context(mock.patch.object(owner, name, **kwargs))
 
     def restore_staging(self):
-        current = posix_files._staging.get("fd")
+        current = publication_unix._staging.get("fd")
         if current is not None and current != self.previous.get("fd"):
             os.close(current)
-        posix_files._staging.clear()
-        posix_files._staging.update(self.previous)
+        publication_unix._staging.clear()
+        publication_unix._staging.update(self.previous)
 
     def apply(self):
         return module.apply(self.paths, self.plan, attribution=ATTRIBUTION)
@@ -119,7 +120,7 @@ class Harness(unittest.TestCase):
 class SimulatedDarwinTest(Harness):
     def setUp(self):
         super().setUp()
-        self.patch(posix_files, "_darwin", return_value=True)
+        self.patch(publication_unix, "_darwin", return_value=True)
 
     # ---- new application ---------------------------------------------------------------------------------------
     def test_matching_devices_proceed_to_the_first_effect(self):
@@ -188,10 +189,10 @@ class SimulatedDarwinTest(Harness):
                 with self.assertRaises(OSError):
                     self.apply()
             # Only the retained staging descriptor stays open.
-            self.assertEqual(live, {posix_files._staging["fd"]})
+            self.assertEqual(live, {publication_unix._staging["fd"]})
             with self.assertRaises(Reached):
                 self.apply()
-            self.assertEqual(live, {posix_files._staging["fd"]})
+            self.assertEqual(live, {publication_unix._staging["fd"]})
 
     def test_an_update_without_a_git_change_does_not_need_the_git_device(self):
         self.plan["changes"] = []
@@ -273,12 +274,12 @@ class LinuxUnchangedTest(Harness):
     """The platform is not simulated: no staging is prepared and no device is compared."""
 
     def test_a_device_mismatch_is_ignored_and_no_staging_is_prepared(self):
-        posix_files._staging.pop("fd", None)
+        publication_unix._staging.pop("fd", None)
         with foreign_device(self.agentic_root / ".git", self.config):
             with self.assertRaises(Reached):
                 self.apply()
         self.assertFalse((self.runtime / "publish-staging").exists())
-        self.assertNotIn("fd", posix_files._staging)
+        self.assertNotIn("fd", publication_unix._staging)
 
     def test_a_resumed_journal_is_not_checked_for_devices(self):
         self.resume("files_published")

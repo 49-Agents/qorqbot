@@ -12,6 +12,7 @@ import unittest
 from unittest import mock
 
 from qorqut import posix_files
+from qorqut_system import retained
 
 
 @unittest.skipUnless(sys.platform == 'darwin' or sys.platform.startswith('linux'), 'POSIX descriptor paths')
@@ -36,7 +37,7 @@ class ImmutableDatabaseUriTests(unittest.TestCase):
     def test_different_file_behind_the_path_is_refused(self):
         other = os.stat(self.path)
         fake = os.stat_result((other.st_mode, other.st_ino + 1, *other[2:]))
-        with mock.patch.object(posix_files.os, 'stat', return_value=fake):
+        with mock.patch.object(retained.os, 'stat', return_value=fake):
             with self.assertRaises(OSError) as raised:
                 posix_files.immutable_database_uri(self.descriptor)
         self.assertEqual(raised.exception.errno, errno.ESTALE)
@@ -61,18 +62,18 @@ class FileIdentityTests(unittest.TestCase):
         return fake
 
     def test_darwin_ignores_device_number_only(self):
-        with mock.patch.object(posix_files.sys, 'platform', 'darwin'):
-            same = posix_files._file_identity(self.result(16777230, 5))
-            self.assertEqual(same, posix_files._file_identity(self.result(2**64 - 1201951597, 5)))
-            self.assertNotEqual(same, posix_files._file_identity(self.result(16777230, 6)))
-            self.assertNotEqual(same, posix_files._file_identity(self.result(16777230, 5, size=11)))
-            self.assertNotEqual(same, posix_files._file_identity(self.result(16777230, 5, mtime_ns=6)))
-            self.assertNotEqual(same, posix_files._file_identity(self.result(16777230, 5, birth=2.0)))
+        with mock.patch.object(retained.sys, 'platform', 'darwin'):
+            same = retained._file_identity(self.result(16777230, 5))
+            self.assertEqual(same, retained._file_identity(self.result(2**64 - 1201951597, 5)))
+            self.assertNotEqual(same, retained._file_identity(self.result(16777230, 6)))
+            self.assertNotEqual(same, retained._file_identity(self.result(16777230, 5, size=11)))
+            self.assertNotEqual(same, retained._file_identity(self.result(16777230, 5, mtime_ns=6)))
+            self.assertNotEqual(same, retained._file_identity(self.result(16777230, 5, birth=2.0)))
 
     def test_linux_keeps_device_and_inode(self):
-        with mock.patch.object(posix_files.sys, 'platform', 'linux'):
-            self.assertNotEqual(posix_files._file_identity(self.result(1, 5)),
-                                posix_files._file_identity(self.result(2, 5)))
+        with mock.patch.object(retained.sys, 'platform', 'linux'):
+            self.assertNotEqual(retained._file_identity(self.result(1, 5)),
+                                retained._file_identity(self.result(2, 5)))
 
 
 if __name__ == '__main__':
