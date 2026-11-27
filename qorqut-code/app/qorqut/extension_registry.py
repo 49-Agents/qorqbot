@@ -217,10 +217,30 @@ def _unused_parts(made):
                   and _own(made, name, member))
 
 
-def _load(item):
-    """The ``Loaded`` code part of a fine folder, with its ``code/`` folder on the import path, or the finding to refuse
-    the folder with. Only the factory and ``catalog()`` run. A refused folder leaves the import path and the imported
-    modules as they were; a finding names the kind of fault, never what an exception says."""
+# Why a code part is not loaded, as a kind and its detail (``_loaded``): the sentence is written from them here, at a
+# start and for the process that loads a staged folder alike. A detail is a type name, an id, a module name from the
+# manifest, or the names of ``Extension`` parts, never the text of an exception.
+LOAD_FAULTS = ("other_module", "not_the_extension", "storage", "parts", "tool_prefix", "tool_twice", "fault")
+
+
+def load_finding(kind, ext_id, detail=None) -> str:
+    """The sentence of one way a code part is not loaded (``LOAD_FAULTS``)."""
+    if kind == "storage":
+        return NO_TABLES
+    if kind == "parts":
+        return NOT_YET.format(", ".join(detail))
+    return NOT_LOADED.format({
+        "other_module": f"the module {detail!r} is not the one in its code folder",
+        "not_the_extension": f"its factory does not make the extension {ext_id!r}",
+        "tool_prefix": f"its tool names must start with {ext_id + '_'!r}",
+        "tool_twice": "it declares a tool twice",
+        "fault": detail}[kind])
+
+
+def _loaded(item):
+    """``(Loaded, None)`` for a fine folder, with its ``code/`` folder on the import path, or ``(None, (kind, detail))``
+    to refuse the folder with (``LOAD_FAULTS``). Only the factory and ``catalog()`` run. A refused folder leaves the
+    import path and the imported modules as they were."""
     from qorqut.extensions import Extension
     code = item.folder / CODE_FOLDER
     module_name, _, attribute = item.manifest.factory.partition(":")
@@ -231,28 +251,35 @@ def _load(item):
         origin = Path(getattr(module, "__file__", None) or "").resolve()
         if not origin.is_relative_to(code):
             del sys.path[len(sys.path) - 1 - sys.path[::-1].index(str(code))]
-            return None, NOT_LOADED.format(f"the module {module_name!r} is not the one in its code folder")
+            return None, ("other_module", module_name)
         made = getattr(module, attribute)()
         if not isinstance(made, Extension) or made.id != item.id:
-            problem = NOT_LOADED.format(f"its factory does not make the extension {item.id!r}")
+            problem = ("not_the_extension", None)
         elif _own(made, "storage", Extension.storage):
-            problem = NO_TABLES
+            problem = ("storage", None)
         elif _unused_parts(made):
-            problem = NOT_YET.format(", ".join(_unused_parts(made)))
+            problem = ("parts", _unused_parts(made))
         else:
             entries = tuple(entry for contribution in made.catalog() for entry in contribution.entries)
             names = [entry.name for entry in entries]
             wrong = [name for name in names if not (isinstance(name, str) and name.startswith(item.id + "_"))]
             if wrong:
-                problem = NOT_LOADED.format(f"its tool names must start with {item.id + '_'!r}")
+                problem = ("tool_prefix", None)
             elif len(set(names)) != len(names):
-                problem = NOT_LOADED.format("it declares a tool twice")
+                problem = ("tool_twice", None)
     except Exception as problem_raised:  # noqa: BLE001 - the folder is refused; only the kind of fault is said
-        problem = NOT_LOADED.format(type(problem_raised).__name__)
+        problem = ("fault", type(problem_raised).__name__)
     if problem is not None:
         _forget(code)
         return None, problem
     return Loaded(made, entries, code), None
+
+
+def _load(item):
+    """The ``Loaded`` code part of a fine folder, with its ``code/`` folder on the import path, or the finding to refuse
+    the folder with (``_loaded``, ``load_finding``)."""
+    made, problem = _loaded(item)
+    return (made, None) if made is not None else (None, load_finding(problem[0], item.id, problem[1]))
 
 
 def load_code(found, selection, *, recorded=()):

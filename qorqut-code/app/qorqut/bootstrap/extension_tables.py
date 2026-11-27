@@ -21,10 +21,11 @@ already in the store cost no copy.
 """
 from __future__ import annotations
 
-from contextlib import redirect_stdout
 import json
 import logging
+import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import uuid
@@ -117,51 +118,148 @@ def make(paths, selection, loaded) -> dict:
 
 # -- a staged change --------------------------------------------------------------------------------------------------
 _CHILD = ("import json,sys; sys.path[:0]=json.loads(sys.argv[1]); "
-          "from qorqut.bootstrap.extension_tables import _declare; _declare(sys.argv[2])")
+          "from qorqut.bootstrap.extension_tables import _declare; _declare(sys.argv[2], sys.argv[3], sys.argv[4])")
+# The kinds of fault the child may answer besides those of ``extension_registry.LOAD_FAULTS``.
+TABLES_FAULT, TABLES_FORM, MANIFEST = "tables_fault", "tables_form", "manifest"
 NO_ANSWER = "the process that loads it ended without an answer"
+NO_INTERPRETER = "Qorqbot knows no Python to load it with"
+TABLES_FORM_NOTE = "its tables are declared in a form Qorqbot cannot record"
+_TYPE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,79}")
 
 
-def _declare(folder) -> None:
-    """In the child process: load the code part of ``folder`` as a start loads it and print ``{"row": ...}`` (the
-    canonical row of its declared tables, or None when it declares none) or ``{"finding": ...}``. What the code
-    writes to standard output while it loads goes to standard error, so the one line printed is the answer."""
-    from qorqut import extension_contract as contract
-    from qorqut.extension_registry import CODE_FOLDER, Found, NOT_LOADED, _load, declared_tables
-    folder = Path(folder).resolve()
-    # The path is the service's: the code folder of an extension loaded there (an older version of this one) is left
-    # out, so only the staged folder's code can be imported.
-    sys.path[:] = [entry for entry in sys.path
-                   if not (Path(entry).name == CODE_FOLDER and (Path(entry).parent / contract.MANIFEST).is_file())]
-    with redirect_stdout(sys.stderr):
-        try:
-            manifest = contract.load_manifest(folder)
-        except contract.ContractError as exc:
-            answer = {"finding": NOT_LOADED.format(type(exc).__name__)}
-        else:
-            item = Found(manifest.id, folder, manifest.delivery, manifest)
-            made, finding = _load(item)
-            if made is not None:
-                row, finding = declared_tables(item, made.extension, ())
-            answer = {"finding": finding} if finding is not None else {"row": row}
-    print(json.dumps(answer))
-
-
-def declared(folder) -> tuple[dict | None, str | None]:
-    """``(row or None, finding or None)`` for the code part of ``folder``, loaded in a process of its own with this
-    process's import path: the canonical row of the tables it declares (None when it declares none), or why its code
-    could not be loaded."""
-    from qorqut.extension_registry import NOT_LOADED
+def _declare(folder, others, channel) -> None:
+    """In the child process: load the code part of ``folder`` as a start loads it, with ``others`` (the code folders
+    of the other installed extensions, as a start has them) on the import path, and write the answer to the file
+    descriptor ``channel``: ``{"row": ...}`` (the canonical row of its declared tables, or None) or ``{"fault": kind,
+    "detail": ...}``. Only data is written, never a sentence or the text of an exception. The process then ends at
+    once, so neither a thread nor an exit handler of the loaded code keeps it alive or writes after the answer."""
+    channel = int(channel)
+    os.set_inheritable(channel, False)
+    answer = {"fault": "fault", "detail": None}
     try:
-        result = subprocess.run([sys.executable, "-I", "-B", "-c", _CHILD, json.dumps(sys.path), str(folder)],
-                                capture_output=True, text=True, check=False)
-        answer = json.loads(result.stdout.splitlines()[-1]) if result.returncode == 0 and result.stdout.strip() else None
-    except (OSError, ValueError):
+        from qorqut import extension_contract as contract
+        from qorqut.extension_registry import CODE_FOLDER
+        # The path is the calling process's without the code folder of any extension, then what a start has.
+        sys.path[:] = [entry for entry in sys.path
+                       if not (Path(entry).name == CODE_FOLDER and (Path(entry).parent / contract.MANIFEST).is_file())]
+        sys.path.extend(json.loads(others))
+        answer = _answer(Path(folder).resolve())
+    except BaseException as exc:  # noqa: BLE001 - whatever the loaded code raised, only its type name is answered
+        answer = {"fault": "fault", "detail": type(exc).__name__}
+    finally:
+        try:
+            for stream in (sys.stdout, sys.stderr):
+                stream.flush()
+        except Exception:  # noqa: BLE001 - the answer is written whatever the streams do
+            pass
+        data = json.dumps(answer).encode("utf-8")
+        while data:
+            data = data[os.write(channel, data):]
+        os.close(channel)
+        os._exit(0)
+
+
+def _answer(folder) -> dict:
+    from qorqut import extension_contract as contract
+    from qorqut.composition.extension_tables import row_of
+    from qorqut.extension_registry import Found, _loaded
+    try:
+        manifest = contract.load_manifest(folder)
+    except contract.ContractError:
+        return {"fault": MANIFEST, "detail": None}
+    made, problem = _loaded(Found(manifest.id, folder, manifest.delivery, manifest))
+    if made is None:
+        return {"fault": problem[0], "detail": problem[1]}
+    try:
+        declared = tuple(made.extension.tables())
+    except Exception as exc:  # noqa: BLE001 - only the type name is answered
+        return {"fault": TABLES_FAULT, "detail": type(exc).__name__}
+    if not declared:
+        return {"row": None}
+    try:
+        return {"row": row_of(manifest.id, manifest.version, declared)}
+    except DomainError:
+        return {"fault": TABLES_FORM, "detail": None}
+
+
+def _code_folders(paths, ext_id) -> list[str]:
+    """The ``code/`` folders a start has on its import path besides the one of ``ext_id``: each other extension folder
+    with a code part, in the order a start finds them."""
+    from qorqut import extension_contract as contract
+    from qorqut.extension_registry import CODE_FOLDER, extension_roots
+    return [str(folder / CODE_FOLDER) for root, _ in extension_roots(paths) if root.is_dir()
+            for folder in sorted(root.iterdir())
+            if folder.name != ext_id and (folder / contract.MANIFEST).is_file() and (folder / CODE_FOLDER).is_dir()]
+
+
+def _sentence(answer, manifest) -> tuple[str | None, str | None]:
+    """``(kind, finding)`` of a fault answer, written here from the kind alone; ``(None, None)`` for an answer that is
+    not one the child writes."""
+    from qorqut.extensions import Extension
+    from qorqut.extension_registry import LOAD_FAULTS, NOT_LOADED, TABLES_REFUSED, load_finding
+    kind, detail = answer.get("fault"), answer.get("detail")
+    if set(answer) != {"fault", "detail"} or not isinstance(kind, str):
+        return None, None
+    if kind in ("fault", TABLES_FAULT):
+        named = detail if isinstance(detail, str) and _TYPE_NAME.fullmatch(detail) else "an error"
+        return kind, NOT_LOADED.format(named)
+    if kind == "parts":
+        known = {name for name in vars(Extension) if not name.startswith("_")}
+        if not (isinstance(detail, list) and detail and all(isinstance(name, str) and name in known for name in detail)):
+            return None, None
+        return kind, load_finding(kind, manifest.id, sorted(detail))
+    if kind == "other_module":
+        return kind, load_finding(kind, manifest.id, manifest.factory.partition(":")[0])
+    if kind in LOAD_FAULTS and detail is None:
+        return kind, load_finding(kind, manifest.id)
+    if kind == TABLES_FORM and detail is None:
+        return kind, TABLES_REFUSED.format(TABLES_FORM_NOTE)
+    if kind == MANIFEST and detail is None:
+        return kind, NOT_LOADED.format("its manifest could not be read")
+    return None, None
+
+
+def declared(folder, *, others=()) -> tuple[dict | None, str | None]:
+    """``(row or None, finding or None)`` for the code part of ``folder``, loaded in a process of its own with this
+    process's import path and ``others`` (``_code_folders``): the canonical row of the tables it declares (None when it
+    declares none), or why its code could not be loaded. The child answers on a pipe of its own and only with data;
+    every sentence is written here, and a failure is logged with the kind of fault and a type name only."""
+    from qorqut import extension_contract as contract
+    from qorqut.extension_registry import NOT_LOADED
+    manifest = contract.load_manifest(folder)
+
+    def failed(kind, finding, detail=""):
+        LOGGER.warning("extension_code_not_loaded extension=%s kind=%s error=%s", manifest.id, kind, detail)
+        return None, finding
+    if not sys.executable:
+        return failed("no_interpreter", NOT_LOADED.format(NO_INTERPRETER))
+    reading, writing = os.pipe()
+    try:
+        try:
+            child = subprocess.Popen(
+                [sys.executable, "-I", "-B", "-c", _CHILD, json.dumps(sys.path), str(folder), json.dumps(list(others)),
+                 str(writing)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                pass_fds=(writing,))
+        finally:
+            os.close(writing)
+        with os.fdopen(reading, "rb") as stream:
+            reading = None
+            received = stream.read()
+        child.wait()
+        answer = json.loads(received) if child.returncode == 0 and received else None
+    except (OSError, ValueError, subprocess.SubprocessError):
         answer = None
-    if isinstance(answer, dict) and set(answer) == {"finding"} and isinstance(answer["finding"], str):
-        return None, answer["finding"]
+    finally:
+        if reading is not None:
+            os.close(reading)
     if isinstance(answer, dict) and set(answer) == {"row"} and (answer["row"] is None or isinstance(answer["row"], dict)):
         return answer["row"], None
-    return None, NOT_LOADED.format(NO_ANSWER)
+    kind, finding = _sentence(answer, manifest) if isinstance(answer, dict) else (None, None)
+    if finding is None:
+        return failed("no_answer", NOT_LOADED.format(NO_ANSWER))
+    detail = answer["detail"] if kind in ("fault", TABLES_FAULT) and isinstance(answer["detail"], str) \
+        and _TYPE_NAME.fullmatch(answer["detail"]) else ""
+    return failed(kind, finding, detail)
 
 
 def make_staged(paths, selection, change_id, folder, ext_id, version, *, ownership=None) -> str | None:
@@ -173,7 +271,7 @@ def make_staged(paths, selection, change_id, folder, ext_id, version, *, ownersh
     from qorqut.extension_registry import TABLES_REFUSED
     if contract.load_manifest(folder).factory is None:
         return None
-    row, finding = declared(folder)
+    row, finding = declared(folder, others=_code_folders(paths, ext_id))
     if finding is not None:
         return finding
     if row is None:
