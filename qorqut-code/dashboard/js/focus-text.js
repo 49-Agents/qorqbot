@@ -167,7 +167,7 @@ const focusText = (() => {
       save: () => save(s),
     });
     editors.set(p, editor);
-    // A floating microphone in the notes' bottom left corner (the reminder cards take the right): the words go where the
+    // A floating 48px microphone in the notes' bottom right corner (owner's choice): the words go where the
     // caret was (js/voice-input.js). The hotkey reaches it only while the notes have the caret.
     const voice = document.createElement('div');
     voice.className = 'gchat-voice-float agfocus-notes-voice';
