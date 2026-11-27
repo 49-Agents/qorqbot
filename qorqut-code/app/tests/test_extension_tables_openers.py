@@ -378,7 +378,7 @@ class EveryOpenerReadsTheRecordTest(unittest.TestCase):
                         missing.append(place)
                 if name == "Database":
                     databases[(relative, function)] = databases.get((relative, function), 0) + 1
-                if name in ("validate_snapshot", "restore") and _running_database(call.func.value):
+                if name in ("validate_snapshot", "restore") and _running_database(getattr(call.func, "value", None)):
                     missing.append(place + f" checks a saved store with the running database ({name})")
         self.assertEqual(missing, [], "compose with tables=recorded(...) of the store being opened")
         self.assertEqual(databases, DATABASES)
