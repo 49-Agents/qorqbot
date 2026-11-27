@@ -6,6 +6,7 @@ No real Python environment or program is used: the shipped trees are small stand
 """
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -135,6 +136,34 @@ class Prepare(Folder):
             with self.assertRaisesRegex(RuntimeError, 'Git is required'):
                 native_launch.require_prerequisites({'PATH': '/nowhere'})
 
+    def test_everything_missing_is_named_at_once_with_one_command(self):
+        with mock.patch.object(native_launch.shutil, 'which', return_value=None), \
+                mock.patch.object(native_launch.sys, 'version_info', (3, 11, 0)):
+            with self.assertRaises(RuntimeError) as linux:
+                native_launch.require_prerequisites({'PATH': '/nowhere'}, system='Linux')
+            with self.assertRaises(RuntimeError) as mac:
+                native_launch.require_prerequisites({'PATH': '/nowhere'}, system='Darwin')
+        self.assertIn('Python 3.12 with venv support and Git are required', str(linux.exception))
+        self.assertTrue(str(linux.exception).endswith('\n  sudo apt install python3.12 python3.12-venv git'))
+        self.assertTrue(str(mac.exception).endswith('\n  brew install python@3.12 git'))
+
+    def test_set_up_output_goes_to_its_log_and_a_failure_shows_the_error_and_the_log(self):
+        log = native_launch.setup_log(self.root)
+        self.assertEqual(log, self.root / '.run/setup.log')  # the instance folder stays empty until it is initialized
+        native_launch.run([sys.executable, '-c', 'print("internal detail")'], env=dict(os.environ), cwd=self.root, log=log)
+        with self.assertRaises(RuntimeError) as failed:
+            native_launch.run([sys.executable, '-c', 'import sys; sys.exit("the real error")'], env=dict(os.environ),
+                              cwd=self.root, log=log)
+        self.assertIn('the real error', str(failed.exception))
+        self.assertIn(str(log), str(failed.exception))
+        self.assertNotIn('internal detail', str(failed.exception))
+        write(self.root / native_launch.INITIALIZATION_RECEIPT, '{}')
+        native_launch.keep_setup_log(self.root)
+        kept = self.root / 'instance/logs/setup.log'
+        self.assertEqual(native_launch.setup_log(self.root), kept)
+        self.assertFalse(log.exists())
+        self.assertIn('internal detail', kept.read_text())
+
 
 class Environment(Folder):
     def environment(self):
@@ -224,6 +253,17 @@ class StartCommand(Folder):
         (self.runtime / 'native').mkdir()
         chosen = self.python(self.root.parent / 'chosen-python', 'chosen')
         self.assertTrue(self.command(env_python=chosen).stdout.startswith('chosen '))
+
+    def test_missing_python_and_git_are_named_together(self):
+        write(self.root / 'qorqbot', native_build.LAUNCHER, 0o755)
+        bare = self.root.parent / (self.root.name + '-bin')  # only the commands the script itself needs
+        bare.mkdir()
+        for name in ('dirname', 'uname'):
+            (bare / name).symlink_to(shutil.which(name))
+        done = subprocess.run(['/bin/sh', str(self.root / 'qorqbot')], env={'PATH': str(bare)}, capture_output=True, text=True)
+        self.assertEqual(done.returncode, 1)
+        self.assertIn('Python 3.12 with venv support and Git are required', done.stderr)
+        self.assertIn('  sudo apt install python3.12 python3.12-venv git\n', done.stderr)
 
     def test_a_folder_without_shipped_tools_uses_the_computers_python(self):
         # A Linux package builds its environment in runtime/venv from the computer's Python 3.12.

@@ -1,17 +1,57 @@
 # Qorqbot for Linux
 
-Ubuntu 24.04 on Intel/AMD 64-bit. Install Python 3.12 with venv support and Git
-using Ubuntu's package manager before running Qorqbot:
+For Ubuntu 24.04 on an Intel or AMD 64-bit computer.
+
+## What you need
+
+Open a terminal and install Python 3.12 and Git with this one command. It asks
+for your computer password.
 
 ```sh
 sudo apt install python3.12 python3.12-venv git
 ```
 
-Qorqbot downloads Claude Code and Codex itself. You sign in to your own account
-from the dashboard, in your browser; nothing is typed in a terminal.
-Desktop viewing additionally requires its configured TigerVNC/Openbox/X11/session
-tools. These programs are not included or installed by Qorqbot. Git 2.43
-is the Ubuntu baseline; Python must be 3.12 for this wheel set.
+Your agents also need Google Chrome to work on websites. If it is not on this
+computer yet, get it from https://www.google.com/chrome/
+
+If something is missing when you start Qorqbot, it tells you what, and the one
+command that installs it.
+
+## How to start
+
+In the terminal, go to the folder you downloaded Qorqbot to (for example
+`cd ~/Downloads`), unpack it and start it:
+
+```sh
+tar -xzf qorqbot-VERSION-ubuntu24-x86_64.tar.gz
+cd qorqbot
+./qorqbot
+```
+
+The first start sets Qorqbot up. That takes about half a minute.
+
+## What happens next
+
+Your browser opens Qorqbot. Sign in with your email address. Then connect
+Claude Code or Codex from the dashboard: Qorqbot downloads them itself and you
+sign in to your own account there, in your browser. Nothing is typed in a
+terminal.
+
+## How to stop and start again
+
+Keep the terminal window open while you use Qorqbot. Press Ctrl+C in it to stop
+Qorqbot. To start again, open a terminal in the same folder and run `./qorqbot`.
+Your records stay in that folder; keep it where it is.
+
+# Details
+
+## Requirements
+
+Ubuntu 24.04 on Intel/AMD 64-bit, with Python 3.12 (with venv support) and Git
+from Ubuntu's package manager, as above. Git 2.43 is the Ubuntu baseline; Python
+must be 3.12 for this wheel set. Desktop viewing additionally requires its
+configured TigerVNC/Openbox/X11/session tools. These programs are not included or
+installed by Qorqbot.
 
 Agents' web browsing needs Google Chrome installed on Ubuntu 24.04. The package
 ships the `agent-browser` tool (`runtime/tools/agent-browser`). Qorqbot also
@@ -27,17 +67,13 @@ Qorqbot tries the Chrome download again by itself while the app runs.
 
 Verify the archive's SHA-256 against the release's checksum, then extract it to a
 short writable folder. Run `./qorqbot` inside that folder and open the printed local
-address. First launch creates a local Python virtual environment and installs the
+address if your browser does not open it. First launch creates a local Python virtual environment and installs the
 included application wheels with standard pip, without network access. It creates a fresh instance,
-never adopts an existing development installation.
+never adopts an existing development installation. The set-up output is written to
+`instance/logs/setup.log`; if set-up fails, the terminal shows the error and the
+log's path (`.run/setup.log` while the instance does not exist yet).
 
-```sh
-tar -xzf qorqbot-VERSION-ubuntu24-x86_64.tar.gz
-cd qorqbot
-./qorqbot
-```
-
-Press Ctrl+C to stop. `./qorqbot status`, `./qorqbot stop` and `./qorqbot verify`
+`./qorqbot status`, `./qorqbot stop` and `./qorqbot verify`
 are available from another terminal. Agents run as background sessions that close
 by themselves when idle; the updater closes any that are open, and they start again
 when you next message them. With the optional Terminals (legacy) mode, agents run in tmux terminals instead: nothing
@@ -56,8 +92,10 @@ keeps using your own folders (`~/.claude`, `~/.codex`). Explicit `CODEX_HOME`
 and `CLAUDE_CONFIG_DIR` settings are respected.
 
 Keep the initialized folder at the same location: generated workspace bindings
-contain absolute paths. Use a short path (roughly 50 bytes or fewer) for Linux
-socket limits. This folder placement is not a filesystem sandbox.
+contain absolute paths. The folder's path must be short (roughly 50 bytes or
+fewer), because the agents' browsers keep Linux sockets inside it; a folder in
+your home or Downloads folder fits. The optional Terminals (legacy) mode also
+keeps its tmux sockets there. This folder placement is not a filesystem sandbox.
 
 ## Optional features
 
@@ -121,6 +159,4 @@ First-party Qorqbot is source-available under the PolyForm Noncommercial License
 1.0.0, by 49 Agents LLC, in LICENSE. Personal and noncommercial use is free.
 Commercial use needs a per-person commercial license, free until 2027-01-01:
 https://qorqbot.com/commercial-license/. Dependencies retain their own licenses. See the source release's
-license scope and notices. A private candidate is not a published release.
-
-Source build/acceptance instructions are in RELEASE-RUNBOOK.md and PUBLICATION-PIPELINE.md.
+license scope and notices.
