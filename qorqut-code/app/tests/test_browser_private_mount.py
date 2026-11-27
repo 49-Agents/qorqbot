@@ -10,7 +10,8 @@ import unittest
 from unittest import mock
 
 from qorqut.browser import agent_browsers, agent_supervisor as supervisor
-from qorqut.browser.agent_browsers import SYSTEMD_RUN, UserUnitLauncher, outside_private_mounts
+from qorqut.browser.agent_browsers import UserUnitLauncher, outside_private_mounts
+from qorqut_system.places import SYSTEMD_RUN
 
 AGENT = "8fdca155-2f3b-4735-800f-41624c6d26cc"
 UNIT = f"qorqut-agent-browser-0123456789ab-{AGENT}.service"
