@@ -65,14 +65,27 @@ def shipped_factories():
     return tuple(sorted({*_tool('native_extension').FACTORIES.values(), *_tool('native_launch').BUNDLED_FACTORIES}))
 
 
+def _package(factory):
+    return factory.partition(':')[0].split('.')[0]
+
+
 def _package_folder(factory):
-    """The folder of this checkout that holds the package of ``factory``."""
-    package = factory.partition(':')[0].split('.')[0]
+    """The folder of this tree that holds the package of ``factory``, or None when no folder of it does; ``ValueError``
+    when more than one does."""
+    package = _package(factory)
     found = [root / folder.name for root in PACKAGE_ROOTS if root.is_dir() for folder in sorted(root.iterdir())
              if (folder / package).is_dir()]
-    if len(found) != 1:
-        raise ValueError(f'This checkout does not hold the package {package} exactly once.')
-    return str(found[0])
+    if len(found) > 1:
+        raise ValueError(f'This tree holds the package {package} more than once.')
+    return str(found[0]) if found else None
+
+
+def left_out_sentence(packages):
+    """The line said when the packages of shipped extensions are neither folders of this tree nor importable: a copy
+    without them (the release export leaves the optional Fastmail package out) cannot put their names into a database
+    of an installation made from it, so they are left out of the names and ids, and this line says so."""
+    return (f"The names and ids of the extensions in {', '.join(packages)} were not checked: this copy of Qorqbot "
+            f"does not hold {'that package' if len(packages) == 1 else 'those packages'}.")
 
 
 def _shipped_names(factories):
@@ -86,20 +99,28 @@ def shipped_ids(factories=None):
 
 @functools.cache
 def _shipped(factories):
-    """``{"names": ..., "ids": ...}``: the names of the core store with ``factories`` selected and the ids of their
-    extensions, composed in a process of its own from this checkout's packages, so nothing of them is imported here. A
-    factory that needs a configuration is left out of the names only when its module declares no storage; otherwise
-    its names cannot be known and ``ValueError`` is raised."""
+    """``{"names": ..., "ids": ..., "left_out": ...}``: the names of the core store with ``factories`` selected and the
+    ids of their extensions, composed in a process of its own from this tree's package folders, or from where the
+    package is importable here (installed as a wheel), so nothing of them is imported here. A factory whose package is
+    neither is left out, named in ``left_out`` and said once on standard output (``left_out_sentence``). A factory that
+    needs a configuration is left out of the names only when its module declares no storage; otherwise its names cannot
+    be known and ``ValueError`` is raised."""
+    places = {factory: _package_folder(factory) for factory in factories}
+    left_out = sorted({_package(factory) for factory, folder in places.items()
+                       if folder is None and importlib.util.find_spec(_package(factory)) is None})
+    if left_out:
+        print(left_out_sentence(left_out))
+    factories = tuple(factory for factory in factories if _package(factory) not in left_out)
     if not factories:
-        return {'names': (), 'ids': ()}
-    folders = sorted({_package_folder(factory) for factory in factories})
+        return {'names': (), 'ids': (), 'left_out': tuple(left_out)}
+    folders = sorted({folder for folder in places.values() if folder is not None})
     done = subprocess.run([sys.executable, '-I', '-B', '-c', _COMPOSE, json.dumps([*folders, *sys.path]),
                            json.dumps(list(factories))], stdin=subprocess.DEVNULL, capture_output=True, text=True)
     if done.returncode != 0:
         raise ValueError('The extensions the app ships could not be composed: '
                          + (done.stderr.strip().splitlines() or ['no reason given'])[-1])
     found = json.loads(done.stdout)
-    return {'names': tuple(found['names']), 'ids': tuple(found['ids'])}
+    return {'names': tuple(found['names']), 'ids': tuple(found['ids']), 'left_out': tuple(left_out)}
 
 
 def core_names(extra=(), factories=None):

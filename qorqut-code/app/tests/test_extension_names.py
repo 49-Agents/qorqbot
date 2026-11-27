@@ -93,6 +93,34 @@ class ExtensionNamesTest(unittest.TestCase):
         self.assertEqual(self.tool.id_clashes(["telegram_bot"]), [("telegram", "telegram_bot")])
         self.assertEqual(self.tool.id_clashes(["google"]), [("google", "google_calendar")])
 
+    def test_a_shipped_package_this_copy_does_not_hold_is_left_out_and_said(self):
+        # As in the release export, which leaves the optional Fastmail package out: neither a folder nor importable.
+        tool, out = load_tool(), io.StringIO()
+        factories = ("qorqut_telegram.extension:create", "qorqut_not_in_this_copy.extension:create")
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(tool.shipped_ids(factories), ("telegram",))
+            self.assertEqual(tool.shipped_ids(factories), ("telegram",))
+        self.assertEqual(out.getvalue(), "The names and ids of the extensions in qorqut_not_in_this_copy were not "
+                                         "checked: this copy of Qorqbot does not hold that package.\n")
+        self.assertEqual(tool.core_names(factories=factories), self.tool.core_names(factories=factories[:1]))
+
+    def test_a_shipped_package_that_is_importable_but_not_a_folder_of_this_tree_is_composed_from_where_it_is(self):
+        tool, out = load_tool(), io.StringIO()
+        tool.PACKAGE_ROOTS = tuple(root for root in tool.PACKAGE_ROOTS if not (root / "qorqut-fastmail").is_dir())
+        self.assertIsNone(tool._package_folder("qorqut_fastmail.extension:create"))
+        with contextlib.redirect_stdout(out):
+            self.assertIn("fastmail", tool.shipped_ids())
+        self.assertEqual(out.getvalue(), "")
+
+    def test_a_package_two_folders_of_this_tree_hold_is_refused(self):
+        tool = load_tool()
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        for folder in ("one", "two"):
+            (root / folder / "qorqut_twice").mkdir(parents=True)
+        tool.PACKAGE_ROOTS = (root,)
+        with self.assertRaisesRegex(ValueError, "This tree holds the package qorqut_twice more than once."):
+            tool.shipped_ids(("qorqut_twice.extension:create",))
+
     def test_the_command_reads_the_index_files_and_says_each_clash(self):
         released, new = self.index("ab", "network"), self.index("network", "ab_c", "agent")
         out = io.StringIO()
