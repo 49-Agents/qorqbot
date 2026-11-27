@@ -408,6 +408,8 @@ class InstalledExtension:
     agents: tuple[str, ...]
     refused_findings: tuple[str, ...]
     package_id: str | None
+    name: str | None = None
+    summary: str | None = None
 
 
 @dataclass(frozen=True)
@@ -436,8 +438,10 @@ class ExtensionRegistry:
     the registry. ``code`` holds the loaded code parts by id (``load_code``): the tools each one declares are its own,
     listed for and callable by an agent only while the extension is in effect for it."""
 
-    def __init__(self, found, *, changes=None, code=None):
+    def __init__(self, found, *, changes=None, code=None, offered=()):
         self.found = tuple(found)
+        # Index entries with no folder (``extension_index.offered``): ``not_installed`` or ``unsupported``, never stored.
+        self.offered = tuple(offered)
         self.code = dict(code or {})
         # The ids of every code part loaded at this start, also once refused: none of them is installed as today's are.
         self.loaded = frozenset(self.code)
@@ -462,9 +466,10 @@ class ExtensionRegistry:
 
     # ----- what was found -------------------------------------------------------------------------------------------
 
-    def installed_any(self) -> bool:
-        """Whether any extension was found at this start, or still has a row whose folder is gone."""
-        return bool(self.found or self._lingering)
+    def in_use(self) -> bool:
+        """Whether any extension was found at this start, still has a row whose folder is gone, or is offered by the
+        index. Only then are the tools that manage extensions (``extension_operations.MANAGING``) any agent's."""
+        return bool(self.found or self._lingering or self.offered)
 
     def routes_tools(self) -> bool:
         """Whether any tool is routed to an extension (one loaded, or one refused with stray tools)."""
@@ -580,7 +585,8 @@ class ExtensionRegistry:
         return InstalledExtension(
             item.id, item.folder, item.delivery, item.manifest, item.manifest.version if item.manifest else None,
             status, note, self._wanted_by(row, agents) if row else (), findings,
-            extension_package.package_id(item.id) if row is not None and row["package_revision"] else None)
+            extension_package.package_id(item.id) if row is not None and row["package_revision"] else None,
+            item.manifest.name if item.manifest else None, item.manifest.summary if item.manifest else None)
 
     # ----- reads ---------------------------------------------------------------------------------------------------
 
@@ -592,10 +598,12 @@ class ExtensionRegistry:
 
     def list(self, *, connection=None) -> list[InstalledExtension]:
         """Every found extension, in the order of the places and folder names, then each one whose folder is gone and
-        whose row could not be removed."""
+        whose row could not be removed, then the index entries not installed. Only ``list`` shows index entries; every
+        other read and write knows installed extensions only."""
         rows, agents = self._state(connection)
         return ([self._entry(item, rows.get(item.id), agents) for item in self.found]
-                + [self._gone(ext_id, rows.get(ext_id)) for ext_id in sorted(self._lingering)])
+                + [self._gone(ext_id, rows.get(ext_id)) for ext_id in sorted(self._lingering)]
+                + [entry for entry in self.offered if entry.id not in self._lingering])
 
     def get(self, ext_id, *, connection=None) -> InstalledExtension:
         item = self._found(ext_id)

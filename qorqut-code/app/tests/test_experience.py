@@ -531,6 +531,9 @@ class RuleCheckTests(ExperienceCase):
             idempotency_key=new_id()).error['code'], 'validation_error')
         second = self.edit(first, '  Never send any email or message without a Signoff.  ')
         self.assertNotEqual(second, first)
+        with self.runtime.database.read() as uow:
+            notes = [row[0] for row in uow.connection.execute('SELECT body FROM signoff_notes WHERE signoff_id=?', (second,))]
+        self.assertEqual(notes, ['Edited the proposed message. Approval is still required.'])   # the message edit's note
         self.assertEqual((self.signoff(first)['state'], self.rule(filed)['check_signoff_id']), ('conflicted', second))
         self.assertEqual(self.rule(filed)['text'], self.RULE)        # nothing changes before the approval
         self.decide(second, 'approve')

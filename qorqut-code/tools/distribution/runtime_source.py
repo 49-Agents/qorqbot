@@ -186,6 +186,15 @@ def owner(destinations, relative):
 
 
 # --- exclusion policy ------------------------------------------------------------------------------------------------
+def development_metadata(parts):
+    """Whether a path, given by its parts, is development metadata: caches, tool folders and compiled Python files.
+
+    The download leaves these out; so does the bundle of a downloadable extension (``extension_bundle.py build-folder``).
+    """
+    name = parts[-1]
+    return bool(set(parts) & DEV_DIRS) or name in DEV_FILES or name.endswith((".pyc", ".pyo"))
+
+
 def exclusion(component, local):
     """First matching reason to leave a component-relative path out of the runtime, or None to keep it.
 
@@ -202,7 +211,7 @@ def exclusion(component, local):
         return "source-only-report"
     if name in GIT_CONTROL_FILES and not local.startswith(RUNTIME_DATA.get(component, ())):
         return "source-control-metadata"
-    if set(parts) & DEV_DIRS or name in DEV_FILES or name.endswith((".pyc", ".pyo")):
+    if development_metadata(parts):
         return "development-metadata"
     if re.search(r"\.(?:test|spec)\.(?:[cm]?js|tsx?|jsx)$", name) or name.endswith("_test.go"):
         return "test-case"
@@ -771,7 +780,7 @@ def _wheel_reason(member):
         return "test-suite"
     if name in GIT_CONTROL_FILES and not member.startswith(WHEEL_RUNTIME_DATA):
         return "development-metadata"
-    if set(parts) & DEV_DIRS or name in DEV_FILES or name.endswith((".pyc", ".pyo")):
+    if development_metadata(parts):
         return "development-metadata"
     if re.search(r"\.(?:test|spec)\.(?:[cm]?js|tsx?|jsx)$", name) or name.endswith("_test.go"):
         return "test-case"

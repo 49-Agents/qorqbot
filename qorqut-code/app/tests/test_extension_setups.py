@@ -223,7 +223,9 @@ class ConnectionsTest(KeyedCase):
             "version": "1.0.0", "delivery": "downloadable", "status": "not_set_up", "note": None, "can_set_up": True,
             "setup": {"kind": "key", "fields": [{"id": "token", "label": "Token", "secret": True}]},
             # The Learning Applier's role is not allowed, so it has no row.
-            "agents": [{"agent_id": ORDUBASHY, "name": "ordubashy", "role": "ordubashy", "on": True, "in_effect": False}]})
+            "agents": [{"agent_id": ORDUBASHY, "name": "ordubashy", "role": "ordubashy", "on": True, "in_effect": False}],
+            # Without the download tools (no runtime given) the owner's downloads are empty.
+            "offers": [], "result": None, "restarting": False})
         self.write(lambda uow: found.set_status("keyed", "ready", uow=uow))
         [entry] = self.read(lambda connection: extension_connections.items(found, connection))
         self.assertEqual(entry["agents"][0]["in_effect"], True)

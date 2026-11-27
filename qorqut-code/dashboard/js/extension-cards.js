@@ -3,6 +3,9 @@
 // status with its note, the set-up step and an on/off switch per agent. Set-up kinds `none` and `key` are set up here;
 // `sign-in` and `pairing` show their status and say that the step is not available yet. Every action is one POST to
 // /root/connections/<id>, answered with the entry as it is then. A typed value is posted once and never shown again.
+// A downloadable extension also has the owner's own Install, Update and Remove from its `offers`; his click is the
+// approval. Remove opens the same two choices as the card for Ordubashy's ask. While its change waits for the restart
+// the card says so (`result`), and after the restart it shows what happened.
 const extensionCards = (() => {
   const icon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3v4M15 3v4M7 7h10v4a5 5 0 0 1-10 0z"/><path d="M12 16v5"/></svg>';
   const STATUS = {
@@ -12,6 +15,7 @@ const extensionCards = (() => {
   };
   const UNKNOWN = {label: 'Unknown', tone: 'idle'};
   const NOT_YET = 'Setting this up from Qorqbot is not available yet.';
+  const REMOVE_AFTER = 'Qorqbot restarts once. Projects, tables and records it created stay.';
   const status = item => STATUS[item.status] || UNKNOWN;
   const kind = item => item.setup?.kind || null;
   // Whether set-up can work, decided by the server (`can_set_up`): a refused folder or code part only shows its note.
@@ -22,7 +26,22 @@ const extensionCards = (() => {
     start: () => ({action: 'start'}), cancel: () => ({action: 'cancel'}), disconnect: () => ({action: 'disconnect'}),
     accept: values => ({action: 'accept', values}),
     switch: (agentId, on) => ({action: 'switch', agent_id: agentId, on}),
+    install: version => ({action: 'install', version}), update: version => ({action: 'update', version}),
+    remove: () => ({action: 'remove', delete_data: false}), 'remove-delete': () => ({action: 'remove', delete_data: true}),
   };
+  // The owner's own downloads, from the entry's offers. 'remove-choose' opens the two removal choices.
+  function downloads(item) {
+    return (item.offers || []).map(offer => offer.action === 'remove'
+      ? {kind: 'remove-choose', label: 'Remove', quiet: true}
+      : {kind: offer.action, label: offer.action === 'update' ? `Update to ${offer.version}` : 'Install', version: offer.version});
+  }
+  function removal(item, esc) {
+    if (!(item.offers || []).some(offer => offer.action === 'remove')) return '';
+    return `<div class="cx-key" data-ext-remove="${esc(item.id)}" hidden><p class="cx-note" data-tone="info">${esc(REMOVE_AFTER)}</p>
+      <div class="cx-key-actions"><button type="button" data-ext-action="remove" data-cx-id="${esc(item.id)}">Remove</button>
+      <button type="button" data-ext-action="remove-delete" data-cx-id="${esc(item.id)}">Remove and delete its data</button>
+      <button type="button" class="quiet" data-ext-remove-cancel>Close</button></div></div>`;
+  }
   // The set-up step: 'key' opens the fields form, 'cancel' ends a set-up Ordubashy started, 'disconnect' forgets the key.
   function steps(item) {
     if (!usable(item) || kind(item) !== 'key') return [];
@@ -64,9 +83,10 @@ const extensionCards = (() => {
   // The card; `rows` draws it as a Settings row, otherwise as a grid card. `esc` is the dashboard's escaping function.
   function render(item, {rows = false, esc}) {
     const shown = status(item), told = note(item);
-    const buttons = steps(item).map(step => `<button type="button" class="${step.quiet ? 'quiet' : ''}" data-ext-action="${esc(step.kind)}" data-cx-id="${esc(item.id)}">${esc(step.label)}</button>`).join('');
+    const buttons = [...steps(item), ...downloads(item)].map(step => `<button type="button" class="${step.quiet ? 'quiet' : ''}" data-ext-action="${esc(step.kind)}" data-cx-id="${esc(item.id)}"${step.version ? ` data-ext-version="${esc(step.version)}"` : ''}>${esc(step.label)}</button>`).join('');
     const title = `<h3>${esc(item.name)}</h3><span class="cx-status" data-tone="${shown.tone}">${esc(shown.label)}</span>`;
-    const body = `${told ? `<p class="cx-note" data-tone="${told.tone}">${noteHtml(told.text, esc)}</p>` : ''}${form(item, esc)}${agentRows(item, esc)}`;
+    const result = item.result ? `<p class="cx-note" data-tone="info" data-ext-result>${noteHtml(item.result, esc)}</p>` : '';
+    const body = `${told ? `<p class="cx-note" data-tone="${told.tone}">${noteHtml(told.text, esc)}</p>` : ''}${result}${form(item, esc)}${removal(item, esc)}${agentRows(item, esc)}`;
     const search = [item.name, item.summary, shown.label].join(' ').toLowerCase();
     if (rows) return `<div class="cx-row" data-cx-card="${esc(item.id)}" data-cx-contract data-tone="${shown.tone}" data-search="${esc(search)}">
       <span class="cx-icon">${icon}</span>
@@ -76,6 +96,6 @@ const extensionCards = (() => {
       <div class="cx-card-head"><span class="cx-icon">${icon}</span><div class="cx-card-title">${title}</div>${buttons}</div>
       <p class="cx-does">${esc(item.summary)}</p>${body}</article>`;
   }
-  return {STATUS, NOT_YET, status, steps, note, noteHtml, switches, path, request, render};
+  return {STATUS, NOT_YET, REMOVE_AFTER, status, steps, downloads, note, noteHtml, switches, path, request, render};
 })();
 if (typeof module !== 'undefined') module.exports = extensionCards;

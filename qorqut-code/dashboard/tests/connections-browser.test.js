@@ -307,3 +307,61 @@ test('a contract extension gets the generic card: the key is posted once, the fo
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   } finally { await browser.close(); }
 });
+
+test('the owner installs and removes a downloadable extension on its card, and sees the result after the restart', {skip: !available && 'Playwright Chromium unavailable'}, async () => {
+  const browser = await chromium.launch({headless: true});
+  try {
+    const page = await browser.newPage({viewport: {width: 1120, height: 900}});
+    await page.setContent('<main id="panel"></main>');
+    await page.addStyleTag({path: path.join(__dirname, '../css/connectors.css')});
+    await page.evaluate(() => {
+      window.esc = value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
+      window.coreData = value => value;
+      const base = {id: 'network', kind: 'contract', name: 'Network', summary: 'Network tools.', version: '1.0.0', delivery: 'downloadable',
+        note: null, setup: null, agents: [], result: null, restarting: false};
+      window.network = {...base, status: 'not_installed', offers: [{action: 'install', version: '1.0.0'}]};
+      window.sent = [];
+      window.down = 0;   // reads that fail while Qorqbot restarts
+      window.api = async url => {
+        if (url === '/root/browser-setup') return {kind: 'built_in', tool_installed: true, chrome_installed: true, ready: true, state: 'healthy', explanation: '', agents: []};
+        if (url === '/root/browser-accounts') return {sites: []};
+        if (window.down > 0) { window.down -= 1; throw new Error('Qorqbot is restarting'); }
+        return {platform: 'linux', clients: [], connectors: [window.network]};
+      };
+      window.post = async (url, body) => {
+        window.sent.push({url, body});
+        if (window.gate) await window.gate;
+        const waiting = {...window.network, offers: [], result: 'Qorqbot restarts to apply this change.', restarting: true};
+        window.down = 1;
+        window.network = body.action === 'install'
+          ? {...base, status: 'not_set_up', setup: {kind: 'none', fields: []}, offers: [{action: 'remove'}], result: 'Installed Network 1.0.0. Qorqbot restarted.'}
+          : {...base, status: 'not_installed', offers: [{action: 'install', version: '1.0.0'}],
+             result: body.delete_data ? 'Removed Network. Its private data was deleted.' : 'Removed Network.'};
+        return waiting;
+      };
+    });
+    await page.addScriptTag({path: path.join(__dirname, '../js/extension-cards.js')});
+    await page.addScriptTag({path: path.join(__dirname, '../js/connectors.js')});
+    await page.evaluate(() => connectorsPanel.mount(document.querySelector('#panel'), {rows: true}));
+    const card = page.locator('[data-cx-card="network"]');
+    await card.locator('.cx-status').getByText('Not installed').waitFor();
+    await card.getByRole('button', {name: 'Install'}).click();
+    await card.getByText('Qorqbot restarts to apply this change.').waitFor();
+    assert.equal(await card.getByRole('button').count(), 0, 'nothing more to click while the change waits');
+    await card.getByText('Installed Network 1.0.0. Qorqbot restarted.').waitFor({timeout: 15000});
+    assert.deepEqual(await page.evaluate(() => window.sent.at(-1)), {url: '/root/connections/network', body: {action: 'install', version: '1.0.0'}});
+    // Remove opens the same two choices as the card for Ordubashy's ask.
+    await card.getByRole('button', {name: 'Remove', exact: true}).click();
+    const choices = card.locator('[data-ext-remove]');
+    await choices.getByText('Qorqbot restarts once. Projects, tables and records it created stay.').waitFor();
+    // Pressing one of the two choices disables both until the answer is back.
+    await page.evaluate(() => { window.gate = new Promise(resolve => { window.answer = resolve; }); });
+    await choices.getByRole('button', {name: 'Remove and delete its data'}).click();
+    await page.waitForFunction(() => window.sent.length === 2);
+    assert.deepEqual(await choices.locator('[data-ext-action]').evaluateAll(buttons => buttons.map(button => button.disabled)), [true, true]);
+    await page.evaluate(() => { window.gate = null; window.answer(); });
+    await card.getByText('Removed Network. Its private data was deleted.').waitFor({timeout: 15000});
+    assert.deepEqual(await page.evaluate(() => window.sent.at(-1)), {url: '/root/connections/network', body: {action: 'remove', delete_data: true}});
+    assert.equal(await page.evaluate(() => window.sent.length), 2);
+  } finally { await browser.close(); }
+});

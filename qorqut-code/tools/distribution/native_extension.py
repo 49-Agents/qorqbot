@@ -4,16 +4,12 @@ from __future__ import annotations
 
 import argparse
 import ast
-import base64
-import csv
-from email.parser import BytesParser
 import fcntl
 import hashlib
 import importlib.util
-import io
 import json
 import os
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 import re
 import stat
 import subprocess
@@ -23,44 +19,28 @@ import zipfile
 
 # WhatsApp is built in (selected by the launcher, see native_launch.select_whatsapp), so no bundle installs it.
 FACTORIES = {name: 'qorqut_' + name + '.extension:create' for name in ('fastmail', 'telegram')}
-LIMIT = 1024 ** 3
 
 
-def canonical_name(name):
-    return re.sub(r'[-_.]+', '-', name).lower()
+def _shared_checks():
+    """The bundle and wheel checks this installer shares with the app, read from the app source beside this file."""
+    here = Path(__file__).absolute().parent
+    for path in (here / 'src/qorqut-code/app/qorqut/bootstrap/extension_bundle.py',  # runtime/extension_install.py
+                 here.parent.parent / 'app/qorqut/bootstrap/extension_bundle.py'):  # tools/distribution in a checkout
+        if path.is_file():
+            spec = importlib.util.spec_from_file_location('qorqut_extension_bundle_checks', path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            return module
+    raise ImportError('The app source with the extension bundle checks is missing')
 
 
-def checksum(path):
-    with Path(path).open('rb') as stream:
-        return hashlib.file_digest(stream, 'sha256').hexdigest()
-
-
-def unique_object(pairs):
-    result = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError('Duplicate JSON key')
-        result[key] = value
-    return result
+_shared = _shared_checks()
+LIMIT, canonical_name, checksum, unique_object = _shared.LIMIT, _shared.canonical_name, _shared.checksum, _shared.unique_object
+plain, relative, inspect_wheel = _shared.plain, _shared.relative, _shared.inspect_wheel
 
 
 def read_json(path):
     return json.loads(Path(path).read_text(), object_pairs_hook=unique_object)
-
-
-def plain(path):
-    path = Path(path).absolute()
-    if '..' in path.parts or any(p.is_symlink() for p in (path, *path.parents)):
-        raise ValueError('Installation paths may not cross symlinks')
-    return path
-
-
-def relative(name):
-    path = PurePosixPath(name)
-    if (not name or '\\' in name or path.is_absolute() or any(p in ('', '.', '..') for p in name.split('/'))
-            or any(ord(c) < 32 for c in name) or len(name) > 4096):
-        raise ValueError('Unsafe archive path')
-    return path
 
 
 def manifest(value):
@@ -96,13 +76,7 @@ def inspect_bundle(archive, expected, destination=None):
             members = tar.getmembers()
             if len(members) > 110 or sum(m.size for m in members) > LIMIT:
                 raise ValueError('Extension bundle exceeds extraction limits')
-            indexed = {}
-            for member in members:
-                name = member.name.rstrip('/') if member.isdir() else member.name
-                relative(name)
-                if name in indexed or not (member.isfile() or member.isdir() and name == 'wheels'):
-                    raise ValueError('Duplicate, linked or special archive member')
-                indexed[name] = member
+            indexed = _shared.index_members(members, directories=('wheels',))
             header = indexed.get('EXTENSION.json')
             if header is None or not header.isfile() or header.size > 65536:
                 raise ValueError('Missing or oversized EXTENSION.json')
@@ -119,86 +93,8 @@ def inspect_bundle(archive, expected, destination=None):
                 if actual != wheel['sha256']:
                     raise ValueError('Wheel checksum mismatch')
             if destination is not None:
-                destination = plain(destination)
-                for name, member in indexed.items():
-                    if member.isdir():
-                        continue
-                    target = destination / name
-                    target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-                    with target.open('xb') as output, tar.extractfile(member) as source:
-                        while chunk := source.read(1024 * 1024):
-                            output.write(chunk)
-                        output.flush()
-                        os.fsync(output.fileno())
+                _shared.extract(tar, indexed, destination)
             return value
-
-
-def inspect_wheel(path):
-    """Validate file identities and every wheel RECORD digest before pip sees it."""
-    path = Path(path)
-    with zipfile.ZipFile(path) as wheel:
-        members = wheel.infolist()
-        if len(members) > 50000 or sum(m.file_size for m in members) > LIMIT:
-            raise ValueError('Wheel exceeds verification limits')
-        names = set()
-        for member in members:
-            name = member.filename.rstrip('/') if member.is_dir() else member.filename
-            relative(name)
-            mode = stat.S_IFMT(member.external_attr >> 16)
-            if name in names or mode not in (0, stat.S_IFREG, stat.S_IFDIR):
-                raise ValueError('Duplicate or linked wheel member')
-            names.add(name)
-            if any(part.endswith('.data') for part in PurePosixPath(name).parts):
-                raise ValueError('Relocated wheel files are not supported in connector bundles')
-        metadata_files = [name for name in names if re.fullmatch(r'[^/]+\.dist-info/METADATA', name)]
-        if len(metadata_files) != 1:
-            raise ValueError('Wheel must have exactly one metadata identity')
-        prefix = metadata_files[0].rsplit('/', 1)[0]
-        record_name = prefix + '/RECORD'
-        if record_name not in names or prefix + '/WHEEL' not in names:
-            raise ValueError('Wheel metadata or RECORD is missing')
-        if wheel.getinfo(metadata_files[0]).file_size > 4 * 1024 * 1024 or wheel.getinfo(record_name).file_size > 16 * 1024 * 1024:
-            raise ValueError('Oversized wheel metadata')
-        metadata_raw = wheel.read(metadata_files[0])
-        scripts = {}
-        if prefix + '/entry_points.txt' in names:
-            import configparser
-            entries = configparser.ConfigParser()
-            entries.optionxform = str
-            entries.read_string(wheel.read(prefix + '/entry_points.txt').decode())
-            for section in ('console_scripts', 'gui_scripts'):
-                for name, value in entries.items(section) if entries.has_section(section) else ():
-                    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}', name) or name in scripts:
-                        raise ValueError('Unsafe or duplicate wheel launcher name')
-                    scripts[name] = value
-        metadata = BytesParser().parsebytes(metadata_raw)
-        name, version = metadata.get('Name'), metadata.get('Version')
-        if not name or not version or len(metadata.get_all('Name', [])) != 1 or len(metadata.get_all('Version', [])) != 1:
-            raise ValueError('Invalid wheel name/version')
-        filename_parts = path.name[:-4].split('-')
-        if len(filename_parts) not in (5, 6) or canonical_name(filename_parts[0]) != canonical_name(name) or filename_parts[1] != version:
-            raise ValueError('Wheel filename and metadata identity differ')
-        if prefix != filename_parts[0] + '-' + version + '.dist-info':
-            raise ValueError('Wheel metadata directory identity differs')
-        entries = {}
-        for row in csv.reader(io.StringIO(wheel.read(record_name).decode())):
-            if len(row) != 3 or row[0] in entries:
-                raise ValueError('Invalid or duplicate wheel RECORD row')
-            relative(row[0]); entries[row[0]] = row[1:]
-        file_names = {m.filename for m in members if not m.is_dir()}
-        if set(entries) != file_names:
-            raise ValueError('Wheel RECORD does not cover its exact files')
-        for name_in_wheel, (hashed, size) in entries.items():
-            if name_in_wheel == record_name:
-                if hashed or size:
-                    raise ValueError('Wheel RECORD cannot hash itself')
-                continue
-            raw = wheel.read(name_in_wheel)
-            digest = 'sha256=' + base64.urlsafe_b64encode(hashlib.sha256(raw).digest()).decode().rstrip('=')
-            if hashed != digest or size != str(len(raw)):
-                raise ValueError('Wheel RECORD checksum mismatch')
-        return {'filename':path.name, 'name':canonical_name(name), 'version':version,
-                'files':sorted(file_names), 'scripts':scripts, 'requires':metadata.get_all('Requires-Dist', []), 'requires_python':metadata.get('Requires-Python')}
 
 
 def inspect_resources(path, extension_id):

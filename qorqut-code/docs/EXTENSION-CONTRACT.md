@@ -32,6 +32,9 @@ on the installation.
 
 - The owner decides for each extension which kind it is. There is no rule that decides it.
 - After a downloadable extension is installed it behaves exactly like a built-in one.
+- A downloadable extension is listed in the index published next to the app
+  ([section 11](#11-what-qorqbot-provides-for-every-extension)). Ordubashy asks the owner on a card, or the owner clicks
+  Install, Update or Remove on its Connections card.
 - Qorqbot restarts only when code is added, replaced or taken out. Switching on or off restarts one agent's session,
   not Qorqbot ([section 3](#3-the-life-of-an-extension)).
 
@@ -63,22 +66,45 @@ has none of them. An extension is on for an agent only while its status is `read
   the agent is told in one line what changed. Qorqbot itself keeps running and no other agent is touched. An agent with
   no open session gets the change when its session next opens.
 
+**Install, update and remove** exist for downloadable extensions only. An update is an install of an extension that is
+already there, when the index has a higher version.
+
+1. The change is checked. An install or update needs the extension in the index, in a version that fits this computer
+   and this version of Qorqbot, with every extension it requires installed. A removal is refused while another installed
+   extension requires this one. Only one change waits at a time.
+2. For an install or update the bundle is downloaded, compared with the checksum and size the index gives, checked and
+   unpacked. A failure up to here changes nothing and is said in one sentence.
+3. Qorqbot restarts once. At start, before it looks for extensions, it moves the folder that is replaced or removed to a
+   backup and the new folder in. A change that fails puts the old folder back.
+4. The result is one sentence. For a change Ordubashy asked for it is written on the approval card, which reaches his
+   inbox. It also shows on the extension's Connections card.
+
+- An update overwrites local changes to the plugin part.
+- A removal keeps the private part unless the owner chooses to delete it. Projects, tables and records the extension
+  created always stay.
+- After an app update, an installed extension that no longer fits the new version stays installed, is not loaded and
+  shows as `unsupported`. Its data stays.
+
 ## 4. Who may do what
 
 | Action | Owner in Settings | Ordubashy, on the owner's request | Learning Applier | Other agents |
 | --- | --- | --- | --- | --- |
 | See the list and each status | Yes | Yes | Yes | No |
-| Install a downloadable extension | Yes | Yes, after an approval card | No | No |
+| Install or update a downloadable extension | Yes, on its card | Yes, after an approval card | No | No |
 | Start set-up | Yes | Yes; the owner completes it on the card | No | No |
 | Give a key, sign in, scan a code | Yes, on the card | Never | Never | Never |
 | Switch on or off for an agent | Yes | Yes, no card | No | No |
-| Remove a downloadable extension | Yes | Yes, after an approval card | No | No |
+| Remove a downloadable extension | Yes, on its card | Yes, after an approval card | No | No |
 | Change the plugin | No | Never | Proposes; applied after the owner approves | File observations |
 | Change the code | No | Never | Never | Never |
 
 - Ordubashy operates extensions. He never edits one.
 - Connecting an account always needs the owner's own step on the Connections card (typing a key, signing in, scanning a
   code). That step is the approval; there is no second card.
+- The approval card for an install or update is short: name, version, the one-line summary, and that Qorqbot restarts
+  once. The card for a removal has two buttons: "Remove", and "Remove and delete its data".
+- The owner's own click on Install, Update or Remove on the Connections card makes no approval card. Remove offers the
+  same two choices there.
 - A secret goes from the owner's card straight to the private part. It never passes through an agent, a tool result, a
   log line or Global Settings.
 
@@ -344,19 +370,22 @@ An extension author writes none of the following.
 | Piece | What it does |
 | --- | --- |
 | `extensions_list` | Every extension with kind, version, status, note and which agents it is on for |
-| `extensions_install`, `extensions_remove` | For downloadable extensions: approval card, then Qorqbot stops, installs or removes, and starts again |
+| `extensions_install`, `extensions_remove` | For downloadable extensions: Ordubashy's ask, held for the owner on an approval card. After approval Qorqbot downloads the bundle, restarts once and applies the change |
+| Install, update and removal | The bundle check, the staged change, one restart for each change, a backup of the folder that is replaced or removed, and the result in one sentence |
 | `extensions_setup` | Status, start, cancel. Start opens the set-up step on the owner's Connections card |
 | `extensions_switch` | On or off for an agent |
 | The Connections card | One card per extension in Settings > Connections: name, summary, status, the set-up step, on and off |
 | Private storage | One private folder per extension and helpers to read and write it |
-| The index of downloadable extensions | Published with each app release: id, version, app versions, bundle address, checksum |
+| The index of downloadable extensions | One file next to the app, written for each app release: for each extension its id, version, name, summary, app versions, platforms, set-up kind and required extensions, and for each bundle its platform, address, checksum and size |
 | Hooks and nudges | Reads every switched-on extension's `hooks.yaml` and delivers the texts at the five points |
 | Record types | Reads every installed extension's `records.yaml` |
 | The checker | [Section 12](#12-the-checker) |
 
 `extensions_setup` is Ordubashy's: the owner sets up on the Connections card. `extensions_list` and `extensions_switch`
-are Ordubashy's and the owner's, and the Learning Applier may read the list. None of them reaches an agent while no
-extension is installed. The list and the card show extensions under this contract only.
+are Ordubashy's and the owner's, and the Learning Applier may read the list. `extensions_install` and
+`extensions_remove` are Ordubashy's alone and are always held for the owner's approval; the owner installs, updates and
+removes on the Connections card. None of the five reaches an agent while no extension is installed and the index offers
+none. The list and the card show extensions under this contract only, with the index entries that are not installed.
 
 ## 12. The checker
 
@@ -364,9 +393,22 @@ One checker reads an extension folder and refuses it when a rule is broken. It r
 the installer.
 
 What exists of it today is `qorqut/extension_contract.py`. It reads files only and checks rules 1 to 4, 6 and 7, and the
-workflow files. Rules 5 and 8 to 13 need the loaded code or a built bundle and are to build. Qorqbot runs it at start on
-every extension folder it finds: a folder that breaks a rule is not loaded and shows in the list as `needs_attention`
-with the broken rule as its note. It is not yet run by CI or the bundle builder. To check a folder by hand:
+workflow files. Qorqbot runs it at start on every extension folder it finds: a folder that breaks a rule is not loaded
+and shows in the list as `needs_attention` with the broken rule as its note. The bundle builder runs it on the folder,
+and Qorqbot runs it again on a downloaded bundle before the change is staged and on the staged folder before it is moved
+in. It is not yet run by CI.
+
+Of the rules that need the loaded code or a built bundle:
+
+- Rule 5: the start checks that every tool name starts with `<id>_`. That each tool is covered by a skill's `read_for`
+  is not checked.
+- Rule 8: checked at start, when the code part is loaded.
+- Rule 10: a code part that declares tables is refused at start, whatever their names
+  ([section 13](#13-what-exists-and-what-is-to-build)).
+- Rule 13: the bundle builder leaves `tests` folders out, and a bundle that holds one is refused.
+- Rules 9, 11 and 12 are not checked.
+
+To check a folder by hand:
 
 ```
 python -m qorqut.extension_contract <folder> [<folder> ...]
@@ -403,23 +445,23 @@ files hold, it reports a problem and never fails.
 | Code loaded at start through the `Extension` declaration | Exists |
 | Built-in and dormant, set up by asking Ordubashy | Exists for WhatsApp only, written for it alone |
 | Installer for a stopped installation (adds code, tables and the plugin text) | Exists; accepts two extensions by name, terminal only |
-| Removing an extension | To build |
-| App update on an installation with a downloaded extension | To build; refused today |
+| Removing an extension | Exists for a downloadable extension under this contract. Not for today's extensions |
+| App update on an installation with a downloaded extension | Goes ahead for an extension under this contract: one that no longer fits shows as `unsupported` and keeps its folder and data. Still refused for the two of today's extensions that are installed from a bundle file |
 | The agentic layer's `plugins` area, with history | Exists |
-| Finding extension folders at start, with a status for each | Exists for folders that hold an `extension.yaml`; `not_installed` needs the index |
+| Finding extension folders at start, with a status for each | Exists for folders that hold an `extension.yaml`. Index entries with no folder show as `not_installed`, or `unsupported` |
 | The plugin part copied into the agentic layer, kept in its history | Exists |
 | On and off per agent, with the session restart | Exists; switched by the owner or by Ordubashy |
 | The code part of an extension loaded from its folder | Exists for tools, services and the set-up handler. A code part that declares database tables, or any other part of the declaration, is refused until that is built |
 | Skill discovery line and the skill-read gate | Exist |
 | Approved Learning Applier proposals being applied | To build; nothing is applied today |
-| The manifest and the generated files | The manifest is read and checked. The agentic-layer package manifest is generated. The card and the bundle are to build |
-| The four `extensions_*` tools | `extensions_list`, `extensions_setup` and `extensions_switch` exist; install and remove are to build |
+| The manifest and the generated files | The manifest is read and checked. The agentic-layer package manifest is generated, the Connections card is drawn from it, and the bundle and the index entry are built from the folder |
+| The `extensions_*` tools | Exist: list, set-up, switch, install and remove. The owner's Install, Update and Remove are on the Connections card |
 | The Connections card drawn from the manifest | Exists for the set-up kinds `none` and `key`; `sign-in` and `pairing` are to build. Three of today's extensions are still written into the screen by hand |
 | One private folder per extension | Exists for extensions under this contract; each of today's extensions picks its own files |
 | Hooks and nudges list | To build; about thirty separately written points today |
 | Record types | To build; the four Task types are a fixed list in the backend and the dashboard |
-| The index of downloadable extensions | To build |
-| The checker | Exists in part ([section 12](#12-the-checker)); Qorqbot runs it at start |
+| The index of downloadable extensions | Qorqbot reads the file next to the app, and a tool writes it from the extension folders and their bundles. No release step runs that tool yet, so no release carries an index |
+| The checker | Exists in part ([section 12](#12-the-checker)); Qorqbot runs it at start, at a bundle build and on a downloaded bundle |
 
 ## 14. Where today's extensions differ
 
@@ -463,6 +505,15 @@ All dates are 26 November 2026.
     `summary`, and a shortest `every`; they are removed. Limits that Qorqbot already applies are named as such.
 14. Bringing today's extensions under the contract is a separate job.
 15. An agent created later, of a role the extension is on for by default, has the extension from its first session.
+16. The approval card for an install or update is short: name, version, the one-line summary, and that Qorqbot restarts
+    once.
+17. The approval card for a removal has two buttons: "Remove", and "Remove and delete its data".
+18. An app update goes ahead when an installed extension no longer fits the new version. That extension stays installed
+    and shows as `unsupported`.
+
+**Built and put to the owner, who has not answered yet**
+
+1. The owner's own click on Install, Update or Remove on the Connections card makes no approval card.
 
 **Written into the draft and shown to the owner, who did not object**
 

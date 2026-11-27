@@ -187,7 +187,7 @@ const connectorsPanel = (() => {
       </section>`;
     container.appendChild(root);
     let view = null, browserView = null, browserTimer = 0, browserChecks = 0;
-    let accountsView = null, accountsTimer = 0, waTimer = 0, waVersion = 0;
+    let accountsView = null, accountsTimer = 0, waTimer = 0, waVersion = 0, restartTimer = 0;
     const SIGN_IN_STATUS = {true: ['Session saved', 'ok'], false: ['No session', 'warn'], null: ['Status unavailable while the browser is off', '']};
     function paintAccounts() {
       const section = root.querySelector('[data-cx-accounts]'), rows = accountsView?.sites;
@@ -283,6 +283,18 @@ const connectorsPanel = (() => {
       options.onChange?.(view);
       root.dispatchEvent(new CustomEvent('connectors-painted', {bubbles: true}));
       watchWhatsApp();
+      watchRestart();
+    }
+    // While an extension's change waits for Qorqbot's restart, read the list again every few seconds; a read that
+    // fails while Qorqbot restarts is tried again, and the card shows the result once Qorqbot is back.
+    function watchRestart() {
+      clearTimeout(restartTimer);
+      if (!view?.connectors.some(item => item.kind === 'contract' && item.restarting) || !live()) return;
+      restartTimer = setTimeout(async () => {
+        if (!live()) return;
+        try { view = coreData(await api('/root/connectors')); if (live()) { error(''); paint(); } }
+        catch { watchRestart(); }
+      }, 3000);
     }
     // WhatsApp's own setup state replaces the card's entry: {state, note, qr, send_ready} from its route.
     function setWhatsApp(setup) {
@@ -330,6 +342,8 @@ const connectorsPanel = (() => {
     root.addEventListener('click', async event => {
       const fieldsForm = event.target.closest('[data-ext-form]');
       if (fieldsForm && event.target.closest('[data-ext-form-cancel]')) { fieldsForm.reset(); fieldsForm.hidden = true; return; }
+      const choices = event.target.closest('[data-ext-remove]');
+      if (choices && event.target.closest('[data-ext-remove-cancel]')) { choices.hidden = true; return; }
       const extAction = event.target.closest('[data-ext-action]');
       if (extAction) {
         const id = extAction.dataset.cxId;
@@ -339,9 +353,16 @@ const connectorsPanel = (() => {
           if (!form.hidden) form.querySelector('input')?.focus();
           return;
         }
-        extAction.disabled = true;
-        try { await connection(id, extensionCards.request[extAction.dataset.extAction]()); }
-        catch (failure) { if (live()) { error(failure.message || 'The extension could not be changed.'); extAction.disabled = false; } }
+        if (extAction.dataset.extAction === 'remove-choose') {
+          const panel = root.querySelector(`[data-ext-remove="${CSS.escape(id)}"]`);
+          panel.hidden = !panel.hidden;
+          return;
+        }
+        // The two removal choices are one question: pressing either disables both until the answer is back.
+        const pressed = extAction.closest('[data-ext-remove]') ? [...extAction.closest('[data-ext-remove]').querySelectorAll('[data-ext-action]')] : [extAction];
+        pressed.forEach(button => { button.disabled = true; });
+        try { await connection(id, extensionCards.request[extAction.dataset.extAction](extAction.dataset.extVersion)); }
+        catch (failure) { if (live()) { error(failure.message || 'The extension could not be changed.'); pressed.forEach(button => { button.disabled = false; }); } }
         return;
       }
       const siteAction = event.target.closest('[data-cx-site-action]');
@@ -422,7 +443,7 @@ const connectorsPanel = (() => {
     document.addEventListener('visibilitychange', focus);
     const watch = new MutationObserver(() => {
       if (live()) return;
-      clearTimeout(browserTimer); clearTimeout(accountsTimer); clearTimeout(waTimer); watch.disconnect();
+      clearTimeout(browserTimer); clearTimeout(accountsTimer); clearTimeout(waTimer); clearTimeout(restartTimer); watch.disconnect();
       window.removeEventListener('focus', focus); document.removeEventListener('visibilitychange', focus);
     });
     watch.observe(container.ownerDocument.body, {childList: true, subtree: true});
