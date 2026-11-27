@@ -197,16 +197,6 @@
       "permission_bits": 1,
       "process_control": 4
     },
-    "qorqut-code/qorqut-operations/qorqut_operations/storage/executor.py": {
-      "file_lock": 1,
-      "safe_file_access": 1,
-      "system_module": 1
-    },
-    "qorqut-code/qorqut-operations/qorqut_operations/storage/files.py": {
-      "file_lock": 1,
-      "safe_file_access": 1,
-      "system_module": 1
-    },
     "qorqut-code/tools/bench-toolcalls.py": {
       "permission_bits": 1
     },
