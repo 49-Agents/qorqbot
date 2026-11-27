@@ -12,7 +12,6 @@ it again. Exit codes: 0 stopped on request, 1 failed, 75 already supervised, 78 
 from __future__ import annotations
 
 import argparse
-import fcntl
 import hashlib
 import json
 import os
@@ -30,6 +29,11 @@ import uuid
 from urllib.request import ProxyHandler, build_opener
 
 from qorqut.bootstrap.client import path_has_symlink, write_json_private
+from qorqut_system import locks as _locks
+from qorqut_system import platform as _platform
+from qorqut_system import private_files as _private_files
+from qorqut_system import processes as _processes
+
 from .control import owns_listener, process_identity
 
 EXIT_STOPPED, EXIT_FAILED, EXIT_BUSY, EXIT_CONFIG = 0, 1, 75, 78
@@ -37,7 +41,7 @@ START_TIMEOUT = 40
 SOCKET_PATH_LIMIT = 104
 VERSION_TIMEOUT = 10             # Seconds Chrome gets to print its version before the browser starts without a user agent of its own.
 # What a visible Chrome puts in its user agent for the computer it runs on. It is the same for every processor.
-USER_AGENT_PLATFORMS = {"linux": "X11; Linux x86_64", "darwin": "Macintosh; Intel Mac OS X 10_15_7"}
+USER_AGENT_PLATFORMS = {"linux": "X11; Linux x86_64", "mac": "Macintosh; Intel Mac OS X 10_15_7"}
 
 
 def load_meta(state: Path, recorded: Path | None = None) -> dict:
@@ -50,7 +54,7 @@ def load_meta(state: Path, recorded: Path | None = None) -> dict:
     if recorded is not None and (not recorded.is_absolute() or recorded.name != state.name):
         raise ValueError("recorded state directory")
     info = state.lstat()
-    if info.st_uid != os.geteuid() or info.st_mode & 0o077:
+    if not _private_files.is_private_and_mine(info):
         raise ValueError("state directory is not private")
     meta = json.loads((state / "meta.json").read_bytes()[:16384])
     managed = meta["managed"]
@@ -92,12 +96,13 @@ def normal_user_agent(chrome: str, environment: dict) -> str | None:
     the program that is about to start (``--version`` prints it and opens no profile), so it is right after every Chrome
     update. Chrome answers less about its version to a page that asks for the details while this is set; see
     ``docs/BROWSER-MANAGEMENT.md``."""
-    platform = USER_AGENT_PLATFORMS.get(sys.platform)
+    platform = USER_AGENT_PLATFORMS.get(_platform.family())
     if platform is None:
         return None
     try:
-        child = subprocess.Popen([chrome, "--version"], env=environment, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                 stderr=subprocess.DEVNULL, text=True, errors="replace", start_new_session=True)
+        child = _processes.start_in_background([chrome, "--version"], env=environment, stdin=subprocess.DEVNULL,
+                                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+                                               errors="replace")
     except OSError:
         return None
     try:
@@ -105,7 +110,7 @@ def normal_user_agent(chrome: str, environment: dict) -> str | None:
     except subprocess.TimeoutExpired:
         answer = ""
         try:
-            os.killpg(child.pid, signal.SIGKILL)       # the group it made for itself, so nothing it started is left behind
+            _processes.kill_process_group(child.pid)  # the group it made for itself, so nothing it starts is left behind
         except (ProcessLookupError, PermissionError):
             pass
         child.wait()
@@ -116,7 +121,7 @@ def normal_user_agent(chrome: str, environment: dict) -> str | None:
 
 def profile_flags(managed: dict) -> list[str]:
     """The flags that decide which profile and cookie store the headless browser reads."""
-    keychain = ["--use-mock-keychain"] if sys.platform == "darwin" else []
+    keychain = ["--use-mock-keychain"] if _platform.family() == "mac" else []
     return ["--no-first-run", "--no-default-browser-check", "--password-store=basic", *keychain,
             f"--user-data-dir={managed['profile']}", "--disable-sync", "--disable-extensions"]
 
@@ -132,9 +137,9 @@ def short_temporary(state: Path) -> Path:
 
     The user's runtime directory is private by construction. The shared temporary directory is the fallback, and there the
     directory must be ours alone: anything else is refused, never adopted."""
-    runtime = Path(f"/run/user/{os.getuid()}")
+    runtime = Path("/run/user") / _private_files.user_key()
     try:
-        private = not runtime.is_symlink() and runtime.is_dir() and runtime.stat().st_uid == os.geteuid()
+        private = not runtime.is_symlink() and runtime.is_dir() and _private_files.is_mine(runtime.stat())
     except OSError:
         private = False
     directory = ((runtime if private else Path(tempfile.gettempdir()))
@@ -144,7 +149,7 @@ def short_temporary(state: Path) -> Path:
     except FileExistsError:
         pass
     info = directory.lstat()
-    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077 or not socket_fits(directory):
+    if not stat.S_ISDIR(info.st_mode) or not _private_files.is_private_and_mine(info) or not socket_fits(directory):
         raise RuntimeError("temporary_directory_unsafe")
     return directory
 
@@ -223,7 +228,7 @@ def stop_child(child: subprocess.Popen, port: int | None = None) -> None:
     except subprocess.TimeoutExpired:
         pass
     try:
-        os.killpg(child.pid, signal.SIGKILL)       # the group Chrome created for itself at launch; never found by port or name
+        _processes.kill_process_group(child.pid)  # the group Chrome created for itself at launch; never found by port or name
     except ProcessLookupError:
         pass
     child.wait(timeout=5)
@@ -255,11 +260,11 @@ def serve(state: Path, stop: threading.Event, recorded: Path | None = None) -> i
         print("Browser supervisor: invalid ownership record; nothing was started.", file=sys.stderr)
         return EXIT_CONFIG
     managed = meta["managed"]
-    descriptor = os.open(state / "supervisor.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    held = _locks.open_lock(state, "supervisor.lock")
     try:
-        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        held.acquire(wait=False)
     except BlockingIOError:
-        os.close(descriptor)
+        held.close()
         return EXIT_BUSY
     record = {"schema_version": 1, "agent_id": meta["agent_id"], "port": managed["port"], "state": "starting",
               "supervisor_pid": os.getpid(), "supervisor_identity": process_identity(os.getpid())}
@@ -276,7 +281,7 @@ def serve(state: Path, stop: threading.Event, recorded: Path | None = None) -> i
             raise RuntimeError("profile_path_unsafe")
         profile.mkdir(mode=0o700, exist_ok=True)
         info = profile.lstat()
-        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid():
+        if not stat.S_ISDIR(info.st_mode) or not _private_files.is_mine(info):
             raise RuntimeError("profile_not_owned")
         if not port_free(managed["port"]):
             raise RuntimeError("port_in_use")
@@ -285,8 +290,9 @@ def serve(state: Path, stop: threading.Event, recorded: Path | None = None) -> i
         if user_agent is None:
             print("Browser supervisor: this Chrome did not say its version, so the browser names itself HeadlessChrome and "
                   "some websites will refuse it.", file=sys.stderr)
-        child = subprocess.Popen(chrome_command(meta, user_agent), cwd=state, env=environment, stdin=subprocess.DEVNULL,
-                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        child = _processes.start_in_background(chrome_command(meta, user_agent), cwd=state, env=environment,
+                                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                               stderr=subprocess.DEVNULL)
         publish(chrome_pid=child.pid, chrome_identity=process_identity(child.pid))
         deadline = time.monotonic() + START_TIMEOUT
         while True:
@@ -324,7 +330,7 @@ def serve(state: Path, stop: threading.Event, recorded: Path | None = None) -> i
                 publish(state="stopped")
             except OSError:
                 pass
-        os.close(descriptor)
+        held.close()
 
 
 def main(argv=None) -> int:
@@ -335,7 +341,7 @@ def main(argv=None) -> int:
     stop = threading.Event()
     for number in (signal.SIGTERM, signal.SIGINT):
         signal.signal(number, lambda *_: stop.set())
-    signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    _processes.ignore_hangup()
     return serve(arguments.state, stop, arguments.recorded_state)
 
 

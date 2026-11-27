@@ -7,9 +7,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import logging
-from pathlib import Path
 import threading
-import sys
 import uuid
 
 from qorqut.agents import roles
@@ -23,6 +21,7 @@ from qorqut_operations.discussion import ThreadItem, can_follow, set_follow
 from qorqut_operations.application.plans import PAGE, UUID, PlanBuilder, apply_records, page, schema, timestamp, utc_clock
 from qorqut_operations.project_lifecycle import active_project_ids
 from qorqut_operations.tasks.scope import task_context, task_namespace
+from qorqut_system import processes as _processes
 
 STALE_SECONDS = 180
 # A source the reader may not read: its details are withheld, never an error for the whole answer.
@@ -254,12 +253,7 @@ class AgentActivity:
                 'FROM agent_activity s JOIN agent_profiles a ON a.agent_id=s.agent_id '
                 'LEFT JOIN agent_current_work w ON w.agent_id=s.agent_id '
                 "WHERE a.status='active'").fetchall()
-        if sys.platform == 'darwin':
-            from qorqut import process_info
-            boot=process_info.boot_id();namespace=process_info.namespace_id()
-        else:
-            boot=Path('/proc/sys/kernel/random/boot_id').read_text().strip()
-            namespace=str(Path('/proc/self/ns/pid').readlink())
+        boot=_processes.boot_id_plain();namespace=_processes.namespace_id()
         observations=[]
         genuine_tools=[]
         namespace_pids=None
@@ -334,20 +328,7 @@ class AgentActivity:
 
     @staticmethod
     def namespace_pids():
-        if sys.platform == 'darwin':
-            return {}  # A foreign namespace is not attestable from this native macOS host.
-        found={}
-        for process in Path('/proc').iterdir():
-            if not process.name.isdecimal(): continue
-            try:
-                namespace=str((process/'ns/pid').readlink())
-                for line in (process/'status').read_text().splitlines():
-                    if line.startswith('NSpid:'):
-                        found[(namespace,line.split()[-1])]=process.name
-                        break
-            except OSError:
-                continue
-        return found
+        return _processes.namespace_pids()  # A foreign namespace is not attestable from this native macOS host.
 
     def worker_subject(self, ctx, args, uow):
         """The worker whose single assignment this writes: the target a manager names, or the calling worker itself.

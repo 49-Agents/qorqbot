@@ -21,18 +21,15 @@ Chrome for Testing does not update itself: the version changes only when ``VERSI
 from __future__ import annotations
 
 from contextlib import contextmanager
-import fcntl
 import hashlib
 from http.client import HTTPException
 import json
 import logging
 import os
 from pathlib import Path, PurePosixPath
-import platform as host_platform
 import posixpath
 import re
 import shutil
-import signal
 import stat
 import subprocess
 import sys
@@ -43,6 +40,10 @@ import zipfile
 import zlib
 
 from qorqut_operations.contracts import DomainError
+from qorqut_system import locks as _locks
+from qorqut_system import platform as _platform
+from qorqut_system import private_files as _private_files
+from qorqut_system import processes as _processes
 
 logger = logging.getLogger(__name__)
 
@@ -87,14 +88,14 @@ _RUNS = {}
 _RUNS_LOCK = threading.Lock()
 
 
-def platform_key(system=None, machine=None):
+def platform_key(family=None, machine=None):
     """The Chrome for Testing platform of this computer, or None where Qorqbot pins no build."""
-    system, machine = system or host_platform.system(), (machine or host_platform.machine()).lower()
-    if system == "Linux" and machine in ("x86_64", "amd64"):
+    family, machine = family or _platform.family(), (machine or _platform.machine()).lower()
+    if family == "linux" and machine in ("x86_64", "amd64"):
         return "linux64"
-    if system == "Darwin" and machine in ("arm64", "aarch64"):
+    if family == "mac" and machine in ("arm64", "aarch64"):
         return "mac-arm64"
-    if system == "Darwin" and machine in ("x86_64", "amd64"):
+    if family == "mac" and machine in ("x86_64", "amd64"):
         return "mac-x64"
     return None
 
@@ -124,7 +125,7 @@ def _marker(directory, platform):
         info = (directory / program(platform)).stat()
         if (marker["schema_version"] == 1 and marker["platform"] == platform and isinstance(marker["version"], str)
                 and isinstance(marker["archive_sha256"], str) and stat.S_ISREG(info.st_mode)
-                and info.st_mode & 0o100 and info.st_size == marker["program_size"]):
+                and _private_files.mode_of(info, mask=0o100) and info.st_size == marker["program_size"]):
             return marker
     except (OSError, ValueError, KeyError, TypeError):
         pass
@@ -138,7 +139,7 @@ def _pinned(marker, platform):
 def _selected(root):
     """The name of the build ``current`` points at, or None. Only a plain folder name beside the link counts."""
     try:
-        name = os.readlink(root / CURRENT)
+        name = _private_files.read_link(root / CURRENT)
     except OSError:
         return None
     return name if name and "/" not in name and not name.startswith(".") else None
@@ -284,16 +285,16 @@ def extract(archive, destination, top):
                     link = package.read(member).decode()
                     if not _link_is_safe("/".join(parts), link, top):
                         raise _unsafe(f"link {member.filename} -> {link}")
-                    os.symlink(link, target)
+                    _private_files.make_link(link, target)
                 elif stat.S_ISREG(mode) or not stat.S_IFMT(mode):
-                    descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+                    descriptor = _private_files.create_file(destination, os.path.relpath(target, destination))
                     with package.open(member) as source, os.fdopen(descriptor, "wb") as output:
                         while chunk := source.read(1 << 20):
                             written += len(chunk)
                             if written > LIMITS["unpacked"]:
                                 raise _unsafe("it unpacks to more than the allowed size")
                             output.write(chunk)
-                    os.chmod(target, 0o755 if mode & 0o111 else 0o644)
+                    _private_files.set_private(target, mode=0o755 if mode & 0o111 else 0o644)
                 else:
                     raise _unsafe("unsupported entry type in " + member.filename)
     except (zipfile.BadZipFile, zlib.error, EOFError, UnicodeDecodeError, NotImplementedError, RuntimeError, OSError) as error:
@@ -358,16 +359,16 @@ def start_check(binary, work):
         work.mkdir(mode=0o700)
         command = [str(binary), "--headless=new", *agent_supervisor.profile_flags({"profile": str(work / "profile")}),
                    "--disable-background-networking", "--disable-3d-apis", "--dump-dom", "about:blank"]
-        child = subprocess.Popen(command, cwd=work, env=agent_supervisor.chrome_environment(work), stdin=subprocess.DEVNULL,
-                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors="replace",
-                                 start_new_session=True)
+        child = _processes.start_in_background(command, cwd=work, env=agent_supervisor.chrome_environment(work),
+                                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                               stderr=subprocess.PIPE, text=True, errors="replace")
         try:
             output, errors = child.communicate(timeout=CHECK_TIMEOUT)
         except subprocess.TimeoutExpired:
             output, errors = "", f"no page within {CHECK_TIMEOUT} seconds"
         finally:
             try:
-                os.killpg(child.pid, signal.SIGKILL)       # the group this Chrome created for itself; helpers included
+                _processes.kill_process_group(child.pid)  # the group this Chrome created for itself; helpers included
             except (ProcessLookupError, PermissionError):
                 pass
             child.wait()
@@ -391,15 +392,18 @@ def start_check(binary, work):
 @contextmanager
 def _install_lock(root):
     """One download and install at a time for this runtime folder, across processes."""
-    descriptor = os.open(root / LOCK, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    handle = _locks.open_lock(root, LOCK)
     try:
         try:
-            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            handle.acquire(wait=False)
         except BlockingIOError:
             raise DomainError("chrome_install_busy", "Chrome is already being installed") from None
-        yield
+        try:
+            yield
+        finally:
+            handle.release()
     finally:
-        os.close(descriptor)
+        handle.close()
 
 
 def _select(root, name):
@@ -407,7 +411,7 @@ def _select(root, name):
     temporary = root / f".{CURRENT}-{os.getpid()}"
     try:
         temporary.unlink(missing_ok=True)
-        os.symlink(name, temporary)
+        _private_files.make_link(name, temporary)
         os.replace(temporary, root / CURRENT)
     except OSError as error:
         raise DomainError("chrome_install_failed", _bound(f"Could not select the installed Chrome: {error}")) from None
@@ -416,14 +420,13 @@ def _select(root, name):
 def _running_programs():
     """Paths of the programs running on this computer, or None when they cannot be listed."""
     try:
-        if sys.platform == "linux":
+        if _platform.family() == "linux":
             found = []
-            for entry in os.scandir("/proc"):
-                if entry.name.isdigit():
-                    try:
-                        found.append(os.readlink(f"/proc/{entry.name}/exe"))
-                    except OSError:
-                        continue                 # gone, or another user's process: not a browser of this installation
+            for pid in _processes.pids():
+                try:
+                    found.append(str(_processes.exe(pid)))
+                except OSError:
+                    continue                 # gone, or another user's process: not a browser of this installation
             return found
         listed = subprocess.run(["/bin/ps", "-axo", "comm="], capture_output=True, text=True, timeout=10,
                                 stdin=subprocess.DEVNULL)
@@ -518,7 +521,7 @@ def converge(runtime_directory, *, download=fetch, check=start_check, automatic=
     try:
         root.mkdir(parents=True, exist_ok=True, mode=0o700)
         info = root.lstat()
-        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid():
+        if not stat.S_ISDIR(info.st_mode) or not _private_files.is_mine(info):
             raise OSError("the Chrome folder is not a folder of the application user")
         with _install_lock(root):
             if automatic and (known := _known_failure(root)) is not None:

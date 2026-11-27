@@ -9,7 +9,9 @@ import json
 import os
 from pathlib import Path
 import re
-import sys
+
+from qorqut_system import platform as _platform
+from qorqut_system import processes as _processes
 
 from .client import load_registration, path_has_symlink, write_json_private
 from .transcript_snapshot import EVENTS, SESSION_ID
@@ -20,24 +22,16 @@ NATIVE_IDENTITY = ("agent_id", "workspace", "session_id", "runtime", "pid", "sta
 
 def process_fields(pid, terminal=False):
     """Stat fields of ``pid``. ``terminal`` (Terminals mode only) also reads a Mac process's tty and foreground group."""
-    if sys.platform == 'darwin':
-        from qorqut.process_info import fields
-        return fields(pid, terminal=terminal)
-    return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+    return _processes.fields(pid, terminal=terminal)
 
 
 def native_process(runtime):
     pid = os.getppid()
     for _ in range(20):
-        proc = Path(f"/proc/{pid}")
         fields = process_fields(pid)
-        if sys.platform == 'darwin':
-            from qorqut import process_info
-            name = process_info.name(pid)
-        else:
-            name = (proc / "comm").read_text().strip()
+        name = _processes.name(pid)
         if name in ({"claude", "claude.exe"} if runtime == "claude-code" else {"codex"}):
-            if sys.platform == 'darwin' and process_info.start_token(pid) != fields[19]:
+            if _platform.family() == "mac" and _processes.start_token(pid) != fields[19]:
                 raise ProcessLookupError(pid)
             return {"pid": pid, "started": fields[19]}
         pid = int(fields[1])
