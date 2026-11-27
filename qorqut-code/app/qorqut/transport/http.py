@@ -537,6 +537,37 @@ class HTTPAPI:
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
                 return result
+            if parts[:2] == ["root", "connections"] and len(parts) in (3, 4) and (
+                    (request.method == "GET" and parts[3:] in ([], ["image"])) or (request.method == "POST" and len(parts) == 3)):
+                # The card of an extension that follows the contract. Nothing of a body is logged: typed set-up values go
+                # to the extension's set-up handler and nowhere else.
+                if request.headers.get("authorization") is not None:
+                    raise DomainError("forbidden", "Extensions are set up on the owner's dashboard")
+                context, _ = self.context(actor)
+                with self.runtime.database.read() as uow:
+                    owner = uow.repository("installation").get("service")
+                if context.principal_kind != "human" or not owner or owner["owner_principal_id"] != context.principal_id:
+                    raise DomainError("forbidden", "Only the installation owner can set up extensions")
+                if self.runtime.extension_registry is None:
+                    raise DomainError("not_found", "No extension is installed.")
+                from qorqut import extension_connections
+                ext_id = parts[2]
+                if parts[3:] == ["image"]:
+                    image = await anyio.to_thread.run_sync(self.runtime.extension_setups.image, ext_id)
+                    if image is None:
+                        return Response(status_code=404, headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+                    return Response(image, media_type="image/png",
+                                    headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+                if request.method == "GET":
+                    data = await anyio.to_thread.run_sync(extension_connections.current, self.runtime, ext_id)
+                else:
+                    asked = extension_connections.parse_action(await read_json(request, limit=65536))
+                    data = await anyio.to_thread.run_sync(extension_connections.act, self.runtime, context, ext_id, asked)
+                    if isinstance(data, OperationResult):
+                        return response(data)
+                result = response(OperationResult.ok(data, request_id=request_id))
+                result.headers["Cache-Control"] = "private, no-store"
+                return result
             if parts in (["root", "browser-setup"], ["root", "browser-accounts"]) and request.method in {"GET", "POST"}:
                 if request.headers.get("authorization") is not None:
                     raise DomainError("forbidden", "Browser setup is for the owner's dashboard")

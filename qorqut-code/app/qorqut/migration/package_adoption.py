@@ -153,7 +153,8 @@ def run(options):
     database = open_database(paths, host_assembly(ChangeFeed(), selection))
     runtime = None
     try:
-        runtime = build_runtime(options.workspace, paths=paths, database=database, extensions=selection)
+        runtime = build_runtime(options.workspace, paths=paths, database=database, extensions=selection,
+                                extension_code=False)
         with runtime.owned_preparation():
             with database.read() as uow:
                 owner = uow.connection.execute("SELECT owner_principal_id FROM installation WHERE id='service'").fetchone()[0]

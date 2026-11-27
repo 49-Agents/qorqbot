@@ -321,23 +321,27 @@ declaration, as described in [EXTENSIONS.md](EXTENSIONS.md). On top of that, eve
 
 **Tools**
 
-1. Every tool name starts with `<id>_`.
+1. Every tool name starts with `<id>_`, and the code registers exactly the tools it declares. A folder that breaks
+   this is refused, so an extension can never take the name of one of Qorqbot's own tools.
 2. Tools are offered through Qorqbot's own tool server, so permissions, the owner's approval and the action record
    apply. An extension does not attach a tool server of its own to an agent.
 3. A tool that sends, posts, pays or changes something outside Qorqbot is held for the owner's approval by default.
-4. A tool is visible only to agents the extension is on for.
+4. A tool is listed for, and callable by, an agent only while the extension is in effect for it. This is checked at
+   listing and at each call.
 5. An extension has no tool for installing, setting up or switching itself. Those are Qorqbot's
    ([section 11](#11-what-qorqbot-provides-for-every-extension)).
 
 **Set-up**
 
 6. The extension implements one set-up interface: report the status with a note, start, accept the owner's values, give
-   the image to show for `pairing`, cancel, and disconnect. Qorqbot supplies the tool, the routes and the card.
+   the image to show for `pairing` (a PNG), cancel, and disconnect. Qorqbot supplies the tool, the routes and the card.
 7. Nothing of set-up that is secret (a key, a code image, its file path) appears in a tool result or a log.
 
 **Dormancy**
 
-8. Being selected at start reads no key, starts no process and contacts nothing.
+8. Being selected at start reads no key, starts no process and contacts nothing. Qorqbot loads the code by running
+   only its factory. A fault in an extension's code at start leaves Qorqbot running: the extension shows as needing
+   attention, and nothing of it is registered.
 9. Background work runs only while the status is `ready` and the extension is on for at least one agent.
 
 **Storage**
@@ -369,7 +373,9 @@ An extension author writes none of the following.
 | Record types | Reads every installed extension's `records.yaml` |
 | The checker | [Section 12](#12-the-checker) |
 
-The four `extensions_*` tools are Ordubashy's only.
+`extensions_setup` is Ordubashy's: the owner sets up on the Connections card. `extensions_list` and `extensions_switch`
+are Ordubashy's and the owner's, and the Learning Applier may read the list. None of them reaches an agent while no
+extension is installed. The list and the card show extensions under this contract only.
 
 ## 12. The checker
 
@@ -421,14 +427,14 @@ files hold, it reports a problem and never fails.
 | The agentic layer's `plugins` area, with history | Exists |
 | Finding extension folders at start, with a status for each | Exists for folders that hold an `extension.yaml`; `not_installed` needs the index |
 | The plugin part copied into the agentic layer, kept in its history | Exists |
-| On and off per agent, with the session restart | Exists; switched by the owner. The tool for Ordubashy is to build |
-| The code part of an extension loaded from its folder | To build |
+| On and off per agent, with the session restart | Exists; switched by the owner or by Ordubashy |
+| The code part of an extension loaded from its folder | Exists for tools, services and the set-up handler. A code part that declares database tables, or any other part of the declaration, is refused until that is built |
 | Skill discovery line and the skill-read gate | Exist |
 | Approved Learning Applier proposals being applied | To build; nothing is applied today |
 | The manifest and the generated files | The manifest is read and checked. The agentic-layer package manifest is generated. The card and the bundle are to build |
-| The four `extensions_*` tools | To build |
-| The Connections card drawn from the manifest | To build; three extensions are written into the screen by hand |
-| One private folder per extension | To build; each extension picks its own files today |
+| The four `extensions_*` tools | `extensions_list`, `extensions_setup` and `extensions_switch` exist; install and remove are to build |
+| The Connections card drawn from the manifest | Exists for the set-up kinds `none` and `key`; `sign-in` and `pairing` are to build. Three of today's extensions are still written into the screen by hand |
+| One private folder per extension | Exists for extensions under this contract; each of today's extensions picks its own files |
 | Hooks and nudges list | Exists for extensions. Qorqbot's own points, about thirty, are still written separately |
 | Record types | Exist. A record is a Task of the type's base with `record_type` set and its extra values as custom fields. The Type editor, the CRM row form, `tasks_create`, `tasks_update` and `crm_entries_add` take it, and `tasks_list` filters by it. No table |
 | The index of downloadable extensions | To build |
@@ -505,6 +511,8 @@ The owner's word changes any of these.
 12. A record of an extension's type can be created by hand in the dashboard and by agents, and its type can be changed
     afterwards. The extra values stay on the record.
 13. The plural of a record type is carried for agents. The dashboard has no new list by type.
+14. The list and the Connections card drawn from the manifest show extensions under this contract only. Today's
+    extensions keep their own cards until they are brought under it.
 
 **Not decided**
 

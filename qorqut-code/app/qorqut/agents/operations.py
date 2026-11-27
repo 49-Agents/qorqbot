@@ -22,7 +22,7 @@ from qorqut_operations.storage.files import RegisteredFileTarget, file_hash, fil
 from qorqut.management.identity import configured_ordubashy, installation_owner, require_protected_control
 from .icons import AGENT_ICONS, ICON_IDS
 from .global_scope import active_global
-from .resolver import effective_tool_policy
+from .resolver import contract_tools_in_effect, effective_tool_policy
 from .worker_access import require_worker_manager
 
 UUID_SCHEMA = {"type": "string", "format": "uuid"}
@@ -165,7 +165,8 @@ class AgentOperations:
         No packages are passed, so plugin-provided tools are left out of the comparison."""
         role = self.resolver.catalog.get("role", plain(profile.data["role"]), connection=uow.connection)
         return {(row["canonical_operation"], scope): MODE_RANK[mode]
-                for row in effective_tool_policy(profile, role, self.resolver.registry) if row["available"]
+                for row in effective_tool_policy(profile, role, self.resolver.registry, contract=contract_tools_in_effect(
+                    getattr(self.resolver, "extensions", None), profile, connection=uow.connection)) if row["available"]
                 for scope, mode in {"": row["effective_mode"], **row.get("scope_modes", {})}.items()}
 
     def _require_target_authority(self, ctx, operation, identity, uow):
@@ -281,7 +282,8 @@ class AgentOperations:
         profile = AgentProfile.from_dict(json.loads(row["profile_json"]), self.resolver.registry, stored=True)
         role = self.resolver.catalog.get("role", profile.data["role"], connection=uow.connection)
         return {"agent_id": identity, "profile_revision": profile.revision,
-                "overrides": plain(profile.data["tool_policy"]["overrides"]), "tools": effective_tool_policy(profile, role, self.resolver.registry)}
+                "overrides": plain(profile.data["tool_policy"]["overrides"]), "tools": effective_tool_policy(profile, role, self.resolver.registry, contract=contract_tools_in_effect(
+                    getattr(self.resolver, "extensions", None), profile, connection=uow.connection))}
 
     def resolve_name(self, ctx, resource, uow):
         try:
@@ -455,7 +457,7 @@ class AgentOperations:
             changes.append(PreparedChange("record", resource, "profile_effect", {"field": field, "before": prior, "after": after}, operation_name=child))
         preview_resource = PreviewResource("agent_profiles", identity, profile.data["display_name"])
         fields = [FieldChange(key, old_data.get(key), value) for key, value in profile.to_dict().items() if old_data.get(key) != value]
-        fields.append(FieldChange("effective_permissions", effective_tool_policy(before, self.resolver.catalog.get("role", before.data["role"]), self.resolver.registry) if before else None, effective.to_dict()["tools"] if effective else None))
+        fields.append(FieldChange("effective_permissions", effective_tool_policy(before, self.resolver.catalog.get("role", before.data["role"]), self.resolver.registry, contract=contract_tools_in_effect(getattr(self.resolver, "extensions", None), before, connection=uow.connection)) if before else None, effective.to_dict()["tools"] if effective else None))
         if profile.data["status"] != "active":
             fields.append(FieldChange("credentials", "active scoped credentials", "revoked; history and documents preserved"))
         previews = [StructuredPreview(preview_resource, tuple(fields))]

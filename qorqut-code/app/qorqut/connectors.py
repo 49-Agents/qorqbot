@@ -1,6 +1,7 @@
 """Extensions the owner sets up for their agents: what each one is and whether it is ready.
 
-Each entry is a Qorqbot extension (OpenRouter, treg, WhatsApp), set up through that extension. Its tools reach the agents through
+Each entry is a Qorqbot extension (OpenRouter, treg, WhatsApp), set up through that extension. Extensions that follow
+the contract follow them, one entry each of kind ``contract`` (``qorqut.extension_connections``). Its tools reach the agents through
 Qorqbot, so they work for every agent client. The core never contacts these services and keeps no copy of their data; an
 extension makes its own requests (treg's are described in ``qorqut_treg``, OpenRouter's in ``qorqut_openrouter``).
 
@@ -20,6 +21,7 @@ CATALOG = (
     {"id": "treg", "kind": "extension", "clients": ["claude-code", "codex"]},
     {"id": "whatsapp", "kind": "extension", "clients": ["claude-code", "codex"]},
 )
+HAND_WRITTEN = frozenset(entry["id"] for entry in CATALOG)
 
 
 def _probe_environment(environ=None):
@@ -78,12 +80,33 @@ def host_platform(proc_version="/proc/version") -> str:
         return "linux"
 
 
+def _contract_items(runtime) -> tuple[list, set]:
+    """The card entries of the extensions that follow the contract (``qorqut.extension_connections``), from the status
+    the registry holds, and the ids of those whose folder is fine; no set-up handler is asked. Empty while none is
+    found."""
+    registry = getattr(runtime, "extension_registry", None)
+    if registry is None or not registry.found:
+        return [], set()
+    from qorqut import extension_connections
+    with runtime.database.read() as uow:
+        entries = registry.list(connection=uow.connection)
+        existing = extension_connections.agents(uow.connection)
+    fine = {entry.id for entry in entries if entry.manifest is not None and not entry.refused_findings}
+    return [extension_connections.item(entry, existing) for entry in entries], fine
+
+
 def view(runtime, *, environ=None) -> dict:
     """Every extension with its status, for the owner's dashboard. Reads local files only."""
     platform = host_platform()
+    contract, fine = _contract_items(runtime)
+    # Only a fine folder replaces a hand-written entry; a broken one of the same name leaves today's card as it is.
+    converted = {item["id"] for item in contract if item["id"] in fine}
+    contract = [item for item in contract if item["id"] in converted or item["id"] not in HAND_WRITTEN]
     items = []
     for entry in CATALOG:
+        if entry["id"] in converted:     # a converted extension is shown once, by its contract entry
+            continue
         item = dict(entry)
         item.update(_keyed_status(runtime, entry["id"]) if entry["id"] in KEYED else _whatsapp_status(runtime))
         items.append(item)
-    return {"connectors": items, "platform": platform}
+    return {"connectors": items + contract, "platform": platform}

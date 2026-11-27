@@ -226,3 +226,84 @@ test('every agent uses the one Shared browser, so Settings offers no browser cho
     assert.doesNotMatch(await page.locator('#panel').innerText(), /Own browser|Which browser/);
   } finally { await browser.close(); }
 });
+
+test('a contract extension gets the generic card: the key is posted once, the form is empty after, switches post', {skip: !available && 'Playwright Chromium unavailable'}, async () => {
+  const browser = await chromium.launch({headless: true});
+  try {
+    const page = await browser.newPage({viewport: {width: 1120, height: 900}});
+    await page.setContent('<main id="panel"></main>');
+    await page.addStyleTag({path: path.join(__dirname, '../css/connectors.css')});
+    await page.evaluate(() => {
+      window.esc = value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
+      window.coreData = value => value;
+      window.keyed = {id: 'keyed', kind: 'contract', name: 'Keyed', summary: 'Tells its agents whether a token is saved.', version: '1.0.0',
+        delivery: 'downloadable', status: 'not_set_up', note: null, can_set_up: true,
+        setup: {kind: 'key', fields: [{id: 'token', label: 'Token', secret: true}]},
+        agents: [{agent_id: 'agent-1', name: 'Ordubashy', role: 'ordubashy', on: true, in_effect: false}]};
+      window.paired = {id: 'linked', kind: 'contract', name: 'Linked', summary: 'Paired by a code.', version: '1.0.0', delivery: 'built-in',
+        status: 'not_set_up', note: null, can_set_up: true, setup: {kind: 'pairing', fields: []}, agents: []};
+      window.sent = [];
+      window.api = async url => url === '/root/browser-setup' ? {kind: 'built_in', tool_installed: true, chrome_installed: true, ready: true, state: 'healthy', explanation: '', agents: []}
+        : url === '/root/browser-accounts' ? {sites: []}
+        : {platform: 'linux', clients: [], connectors: [{id: 'whatsapp', kind: 'extension', status: 'not_installed'}, window.keyed, window.paired]};
+      window.post = async (url, body) => {
+        window.sent.push({url, body});
+        if (body.action === 'accept') {
+          if (body.values.token === 'wrong') { window.keyed = {...window.keyed, status: 'needs_attention', note: 'Keyed did not accept this token.'}; return window.keyed; }
+          window.keyed = {...window.keyed, status: 'ready', note: null, agents: window.keyed.agents.map(agent => ({...agent, in_effect: agent.on}))};
+        }
+        if (body.action === 'switch') window.keyed = {...window.keyed, agents: window.keyed.agents.map(agent => ({...agent, on: body.on, in_effect: body.on && window.keyed.status === 'ready'}))};
+        if (body.action === 'disconnect') window.keyed = {...window.keyed, status: 'not_set_up'};
+        return window.keyed;
+      };
+    });
+    await page.addScriptTag({path: path.join(__dirname, '../js/extension-cards.js')});
+    await page.addScriptTag({path: path.join(__dirname, '../js/connectors.js')});
+    await page.evaluate(() => connectorsPanel.mount(document.querySelector('#panel'), {rows: true}));
+    const card = page.locator('[data-cx-card="keyed"]');
+    await card.locator('.cx-status').getByText('Not set up').waitFor();
+    assert.deepEqual(await page.locator('[data-cx-list] [data-cx-card]').evaluateAll(cards => cards.map(card => card.dataset.cxCard)), ['whatsapp', 'keyed', 'linked']);
+    assert.match(await card.textContent(), /On once it is ready/);
+    // Set up is not offered again while its form is open; Close brings it back.
+    await card.getByRole('button', {name: 'Set up'}).click();
+    assert.equal(await card.locator('[data-ext-form]').isVisible(), true);
+    assert.equal(await card.getByRole('button', {name: 'Set up'}).isVisible(), false);
+    await card.getByRole('button', {name: 'Close'}).click();
+    assert.equal(await card.getByRole('button', {name: 'Set up'}).isVisible(), true);
+    // A refused token: the card says why and offers Try again.
+    await card.getByRole('button', {name: 'Set up'}).click();
+    await card.locator('input[name="token"]').fill('wrong');
+    await card.getByRole('button', {name: 'Save'}).click();
+    await card.locator('.cx-note').getByText('Keyed did not accept this token.').waitFor();
+    await card.getByRole('button', {name: 'Try again'}).click();
+    await card.locator('input[name="token"]').fill('  keyed-test-token  ');
+    await card.getByRole('button', {name: 'Save'}).click();
+    await card.locator('.cx-status').getByText('Ready').waitFor();
+    assert.deepEqual(await page.evaluate(() => window.sent.filter(item => item.body.action === 'accept').at(-1)),
+      {url: '/root/connections/keyed', body: {action: 'accept', values: {token: 'keyed-test-token'}}});
+    assert.equal(await page.evaluate(() => window.sent.filter(item => item.body.values?.token === 'keyed-test-token').length), 1, 'posted once');
+    assert.equal(await card.locator('input[name="token"]').count(), 0, 'no form once ready, so nothing typed is shown again');
+    assert.doesNotMatch(await page.locator('#panel').innerHTML(), /keyed-test-token/);
+    // The switch posts and the card follows the answer.
+    await card.locator('[data-ext-switch]').uncheck();
+    await page.waitForFunction(() => window.sent.at(-1).body.action === 'switch');
+    assert.deepEqual(await page.evaluate(() => window.sent.at(-1)), {url: '/root/connections/keyed', body: {action: 'switch', agent_id: 'agent-1', on: false}});
+    await card.getByRole('button', {name: 'Disconnect'}).click();
+    await card.locator('.cx-status').getByText('Not set up').waitFor();
+    // A refused code part: the note with its backticked word as code, and nothing to click that would do nothing.
+    await page.evaluate(() => {
+      window.keyed = {...window.keyed, status: 'needs_attention', can_set_up: false,
+        note: 'Its code could not be loaded: its tool names must start with `keyed_`.'};
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await card.locator('.cx-status').getByText('Needs attention').waitFor();
+    assert.equal(await card.locator('.cx-note code').textContent(), 'keyed_');
+    assert.equal(await card.locator('button, input, form').count(), 0);
+    // Pairing is not set up here yet: status and the sentence, no button and no image.
+    const linked = page.locator('[data-cx-card="linked"]');
+    assert.match(await linked.textContent(), /Setting this up from Qorqbot is not available yet\./);
+    assert.equal(await linked.locator('button, img').count(), 0);
+    await page.setViewportSize({width: 390, height: 850});
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  } finally { await browser.close(); }
+});

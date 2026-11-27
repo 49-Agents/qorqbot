@@ -304,6 +304,65 @@ class WebContribution:
     framing: tuple = ()
 
 
+# -- set-up of a contract extension (EXTENSION-CONTRACT.md sections 3 and 10) ---------------------------------------
+SETUP_STATES = frozenset({"not_set_up", "setting_up", "ready", "needs_attention"})
+SETUP_STARTERS = frozenset({"owner", "ordubashy"})
+
+
+@dataclass(frozen=True)
+class SetupStatus:
+    """What a set-up handler knows of its extension. ``not_installed`` and ``unsupported`` are the registry's, never a
+    handler's. ``note`` is the owner's plain sentence and never holds a key, a code, a path or an image; ``image`` says a
+    pairing code image can be fetched now; ``open_url`` is where the owner's browser goes next for a sign-in."""
+
+    state: str
+    note: str = ""
+    image: bool = False
+    open_url: str | None = None
+
+    def __post_init__(self):
+        if self.state not in SETUP_STATES:
+            raise _invalid("A set-up status is not_set_up, setting_up, ready or needs_attention")
+        if not isinstance(self.note, str) or not isinstance(self.image, bool):
+            raise _invalid("A set-up status note is text and its image flag is true or false")
+        if self.open_url is not None and not isinstance(self.open_url, str):
+            raise _invalid("A set-up status open_url is text")
+
+
+@dataclass(frozen=True)
+class SetupStart:
+    """Who asked for set-up to start. ``agent_id`` is the configured Ordubashy when he asked; ``return_url`` is the
+    dashboard address a sign-in sends the owner back to, given on the owner's own starts only."""
+
+    by: str
+    agent_id: str | None = None
+    return_url: str | None = None
+
+    def __post_init__(self):
+        if self.by not in SETUP_STARTERS:
+            raise _invalid("Set-up is started by the owner or by Ordubashy")
+        if self.by == "ordubashy" and not (isinstance(self.agent_id, str) and self.agent_id):
+            raise _invalid("A set-up Ordubashy starts names his agent id")
+        if self.return_url is not None and (self.by != "owner" or not isinstance(self.return_url, str)):
+            raise _invalid("Only the owner's start carries a return address")
+
+
+class SetupHandler(Protocol):
+    """The one set-up interface of a contract extension (rule 6). Every method returns what the handler now knows; the
+    status itself is stored by the registry. ``status`` reads the extension's own private files only and contacts
+    nothing; while nothing is saved it reads nothing. ``accept`` takes the owner's values (the typed fields of a key, the
+    returned parameters of a sign-in) and never returns or raises them. Every ``note`` and every error message is shown
+    to the owner and to Ordubashy, so it never contains any part of a value. ``image`` is the PNG code image of a
+    pairing, for the owner's route only."""
+
+    def status(self) -> SetupStatus: ...
+    def start(self, request: SetupStart) -> SetupStatus: ...
+    def accept(self, values: Mapping[str, str]) -> SetupStatus: ...
+    def image(self) -> bytes | None: ...
+    def cancel(self) -> SetupStatus: ...
+    def disconnect(self) -> SetupStatus: ...
+
+
 class Extension:
     """Base class: every hook is empty. An extension overrides only what it contributes."""
 
@@ -400,6 +459,11 @@ class Extension:
     # -- runtime wiring: install runs once, on the open registry, before freeze ------------------------------------
     def install(self, runtime):
         """Build the runtime-bound services and register the operation handlers. No worker starts here."""
+
+    def setup_handler(self):
+        """The ``SetupHandler`` of a contract extension whose set-up kind is not ``none``, asked for only after
+        ``install``. None for every other extension. (Not named ``setup``: an extension may keep that attribute.)"""
+        return None
 
     def services(self):
         return ()

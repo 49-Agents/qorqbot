@@ -165,6 +165,10 @@ class PolicyResolver:
                                             scope="global" if descriptor.global_capability and context.project_id is None else "project")
         if descriptor.plugin_requirement and not self.agent_resolver.plugin_declares(context, basis, descriptor, uow):
             return PolicyDecision("deny", "plugin_unavailable")
+        # The host's own check of a tool that is the agent's only part of the time (an installed extension in effect).
+        available = getattr(self.agent_resolver, "operation_available", None)
+        if available is not None and not available(context, basis, descriptor, uow):
+            return PolicyDecision("deny", "not_in_effect")
         return PolicyDecision(decision.mode, decision.provenance, {
             "profile_revision": basis.revision, "role": plain(basis.role),
             **descriptor.global_capability_evidence(context.global_capabilities),

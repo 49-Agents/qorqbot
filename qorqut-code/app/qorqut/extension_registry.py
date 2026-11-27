@@ -15,12 +15,14 @@ release folder and a download), downloaded ones in ``<instance>/extensions/<id>/
 from __future__ import annotations
 
 import base64
+import importlib
 from dataclasses import dataclass, replace
 import logging
 import operator
 import os
 from pathlib import Path
 import re
+import sys
 import threading
 
 from qorqut_agentic.catalog import MANIFEST_NAME
@@ -149,6 +151,202 @@ def discover(paths, *, selected=(), app_version, platform, shipped=None) -> tupl
     return _with_unsupported(found, app_version, platform)
 
 
+# -- loading the code part --------------------------------------------------------------------------------------------
+NO_TABLES = "Its code declares tables of its own, and extensions cannot bring tables yet."
+NOT_LOADED = "Its code could not be loaded: {}."
+CODE_FOLDER = "code"
+# What the code part of a contract extension may give Qorqbot today: its tools, its install, its services and its
+# set-up. Any other part of the ``Extension`` declaration (routes, sources, policy rules and the rest) is refused for now:
+# Qorqbot takes those parts into the whole selection before the extension is installed, so they could not be taken back.
+CONTRACT_PARTS = frozenset({"catalog", "install", "services", "setup_handler"})
+NOT_YET = "Its code uses {}, which this version of Qorqbot does not take from an extension yet."
+
+
+@dataclass(frozen=True)
+class Loaded:
+    """A loaded code part: the extension and the tools its ``catalog()`` declared at load (``CatalogEntry`` values)."""
+    extension: object
+    entries: tuple
+    folder: Path
+
+
+def _forget(code):
+    """Take a refused code folder off the import path (the entry its loading added) and out of the imported modules."""
+    entry = str(code)
+    if entry in sys.path:
+        del sys.path[len(sys.path) - 1 - sys.path[::-1].index(entry)]
+    for name, module in list(sys.modules.items()):
+        origin = getattr(getattr(module, "__spec__", None), "origin", None) or getattr(module, "__file__", None)
+        locations = [origin, *(getattr(module, "__path__", None) or ())]
+        if any(place and Path(place).resolve().is_relative_to(code) for place in locations):
+            del sys.modules[name]
+    importlib.invalidate_caches()
+
+
+def _own(made, name, member):
+    """Whether the extension object gives its own ``name``: judged on the object, as the selection will call it, so an
+    attribute set on the instance counts as much as a method of its class."""
+    value = getattr(made, name, None)
+    return not (getattr(value, "__func__", None) is member and getattr(value, "__self__", None) is made)
+
+
+def _unused_parts(made):
+    from qorqut.extensions import Extension
+    return sorted(name for name, member in vars(Extension).items()
+                  if callable(member) and not name.startswith("_") and name not in CONTRACT_PARTS | {"storage"}
+                  and _own(made, name, member))
+
+
+def _load(item):
+    """The ``Loaded`` code part of a fine folder, with its ``code/`` folder on the import path, or the finding to refuse
+    the folder with. Only the factory and ``catalog()`` run. A refused folder leaves the import path and the imported
+    modules as they were; a finding names the kind of fault, never what an exception says."""
+    from qorqut.extensions import Extension
+    code = item.folder / CODE_FOLDER
+    module_name, _, attribute = item.manifest.factory.partition(":")
+    sys.path.append(str(code))
+    problem = None
+    try:
+        module = importlib.import_module(module_name)
+        origin = Path(getattr(module, "__file__", None) or "").resolve()
+        if not origin.is_relative_to(code):
+            del sys.path[len(sys.path) - 1 - sys.path[::-1].index(str(code))]
+            return None, NOT_LOADED.format(f"the module {module_name!r} is not the one in its code folder")
+        made = getattr(module, attribute)()
+        if not isinstance(made, Extension) or made.id != item.id:
+            problem = NOT_LOADED.format(f"its factory does not make the extension {item.id!r}")
+        elif _own(made, "storage", Extension.storage):
+            problem = NO_TABLES
+        elif _unused_parts(made):
+            problem = NOT_YET.format(", ".join(_unused_parts(made)))
+        else:
+            entries = tuple(entry for contribution in made.catalog() for entry in contribution.entries)
+            names = [entry.name for entry in entries]
+            wrong = [name for name in names if not (isinstance(name, str) and name.startswith(item.id + "_"))]
+            if wrong:
+                problem = NOT_LOADED.format(f"its tool names must start with {item.id + '_'!r}")
+            elif len(set(names)) != len(names):
+                problem = NOT_LOADED.format("it declares a tool twice")
+    except Exception as problem_raised:  # noqa: BLE001 - the folder is refused; only the kind of fault is said
+        problem = NOT_LOADED.format(type(problem_raised).__name__)
+    if problem is not None:
+        _forget(code)
+        return None, problem
+    return Loaded(made, entries, code), None
+
+
+def load_code(found, selection):
+    """Add the code part of each fine found folder with ``code.factory`` to ``selection`` (today's ``ExtensionSet``).
+
+    Answers ``(found, selection, loaded)``: the folders with a refusal added to each one whose code could not be loaded,
+    the selection with the loaded extensions added, and the ``Loaded`` code parts by id. A folder that is refused or
+    cannot run here is not loaded. With nothing to load, ``found`` and ``selection`` come back as they were given and the
+    import path is not touched. Loading runs only the factory and ``catalog()``: Qorqbot installs the extension later
+    (``install_code``), and nothing of it runs before it is set up and in effect."""
+    from qorqut.extensions import ExtensionSet
+    checked, loaded, chosen = [], {}, selection
+    for item in found:
+        if not item.fine or item.manifest.factory is None:
+            checked.append(item)
+            continue
+        made, problem = _load(item)
+        if made is not None:
+            try:
+                chosen = ExtensionSet((*chosen.extensions, made.extension))
+            except Exception as refusal:  # noqa: BLE001 - only the kind of fault is said
+                _forget(made.folder)
+                made, problem = None, NOT_LOADED.format(type(refusal).__name__)
+        if made is None:
+            LOGGER.warning("extension_not_loaded extension=%s", item.id)
+            item = replace(item, findings=(*item.findings, problem))
+        else:
+            loaded[item.id] = made
+        checked.append(item)
+    return (tuple(checked), chosen if loaded else selection, loaded)
+
+
+class _Collecting:
+    """The operation registry as a contract extension's ``install`` sees it: what it registers is collected; what it
+    reads is read from the real registry."""
+
+    def __init__(self, operations):
+        self.descriptors, self._operations = [], operations
+
+    def register(self, descriptor):
+        self.descriptors.append(descriptor)
+
+    def __getattr__(self, name):
+        return getattr(self._operations, name)
+
+
+class _InstallView:
+    """The runtime as a contract extension's ``install`` sees it: every attribute of the runtime, except that its
+    ``registry`` collects, and that what ``install`` sets lands here and not on the runtime."""
+
+    def __init__(self, runtime, registry):
+        object.__setattr__(self, "_runtime", runtime)
+        object.__setattr__(self, "registry", registry)
+
+    def __getattr__(self, name):
+        return getattr(self._runtime, name)
+
+
+def install_code(runtime, extensions, operations):
+    """Install each loaded code part on the open operation registry ``operations``, or refuse its folder.
+
+    ``install`` runs against a view of the runtime whose registry only collects. The extension is then installed only
+    when every tool it registered is one its ``catalog()`` declared at load and every declared one is registered, none
+    is already a tool of Qorqbot, and the whole set passes the registry's own checks on a scratch registry. Only then
+    are its tools declared and registered for real; otherwise nothing of it is, and the folder needs attention with a
+    note naming the kind of fault.
+
+    The view does not stop ``install`` from reaching the real registry another way, so the result is checked too: a
+    name that appeared on the real registry during ``install`` refuses the extension, and that name stays routed to the
+    refused extension (``extension_of``), so it is listed for no agent and callable by none. The registry has no way to
+    take a name back out."""
+    from qorqut_operations.application.registry import OperationRegistry
+
+    def names():
+        return {entry.name for entry in operations.entries()} | {d.name for d in operations.installed()}
+    for ext_id, item in list(extensions.code.items()):
+        collected = _Collecting(operations)
+        problem = None
+        core = names()
+        try:
+            item.extension.install(_InstallView(runtime, collected))
+            declared = {entry.name for entry in item.entries}
+            registered = sorted(str(descriptor.name) for descriptor in collected.descriptors)
+            aliases = [alias for descriptor in collected.descriptors for alias in descriptor.aliases]
+        except Exception as fault:  # noqa: BLE001 - the extension's own code: only the kind of fault is said
+            problem = NOT_LOADED.format(type(fault).__name__)
+        stray = names() - core
+        if problem is not None:
+            pass
+        elif stray:
+            problem = NOT_LOADED.format("it registers tools outside its install")
+        elif registered != sorted(declared):
+            problem = NOT_LOADED.format("the tools it registers are not the tools it declares")
+        elif any(not (isinstance(alias, str) and alias.startswith(ext_id + "_")) for alias in aliases):
+            problem = NOT_LOADED.format(f"its tool names must start with {ext_id + '_'!r}")
+        elif (declared | set(aliases)) & core or any(operations.known(alias) for alias in aliases):
+            problem = NOT_LOADED.format("it declares a tool Qorqbot already has")
+        else:
+            try:
+                scratch = OperationRegistry(item.entries)
+                for descriptor in collected.descriptors:
+                    scratch.register(descriptor)
+            except Exception as fault:  # noqa: BLE001 - what it registers fails the registry's own checks
+                problem = NOT_LOADED.format(type(fault).__name__)
+        if problem is not None:
+            extensions.refuse_code(ext_id, problem, stray=stray)
+            continue
+        extensions._registered[ext_id] = set(declared)
+        for entry in item.entries:
+            operations.declare(entry)
+        for descriptor in collected.descriptors:
+            operations.register(descriptor)
+
+
 def _with_unsupported(found, app_version, platform):
     result = []
     for item in found:
@@ -235,10 +433,19 @@ class ExtensionRegistry:
     Reads take the caller's ``connection`` when it has one (one database read, the same one that composes an agent's
     configuration or checks a call) and otherwise read the store themselves; writes take the caller's ``uow`` and change
     nothing outside it. ``changes`` is the process's change feed: subscribers are told after each commit that wrote to
-    the registry."""
+    the registry. ``code`` holds the loaded code parts by id (``load_code``): the tools each one declares are its own,
+    listed for and callable by an agent only while the extension is in effect for it."""
 
-    def __init__(self, found, *, changes=None):
+    def __init__(self, found, *, changes=None, code=None):
         self.found = tuple(found)
+        self.code = dict(code or {})
+        # The ids of every code part loaded at this start, also once refused: none of them is installed as today's are.
+        self.loaded = frozenset(self.code)
+        self._operations = {entry.name: ext_id for ext_id, item in self.code.items() for entry in item.entries}
+        # Code parts refused after loading (``install_code``), with the note; kept across ``sync``.
+        self._unloaded: dict[str, str] = {}
+        # The names each code part has on the operation registry (``install_code``).
+        self._registered: dict[str, set] = {}
         self.database = None
         self.layer = None
         # The agentic view (``qorqut.agentic.view``), set by runtime composition: ``sync`` judges each layer copy with it.
@@ -255,11 +462,45 @@ class ExtensionRegistry:
 
     # ----- what was found -------------------------------------------------------------------------------------------
 
+    def installed_any(self) -> bool:
+        """Whether any extension was found at this start, or still has a row whose folder is gone."""
+        return bool(self.found or self._lingering)
+
+    def routes_tools(self) -> bool:
+        """Whether any tool is routed to an extension (one loaded, or one refused with stray tools)."""
+        return bool(self._operations)
+
+    def extension_of(self, operation) -> str | None:
+        """The id of the loaded extension that declares the tool ``operation``, or None for every other tool."""
+        return self._operations.get(operation)
+
+    def setup_handler(self, ext_id):
+        """The ``SetupHandler`` of a loaded extension (asked for after ``install``), or None."""
+        item = self.code.get(ext_id)
+        return item.extension.setup_handler() if item is not None else None
+
+    def refuse_code(self, ext_id, finding, *, stray=()):
+        """Refuse a loaded code part at start: it is no longer loaded, its folder is taken off the import path, and it
+        shows as ``needs_attention`` with ``finding`` until the next start. The tools of it that are on the operation
+        registry stay routed to it, with ``stray``, the names it put there outside its install: a registered tool cannot
+        be taken back out, and routed to an extension in effect for nobody it is listed for no agent and callable by
+        none. A declared name that never reached the registry is routed to nobody, so a tool of Qorqbot is never one."""
+        item = self.code.pop(ext_id, None)
+        kept = self._registered.get(ext_id, set()) | set(stray)
+        self._operations = {name: owner for name, owner in self._operations.items() if owner != ext_id or name in kept}
+        self._operations.update(dict.fromkeys(stray, ext_id))
+        self._registered[ext_id] = kept
+        self._unloaded[ext_id] = finding
+        if item is not None:
+            _forget(item.folder)
+        LOGGER.warning("extension_not_loaded extension=%s", ext_id)
+
     def _found(self, ext_id):
         return next((item for item in self.found if item.id == ext_id), None)
 
     def _findings(self, item) -> tuple[str, ...]:
-        return item.findings + self._refusals.get(item.id, ())
+        unloaded = (self._unloaded[item.id],) if item.id in self._unloaded else ()
+        return item.findings + unloaded + self._refusals.get(item.id, ())
 
     def _installed(self, ext_id):
         """The found extension ``ext_id`` when it is fine and its plugin part was not refused, else None."""

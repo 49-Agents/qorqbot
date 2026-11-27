@@ -107,3 +107,11 @@ button.cx-link:hover { background: none; color: var(--fg); transform: none; }
 .setup-notice a { font-weight: 600; color: var(--fg); text-decoration: underline; text-underline-offset: 3px; white-space: nowrap; }
 .setup-notice-close { height: 24px; width: 24px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--fg-2); font-size: 16px; line-height: 1; }
 .setup-notice-close:hover { background: var(--hover); color: var(--fg); }
+/* The generic card of an extension that follows the contract (js/extension-cards.js): one switch per agent. */
+.cx-ext-agents { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 2px; }
+.cx-ext-agent { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--fg-2); }
+.cx-ext-agent input { margin: 0; accent-color: var(--accent); }
+.cx-ext-wait { font-size: 11px; color: var(--fg-3); }
+.cx-note code { font: .92em var(--mono); padding: 0 4px; border-radius: 4px; background: var(--hover); }
+/* The set-up button is not offered again while its form is open. */
+[data-cx-card]:has([data-ext-form]:not([hidden])) [data-ext-action="key"] { display: none; }
