@@ -263,6 +263,12 @@ the persistent native Chat (`js/global-chat.js`) over
 - The composer grows to 200px, accepts clipboard images and files (Ctrl/Cmd+V),
   drag and drop or the link button (up to ten files, 25 MB each), copies each
   into the agent's `downloads/` area and sends the local-file reference.
+- Only two things from an agent are conversation messages: the reply that ends a
+  turn and a card's message. Text an agent writes mid-work (before a tool call) is
+  not drawn; while the agent works, the newest such line shows after the step in
+  the activity line, as one clipped line with the whole text in its tooltip. Testing
+  mode draws the mid-work lines in the conversation, as it does inbox nudges. A
+  conversation of which nothing is drawn reads older pages until something is.
 - `request_user_input(message, references)` appears as an agent message with typed
   references: an inline Signoff card, a browser-desktop frame or a link.
 - Messages show their original stored time in the browser's time zone; "Load older"
