@@ -1,0 +1,85 @@
+"""The release rules that keep extension table names and core table names apart (``tools/distribution/extension_names.py``):
+core names come from the app's own composition, ids from index files."""
+
+import contextlib
+import importlib.util
+import io
+import json
+from pathlib import Path
+import tempfile
+import unittest
+
+from qorqut_operations.storage.assembly import StorageContribution
+
+TOOL = Path(__file__).resolve().parents[1].parent / "tools" / "distribution" / "extension_names.py"
+
+
+def load_tool():
+    # Loaded under a name of its own and not kept in sys.modules, so nothing is left behind for other test modules.
+    spec = importlib.util.spec_from_file_location("tool_extension_names", TOOL)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def entry(ext_id):
+    return {"id": ext_id, "version": "1.0.0", "name": ext_id, "summary": "A test extension.", "requires_qorqbot": ">=1.0.0",
+            "platforms": ["linux"], "setup_kind": "none", "requires_extensions": [], "folder_sha256": "0" * 64,
+            "bundles": [{"platform": "any", "url": f"https://example.invalid/{ext_id}.tar.gz", "sha256": "1" * 64,
+                         "size": 1}]}
+
+
+class ExtensionNamesTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tool = load_tool()
+        cls.core = cls.tool.core_names()
+
+    def index(self, *ids):
+        folder = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        path = folder / "extensions-index.json"
+        path.write_text(json.dumps({"format": 1, "app_version": "1.7.0", "extensions": [entry(i) for i in ids]}))
+        return path
+
+    def test_the_core_names_are_the_composed_store_with_no_extension(self):
+        self.assertIn("agent_activity", self.core)
+        self.assertIn("target_identity", self.core)
+        self.assertEqual(self.tool.clashes(["network", "keyed"], ["tablenote"], self.core), [])
+
+    def test_a_core_table_named_after_a_published_id_breaks_rule_a(self):
+        table = StorageContribution("tablenote-test", schema=("CREATE TABLE tablenote_x (id TEXT PRIMARY KEY)",))
+        names = self.tool.core_names(extra=(table,))
+        self.assertIn("tablenote_x", names)
+        self.assertEqual(self.tool.clashes(["tablenote"], names=names), [
+            "Rule (a): the core name tablenote_x starts with tablenote_, and tablenote is a published extension id."])
+
+    def test_a_new_id_that_starts_a_core_name_breaks_rule_b(self):
+        found = self.tool.clashes([], ["agent"], self.core)
+        self.assertTrue(found)
+        self.assertIn("Rule (b): the new extension id agent cannot be used, as the core name agent_activity starts with "
+                      "agent_.", found)
+        self.assertTrue(all(line.startswith("Rule (b): the new extension id agent ") for line in found))
+
+    def test_an_id_that_is_another_id_followed_by_more_breaks_the_id_rule_in_either_order(self):
+        said = ["The id rule: the extension id ab_c is the id ab followed by _ and more."]
+        self.assertEqual(self.tool.clashes(["ab"], ["ab_c"], self.core), said)
+        self.assertEqual(self.tool.clashes(["ab_c"], ["ab"], self.core), said)
+        self.assertEqual(self.tool.clashes(["ab", "ab_c"], names=self.core), said)
+        self.assertEqual(self.tool.clashes(["ab", "abc"], names=self.core), [])
+
+    def test_the_command_reads_the_index_files_and_says_each_clash(self):
+        released, new = self.index("ab", "network"), self.index("network", "ab_c", "agent")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(self.tool.main(["--released", str(released), "--new", str(new)]), 1)
+        lines = out.getvalue().splitlines()
+        self.assertIn("The id rule: the extension id ab_c is the id ab followed by _ and more.", lines)
+        self.assertTrue(any(line.startswith("Rule (b): the new extension id agent ") for line in lines))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(self.tool.main(["--released", str(self.index("network"))]), 0)
+        self.assertEqual(out.getvalue(), "No extension id and core name clash.\n")
+
+
+if __name__ == "__main__":
+    unittest.main()
