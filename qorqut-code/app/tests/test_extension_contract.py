@@ -896,6 +896,8 @@ class CommandLineTest(Case):
         tablenote = self.root / "copied" / "tablenote"
         shutil.copytree(EXAMPLE.parent / "tablenote", tablenote, ignore=shutil.ignore_patterns("__pycache__"))
         status, lines = self.run_main("--load", EXAMPLE, tablenote)
+        # In an installed app the line on the names comes first (the next test); here only the summary is looked at.
+        lines = [line for line in lines if line != contract.NAMES_NOT_CHECKED]
         self.assertEqual((status, len(lines)), (0, 1), lines)
         self.assertIn("with --load also 5 (the tool names), 8 and 10", lines[0])
         self.assertIn("Not checked yet: rules 5 (that a skill's read_for covers each tool), 9, 11, 12, 13", lines[0])
