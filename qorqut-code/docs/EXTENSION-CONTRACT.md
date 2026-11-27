@@ -237,17 +237,28 @@ in section 9 are from an imagined extension `network` that keeps the owner's per
 | --- | --- |
 | `start` | A conversation begins |
 | `owner_message` | With each message from the owner |
-| `after_tool` | As a note on the result of the tools named in `tools` |
-| `stop` | When the agent is about to stop, at most once per turn |
+| `after_tool` | As a note beside the result of the tools named in `tools` |
+| `stop` | When the agent is about to stop, at most once per turn, on a turn that a message started |
 | `timed` | As a nudge, at most once per `every` |
 
 `every` is written as a whole number followed by `m`, `h` or `d`: minutes, hours or days.
 
+A turn that a message started is one that began with a message from the owner, or with a message Ordubashy sent to the
+agent. A turn that a reminder, a timed nudge or another notice started is not one, and no `stop` text holds it.
+`owner_message` is for the owner's messages alone.
+
+A timed text comes first one `every` after its extension came into effect for the agent, then one `every` after each
+delivery. A timed nudge wakes an agent that is asleep. An agent that is paused or stopped gets none.
+
+At `after_tool` the note is given beside the result, under `extension_notes`. The result itself is unchanged.
+
 This contract sets no size limit on these texts. Qorqbot has limits of its own today, which were not set with extensions
 in mind: text handed to an agent at a hook is kept under 9,500 characters, because above 10,000 the agent's program
 shows only the first 2,000; the correction given at the stop check is at most 2,500 characters; and a tool result is cut
-at about 40,000 characters. What happens when the texts of switched-on extensions do not fit is not decided
-([section 15](#15-decisions-and-open-points)).
+at about 40,000 characters.
+
+Where the texts due at one point do not fit, Qorqbot's own text comes first. What does not fit of the extensions' texts
+is written to a file, and the agent is given a sentence that points to that file. That sentence is always delivered.
 
 Conditions an entry may carry, checked by Qorqbot:
 
@@ -257,7 +268,7 @@ Conditions an entry may carry, checked by Qorqbot:
 | `unless_used: [tools]` | Only when the agent used none of these tools in this turn |
 
 A condition is given only at `after_tool` and `stop`, the two points that have a turn to look at. It names at least one
-tool, and one entry does not name the same tool in both.
+tool, and one entry does not name the same tool in both. At `after_tool` the call the note is for counts as used.
 
 Rules:
 
@@ -418,7 +429,7 @@ files hold, it reports a problem and never fails.
 | The four `extensions_*` tools | To build |
 | The Connections card drawn from the manifest | To build; three extensions are written into the screen by hand |
 | One private folder per extension | To build; each extension picks its own files today |
-| Hooks and nudges list | To build; about thirty separately written points today |
+| Hooks and nudges list | Exists for extensions. Qorqbot's own points, about thirty, are still written separately |
 | Record types | Exist. A record is a Task of the type's base with `record_type` set and its extra values as custom fields. The Type editor, the CRM row form, `tasks_create`, `tasks_update` and `crm_entries_add` take it, and `tasks_list` filters by it. No table |
 | The index of downloadable extensions | To build |
 | The checker | Exists in part ([section 12](#12-the-checker)); Qorqbot runs it at start |
@@ -466,6 +477,9 @@ All dates are 26 November 2026.
 14. Bringing today's extensions under the contract is a separate job.
 15. An agent created later, of a role the extension is on for by default, has the extension from its first session.
 16. A record type from an extension can be used in every project. There is no scoping.
+17. Where the texts due at one point do not fit, the rest goes to a file and the agent is pointed to it.
+18. A `stop` text holds only a turn that a message started.
+19. A timed nudge wakes an agent that is asleep.
 
 **Written into the draft and shown to the owner, who did not object**
 
@@ -494,7 +508,5 @@ The owner's word changes any of these.
 
 **Not decided**
 
-1. What happens when the texts of switched-on extensions do not fit the limits Qorqbot already has
-   ([section 8](#8-hooks-and-nudges)).
-2. How the app build takes the built-in extensions from the extensions repository.
-3. Which helpers of Qorqbot's code an extension may import.
+1. How the app build takes the built-in extensions from the extensions repository.
+2. Which helpers of Qorqbot's code an extension may import.

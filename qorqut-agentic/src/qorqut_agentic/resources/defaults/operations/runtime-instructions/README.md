@@ -63,6 +63,8 @@ The consolidation preserves existing wording, triggers and delivery order. Condi
 | [environment-omitted](messages/environment-omitted.md) | environment | conditional |
 | [environment-truncated](messages/environment-truncated.md) | environment | conditional |
 | [environment-unavailable](messages/environment-unavailable.md) | environment | conditional |
+| [extension-hook-rest](messages/extension-hook-rest.md) | extension_hooks.py | conditional |
+| [extension-hook-text](messages/extension-hook-text.md) | extension_hooks.py | conditional |
 | [inbox-nudge](messages/inbox-nudge.md) | inbox_nudges/contracts.py | conditional |
 | [initial-learning-assignment](messages/initial-learning-assignment.md) | bootstrap/initialize.py | conditional |
 | [initial-ordubashy-assignment](messages/initial-ordubashy-assignment.md) | bootstrap/initialize.py | conditional |

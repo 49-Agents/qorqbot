@@ -59,6 +59,10 @@ TYPE_BROADCAST = "broadcast"
 TYPE_DIRECT = "direct_message"
 TYPE_NUDGE = "inbox_nudge"
 TYPE_RECOVERY = "bootstrap_recovery"
+# The start of the marker id of a system input that carries a message to the agent (an inbox nudge for Ordubashy's message to
+# a worker): the activity hook counts the turn it starts as a message turn, as it does the owner's own words. Only the
+# arbiter sets it, from ``metadata["message_turn"]``; a turn the owner types is a message turn either way.
+MESSAGE_MARKER_PREFIX = "message-"
 INPUT_TYPES = {TYPE_CHAT: ORIGIN_OWNER, TYPE_TELEGRAM: ORIGIN_OWNER, TYPE_BROADCAST: ORIGIN_OWNER,
                TYPE_DIRECT: ORIGIN_OWNER, TYPE_NUDGE: ORIGIN_SYSTEM, TYPE_RECOVERY: ORIGIN_SYSTEM}
 

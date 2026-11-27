@@ -48,7 +48,8 @@ from . import store
 from .commands import unrunnable
 from .contracts import (INPUT_TYPES, MAX_TEXT_CHARS, ORIGIN_SYSTEM, RESULT_DEFERRED, RESULT_REJECTED, STATE_FAILED,
                         STATE_SUBMITTED, STATE_SUBMITTING, STATE_UNCERTAIN, STATE_UNDELIVERED, STATE_WAITING, TYPE_BROADCAST,
-                        TYPE_CHAT, TYPE_DIRECT, TYPE_NUDGE, TYPE_RECOVERY, TYPE_TELEGRAM, InputRequest, InputResult, NativeChatError)
+                        TYPE_CHAT, TYPE_DIRECT, TYPE_NUDGE, TYPE_RECOVERY, TYPE_TELEGRAM, InputRequest, InputResult, NativeChatError,
+                        MESSAGE_MARKER_PREFIX)
 from .probe import (ProbeResult, REASON_CAPTURE_DISABLED, REASON_LIVE, REASON_NO_MARKER, REASON_PROCESS_GONE, REASON_SESSION_END,
                     REASON_UNSUPPORTED, REASON_UNSUPPORTED_RUNTIME, SessionProbe)
 from .projection import marker_text
@@ -67,6 +68,14 @@ WAKING_WAITS = frozenset({TYPE_BROADCAST, TYPE_DIRECT})
 TURNS_ON = frozenset({TYPE_TELEGRAM})
 # The probe's reasons for "no session": only these are an agent asleep (a capture or runtime refusal is not).
 NO_SESSION = frozenset({REASON_NO_MARKER, REASON_PROCESS_GONE, REASON_SESSION_END})
+
+
+def system_marker(request: InputRequest) -> str | None:
+    """The marker id a system input is typed behind (None for the owner's own input). An input that carries a message to the
+    agent (``metadata["message_turn"]``) gets ``MESSAGE_MARKER_PREFIX`` before it, so the turn it starts is a message turn."""
+    if request.origin != ORIGIN_SYSTEM:
+        return None
+    return (MESSAGE_MARKER_PREFIX if request.metadata.get("message_turn") is True else "") + secrets.token_hex(16)
 
 
 class _WakeNeeded:
@@ -205,7 +214,7 @@ class InputArbiter:
                     and unrunnable(session["provider"], request.text) is not None):
                 # Decided for a new input only (an exact repeat was answered above) and before a row or a checkpoint exists.
                 return self._refused(request, RESULT_REJECTED, MANAGED_COMMAND, session)
-            marker = secrets.token_hex(16) if request.origin == ORIGIN_SYSTEM else None
+            marker = system_marker(request)
             if request.wait and not session["transcript_path"]:
                 # Chat shows the archived conversation; a session with no transcript has none to show, so Chat does not
                 # accept input for it. Capture turned off by the
