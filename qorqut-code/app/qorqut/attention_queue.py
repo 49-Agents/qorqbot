@@ -1,14 +1,12 @@
 """Owner's compact new-attention projection. Viewing never decides a Signoff."""
-import fcntl
 import hashlib
 import json
-import os
 import re
-import tempfile
 from datetime import date, timedelta
 from pathlib import Path
 
 from qorqut_operations.contracts import DomainError, InvocationOptions
+from qorqut_system import locks, private_files
 from qorqut.agents.global_scope import active_global
 from qorqut.management.identity import installation_owner
 from qorqut.reply_notifications import replies
@@ -40,27 +38,18 @@ def _saved(runtime_directory, owner, suffix, ids=(), keep=None, limit=None, remo
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / (hashlib.sha256(owner.encode()).hexdigest() + suffix)
     with path.with_suffix('.lock').open('a') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        stored = set(json.loads(path.read_text())) if path.exists() else set()
-        saved = {item for item in stored if keep(item)} if keep else set(stored)
-        saved.update(ids)
-        saved.difference_update(remove)
-        if limit and len(saved) > limit:
-            saved = set(sorted(saved)[-limit:])
-        if saved != stored:
-            fd, name = tempfile.mkstemp(dir=directory, prefix='.attention-')
-            try:
-                with os.fdopen(fd, 'w') as stream:
-                    json.dump(sorted(saved), stream)
-                    stream.flush()
-                    os.fsync(stream.fileno())
-                os.replace(name, path)
-                fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
-                try: os.fsync(fd)
-                finally: os.close(fd)
-            finally:
-                if os.path.exists(name): os.unlink(name)
-        return saved
+        with locks.held(lock):
+            stored = set(json.loads(path.read_text())) if path.exists() else set()
+            saved = {item for item in stored if keep(item)} if keep else set(stored)
+            saved.update(ids)
+            saved.difference_update(remove)
+            if limit and len(saved) > limit:
+                saved = set(sorted(saved)[-limit:])
+            if saved != stored:
+                private_files.replace_entry(directory, path.name, json.dumps(sorted(saved)).encode(), mode=0o600,
+                                            prefix='.attention-', chmod=False)
+                private_files.fsync_directory(directory)
+            return saved
 
 
 def viewed(runtime_directory, owner, ids=(), unviewed=()):

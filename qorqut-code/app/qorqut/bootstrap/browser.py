@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import os
@@ -18,6 +17,7 @@ from urllib.request import ProxyHandler, build_opener
 
 from qorqut_operations.contracts import DomainError, new_id
 from qorqut_operations.storage import safe_io
+from qorqut_system import locks, private_files
 from .client import BootstrapClient, load_registration, path_has_symlink, write_json_private
 
 from . import agent_browser
@@ -430,7 +430,7 @@ def _read_private_text(path: Path, *, limit: int = OBSERVATION_EVIDENCE_LIMIT) -
     if path_has_symlink(path):
         raise BrowserError("Observation evidence crosses a symbolic link.")
     try:
-        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        descriptor = private_files.open_read(path.parent, path.name)
     except FileNotFoundError as exc:
         raise BrowserError("Observation evidence is missing; request a fresh observe command.") from exc
     except OSError as exc:
@@ -439,7 +439,7 @@ def _read_private_text(path: Path, *, limit: int = OBSERVATION_EVIDENCE_LIMIT) -
         info = os.fstat(descriptor)
         if not stat.S_ISREG(info.st_mode):
             raise BrowserError("Observation evidence is not an ordinary file.")
-        if info.st_mode & 0o077:
+        if not private_files.is_private(info):
             raise BrowserError("Observation evidence is not private.")
         with os.fdopen(descriptor, "rb") as stream:
             descriptor = None
@@ -674,16 +674,16 @@ def _run_observation(workspace: Path, directory: Path, executable: Path, session
             snapshot_text = payload.get("data", {}).get("snapshot")
             if not isinstance(snapshot_text, str):
                 raise BrowserError("agent-browser returned no snapshot")
-            with evidence.open("x", encoding="utf-8") as output:
-                output.write(snapshot_text)
+            private_files.create_entry(evidence.parent, evidence.name, snapshot_text.encode("utf-8"), mode=0o666,
+                                       sync=False)
             if path_has_symlink(evidence):
                 raise BrowserError("Browser observation wrote a symbolic link instead of evidence.")
-            descriptor = os.open(evidence, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+            descriptor = private_files.open_read(evidence.parent, evidence.name)
             try:
                 info = os.fstat(descriptor)
                 if not stat.S_ISREG(info.st_mode):
                     raise BrowserError("Browser observation did not write an ordinary evidence file.")
-                os.fchmod(descriptor, 0o600)
+                private_files.set_private(descriptor, mode=0o600)
                 with os.fdopen(descriptor, "rb") as stream:
                     descriptor = None
                     content = stream.read(OBSERVATION_EVIDENCE_LIMIT + 1)
@@ -914,43 +914,46 @@ def run(workspace: Path, args: list[str], *, target=None, instance="", capture=F
     env = agent_browser.environment(os.environ)
     with (directory / "command.lock").open("a") as lock:
         try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            locks.acquire(lock, wait=False)
         except BlockingIOError as exc:
             raise BrowserError("Another browser command is running in this workspace; wait for it to finish.") from exc
-        if args[0] == "attach":
-            preflight(endpoint)
-        from qorqut.browser import idle_tabs
-        idle_tabs.before_command(endpoint, session, pinned)      # a tab unloaded for idleness is loaded again first
-        if pinned and args[0] == "tab-new" and len(args) == 2 and idle_tabs.is_new(session):
-            # A pinned session that never had a tab is given one, blank, by agent-browser at its first command. ``tab-new``
-            # would open a second tab beside it and leave the blank one open for good, one per agent and browser, since
-            # no agent closes a tab it did not open. So the first page of such a session loads in the session's own tab.
-            args = ["goto", args[1]]
-        if observation_request is not None:
-            env["QORQUT_OBSERVATION_CDP"] = endpoint
-            return _run_observation(workspace, directory, executable, session, observation_request, env, capture=capture,
-                                    pinned=pinned)
         try:
-            command = agent_browser.command(executable, session, endpoint, directory, args, pinned=pinned)
-        except ValueError as exc:
-            raise BrowserError(str(exc)) from exc
-        try:
-            completed = subprocess.run(command, cwd=directory, env=env, timeout=45, check=False,
-                                       input=agent_browser.standard_input(args),
-                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            completed = agent_browser.reply(args, completed)      # only read has its own reply
-            errors = agent_browser.frame_advice(args, agent_browser.explain(completed.stderr, pinned))
-            if capture:
-                return completed.returncode, completed.stdout, errors
-            if completed.stdout:
-                print(completed.stdout, end="")
-            if errors:
-                print(errors, end="", file=sys.stderr)
-            return completed.returncode
-        except subprocess.TimeoutExpired as exc:
-            raise BrowserTimeout("Browser command timed out; its outcome may be uncertain. Inspect the page before retrying an action.") from exc
-        except OSError as exc:
-            raise BrowserError("Could not execute the installed browser runtime.") from exc
+            if args[0] == "attach":
+                preflight(endpoint)
+            from qorqut.browser import idle_tabs
+            idle_tabs.before_command(endpoint, session, pinned)      # a tab unloaded for idleness is loaded again first
+            if pinned and args[0] == "tab-new" and len(args) == 2 and idle_tabs.is_new(session):
+                # A pinned session that never had a tab is given one, blank, by agent-browser at its first command. ``tab-new``
+                # would open a second tab beside it and leave the blank one open for good, one per agent and browser, since
+                # no agent closes a tab it did not open. So the first page of such a session loads in the session's own tab.
+                args = ["goto", args[1]]
+            if observation_request is not None:
+                env["QORQUT_OBSERVATION_CDP"] = endpoint
+                return _run_observation(workspace, directory, executable, session, observation_request, env, capture=capture,
+                                        pinned=pinned)
+            try:
+                command = agent_browser.command(executable, session, endpoint, directory, args, pinned=pinned)
+            except ValueError as exc:
+                raise BrowserError(str(exc)) from exc
+            try:
+                completed = subprocess.run(command, cwd=directory, env=env, timeout=45, check=False,
+                                           input=agent_browser.standard_input(args),
+                                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                completed = agent_browser.reply(args, completed)      # only read has its own reply
+                errors = agent_browser.frame_advice(args, agent_browser.explain(completed.stderr, pinned))
+                if capture:
+                    return completed.returncode, completed.stdout, errors
+                if completed.stdout:
+                    print(completed.stdout, end="")
+                if errors:
+                    print(errors, end="", file=sys.stderr)
+                return completed.returncode
+            except subprocess.TimeoutExpired as exc:
+                raise BrowserTimeout("Browser command timed out; its outcome may be uncertain. Inspect the page before retrying an action.") from exc
+            except OSError as exc:
+                raise BrowserError("Could not execute the installed browser runtime.") from exc
+        finally:
+            locks.release(lock)
 
 
 def run_owner(workspace, args):

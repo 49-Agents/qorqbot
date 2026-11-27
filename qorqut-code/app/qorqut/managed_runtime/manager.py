@@ -33,7 +33,6 @@ from __future__ import annotations
 
 from collections import deque
 from contextlib import contextmanager
-import fcntl
 import hashlib
 import json
 import os
@@ -45,6 +44,7 @@ import uuid
 
 from qorqut import account_state, agent_cli_launch
 from qorqut_operations.contracts import DomainError
+from qorqut_system import locks
 
 from . import account_errors
 from . import clients as table
@@ -671,19 +671,19 @@ class ManagedRuntime:
         """One spawn at a time per agent, across processes: a non-blocking exclusive lock; yields whether this caller holds it."""
         folder = self._state_dir(agent_id)
         folder.mkdir(parents=True, exist_ok=True, mode=0o700)
-        descriptor = os.open(folder / "lifecycle.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        handle = locks.open_lock(folder, "lifecycle.lock", mode=0o600)
         held = False
         try:
             try:
-                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                handle.acquire(wait=False)
                 held = True
             except BlockingIOError:
                 pass
             yield held
         finally:
             if held:
-                fcntl.flock(descriptor, fcntl.LOCK_UN)
-            os.close(descriptor)
+                handle.release()
+            handle.close()
 
     def _resume_id(self, agent_id, new_conversation=False, client=table.CLAUDE):
         """The conversation to resume, or None for a fresh start. A fresh start is only ever ``new_conversation`` (the owner chose

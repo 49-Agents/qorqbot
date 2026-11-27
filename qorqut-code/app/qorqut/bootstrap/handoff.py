@@ -5,16 +5,15 @@ is input to the trusted hook, never authority for an operation or another owner.
 """
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
-import os
 from pathlib import Path
 import socket
 import time
 import uuid
 
 from qorqut_operations.errors import DomainError
+from qorqut_system import locks
 from qorqut.installation import installation_config
 from .client import path_has_symlink, write_json_private
 from .recovery import locked
@@ -40,17 +39,17 @@ def read(path):
 def running(root):
     path = root / 'state' / f'supervisor-{socket.gethostname()}.lock'
     try:
-        descriptor = os.open(path, os.O_RDWR | os.O_NOFOLLOW)
+        handle = locks.open_lock(path.parent, path.name, create=False, write=True)
     except FileNotFoundError:
         return False
     try:
         try:
-            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            handle.acquire(wait=False)
         except BlockingIOError:
             return True
         return False
     finally:
-        os.close(descriptor)
+        handle.close()
 
 
 def result_path(root, item):

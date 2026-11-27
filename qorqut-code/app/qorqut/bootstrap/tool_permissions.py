@@ -1,16 +1,15 @@
 """The native Claude permission projection, independent of unrelated service tools."""
 
 from contextlib import contextmanager
-import fcntl
 import hashlib
 import json
-import os
 from pathlib import Path
 import time
 
 from qorqut.catalog.packages import content_hash, files_digest
 from qorqut_operations.contracts import DomainError, canonical_hash
 from qorqut_operations.storage import safe_io
+from qorqut_system import locks
 
 PREFIX = "mcp__qorqut__"
 SETTINGS = ".claude/settings.json"
@@ -61,12 +60,12 @@ def preparation_lock(paths, principal_id):
     """Serialize bootstrap repair with full preparation across host processes."""
     name = hashlib.sha256(principal_id.encode()).hexdigest() + ".lock"
     with safe_io.directory(paths.locks / "preparation", create=True) as parent:
-        descriptor = os.open(name, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=parent)
+        handle = locks.open_lock(parent, name, mode=0o600)
     try:
         deadline = time.monotonic() + 5
         while True:
             try:
-                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                handle.acquire(wait=False)
                 break
             except BlockingIOError:
                 if time.monotonic() >= deadline:
@@ -74,7 +73,7 @@ def preparation_lock(paths, principal_id):
                 time.sleep(0.01)
         yield
     finally:
-        os.close(descriptor)
+        handle.close()
 
 
 def refresh(resolver, principal, config, registration_id):

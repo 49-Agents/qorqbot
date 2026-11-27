@@ -17,20 +17,9 @@
     "qorqut-agentic/src/qorqut_agentic/runtime.py": {
       "process_control": 3
     },
-    "qorqut-agentic/src/qorqut_agentic/store.py": {
-      "file_lock": 2,
-      "permission_bits": 2,
-      "safe_file_access": 1,
-      "system_module": 1
-    },
     "qorqut-agentic/src/qorqut_agentic/tools.py": {
       "platform_check": 3,
       "proc_read": 3
-    },
-    "qorqut-code/app/qorqut/account.py": {
-      "file_lock": 1,
-      "permission_bits": 1,
-      "system_module": 1
     },
     "qorqut-code/app/qorqut/agent_cli_install.py": {
       "link": 3,
@@ -44,18 +33,6 @@
     "qorqut-code/app/qorqut/agent_cli_sign_in.py": {
       "platform_check": 5,
       "process_control": 8
-    },
-    "qorqut-code/app/qorqut/agent_trust.py": {
-      "file_lock": 1,
-      "owner_check": 1,
-      "permission_bits": 1,
-      "system_module": 1
-    },
-    "qorqut-code/app/qorqut/agentic/attention.py": {
-      "file_lock": 2,
-      "permission_bits": 3,
-      "safe_file_access": 13,
-      "system_module": 1
     },
     "qorqut-code/app/qorqut/agentic/copy_identity.py": {
       "owner_check": 2
@@ -131,11 +108,6 @@
     "qorqut-code/app/qorqut/agents/attention_delivery.py": {
       "permission_bits": 1
     },
-    "qorqut-code/app/qorqut/attention_queue.py": {
-      "file_lock": 1,
-      "safe_file_access": 1,
-      "system_module": 1
-    },
     "qorqut-code/app/qorqut/background/backups.py": {
       "safe_file_access": 1
     },
@@ -155,12 +127,6 @@
     "qorqut-code/app/qorqut/bootstrap/bridge_binding.py": {
       "platform_check": 1
     },
-    "qorqut-code/app/qorqut/bootstrap/browser.py": {
-      "file_lock": 1,
-      "permission_bits": 2,
-      "safe_file_access": 2,
-      "system_module": 1
-    },
     "qorqut-code/app/qorqut/bootstrap/client.py": {
       "permission_bits": 1
     },
@@ -179,11 +145,6 @@
     },
     "qorqut-code/app/qorqut/bootstrap/extension_tables.py": {
       "link": 1
-    },
-    "qorqut-code/app/qorqut/bootstrap/handoff.py": {
-      "file_lock": 1,
-      "safe_file_access": 1,
-      "system_module": 1
     },
     "qorqut-code/app/qorqut/bootstrap/history_repository.py": {
       "owner_check": 2,
@@ -205,11 +166,6 @@
       "permission_bits": 1,
       "shell_script": 7
     },
-    "qorqut-code/app/qorqut/bootstrap/recovery.py": {
-      "file_lock": 1,
-      "safe_file_access": 1,
-      "system_module": 1
-    },
     "qorqut-code/app/qorqut/bootstrap/supervisor.py": {
       "file_lock": 2,
       "platform_check": 1,
@@ -221,11 +177,6 @@
     "qorqut-code/app/qorqut/bootstrap/terminal_chat.py": {
       "platform_check": 3,
       "proc_read": 2
-    },
-    "qorqut-code/app/qorqut/bootstrap/tool_permissions.py": {
-      "file_lock": 1,
-      "safe_file_access": 2,
-      "system_module": 1
     },
     "qorqut-code/app/qorqut/browser/agent_browsers.py": {
       "file_lock": 3,
@@ -244,11 +195,6 @@
       "permission_bits": 2,
       "platform_check": 2,
       "process_control": 7,
-      "safe_file_access": 1,
-      "system_module": 1
-    },
-    "qorqut-code/app/qorqut/browser/captcha.py": {
-      "file_lock": 1,
       "safe_file_access": 1,
       "system_module": 1
     },
@@ -282,36 +228,17 @@
     "qorqut-code/app/qorqut/calendar/operations.py": {
       "permission_bits": 1
     },
-    "qorqut-code/app/qorqut/calendar/preferences.py": {
-      "file_lock": 2,
-      "owner_check": 4,
-      "permission_bits": 2,
-      "safe_file_access": 13,
-      "system_module": 1
-    },
     "qorqut-code/app/qorqut/catalog/packages.py": {
       "permission_bits": 1
     },
     "qorqut-code/app/qorqut/connectors.py": {
       "proc_read": 1
     },
-    "qorqut-code/app/qorqut/dashboard_preferences.py": {
-      "file_lock": 4,
-      "safe_file_access": 3,
-      "system_module": 1
-    },
     "qorqut-code/app/qorqut/extension_contract.py": {
       "permission_bits": 1
     },
     "qorqut-code/app/qorqut/file_viewer/files.py": {
       "safe_file_access": 7
-    },
-    "qorqut-code/app/qorqut/focus_layout_preferences.py": {
-      "file_lock": 2,
-      "owner_check": 4,
-      "permission_bits": 2,
-      "safe_file_access": 13,
-      "system_module": 1
     },
     "qorqut-code/app/qorqut/installation.py": {
       "safe_file_access": 1
@@ -337,11 +264,6 @@
       "process_control": 3,
       "safe_file_access": 1,
       "service_manager": 7
-    },
-    "qorqut-code/app/qorqut/managed_runtime/manager.py": {
-      "file_lock": 2,
-      "safe_file_access": 1,
-      "system_module": 1
     },
     "qorqut-code/app/qorqut/managed_runtime/model_catalog.py": {
       "process_control": 3

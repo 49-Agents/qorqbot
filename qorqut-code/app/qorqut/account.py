@@ -19,12 +19,10 @@ An owner who has already signed in keeps working offline, because the saved toke
 """
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 from pathlib import Path
 import re
-import tempfile
 import threading
 import time
 import urllib.error
@@ -32,6 +30,7 @@ import urllib.request
 import uuid
 
 from qorqut_operations.contracts import DomainError, utc_now
+from qorqut_system import locks, private_files
 
 ACCOUNT_FILE = "account.json"
 DEFAULT_API = "https://api.qorqbot.com"
@@ -92,18 +91,9 @@ def _write(runtime_directory, saved: dict) -> None:
     file = path(runtime_directory)
     file.parent.mkdir(parents=True, exist_ok=True)
     with file.with_suffix(".lock").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        fd, temporary = tempfile.mkstemp(dir=file.parent, prefix=".account-")
-        try:
-            os.fchmod(fd, 0o600)
-            with os.fdopen(fd, "w") as stream:
-                json.dump(saved, stream)
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(temporary, file)
-        finally:
-            if os.path.exists(temporary):
-                os.unlink(temporary)
+        with locks.held(lock):
+            private_files.replace_entry(file.parent, file.name, json.dumps(saved).encode(), mode=0o600,
+                                        prefix=".account-")
 
 
 def install_id(runtime_directory) -> str:

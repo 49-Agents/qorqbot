@@ -7,15 +7,16 @@ IMMEDIATE`` so concurrent processes serialize cleanly.
 
 from __future__ import annotations
 
-import fcntl
 import os
 import sqlite3
-import stat
 import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
+
+from qorqut_system import locks, private_files
+from qorqut_system.errors import PrivateFileError
 
 from .errors import AgenticError, StoreError
 
@@ -47,7 +48,7 @@ def _locks_after_fork():
     # description; never use flock(LOCK_UN) from the child.
     for owner in _LOCK_REGISTRY.values():
         try:
-            os.close(owner['fd'])
+            owner['lock'].close()
         except OSError:
             pass
     _LOCK_REGISTRY = {}
@@ -337,7 +338,7 @@ class Store:
 
     def create(self, root_path: str, initialized_at: str, instance_id: str) -> None:
         self.state_dir.mkdir(parents=True, exist_ok=True)
-        os.chmod(self.state_dir, 0o700)
+        private_files.set_private(self.state_dir, mode=0o700)
         self.scratch_dir.mkdir(exist_ok=True)
         conn = self.connect(create=True)
         try:
@@ -459,28 +460,22 @@ class Store:
     def lock(self, *, exclusive: bool, timeout: float = LOCK_TIMEOUT_SECONDS) -> Iterator[None]:
         """Cross-process flock with same-thread, same-inode nested ownership."""
         global _AUTHORING_GENERATION
-        fd = None
         try:
-            fd = os.open(self.lock_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
-            opened = os.fstat(fd)
-            named = os.stat(self.lock_path, follow_symlinks=False)
-            if not stat.S_ISREG(opened.st_mode) or (opened.st_dev, opened.st_ino) != (named.st_dev, named.st_ino):
-                raise OSError('lock-file identity changed')
-        except OSError as exc:
-            if fd is not None:
-                os.close(fd)
+            opened = locks.open_lock(self.lock_path.parent, self.lock_path.name, create=False, write=False,
+                                     regular=True, verify=True)
+        except (OSError, PrivateFileError) as exc:
             raise StoreError('the initialized authoring lock is missing or unusable; open does not repair state',
                              details={'path': str(self.lock_path)}) from exc
-        key = (os.getpid(), threading.get_ident(), opened.st_dev, opened.st_ino)
+        key = (os.getpid(), threading.get_ident(), *opened.identity)
         with _LOCK_REGISTRY_MUTEX:
             owner = _LOCK_REGISTRY.get(key)
             path = os.path.abspath(self.lock_path)
             if owner is None and any(existing[0] == key[0] and existing[1] == key[1] and value['path'] == path
                                      for existing, value in _LOCK_REGISTRY.items()):
-                os.close(fd)
+                opened.close()
                 raise StoreError('the authoring lock identity changed while held', code='state_mismatch')
             if owner is not None:
-                os.close(fd)
+                opened.close()
                 if exclusive and not owner['exclusive']:
                     raise AgenticError('shared authoring lock cannot be upgraded', code='state_conflict')
                 owner['depth'] += 1
@@ -493,21 +488,21 @@ class Store:
             return
         try:
             deadline = time.monotonic() + timeout
-            flag = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
             while True:
                 try:
-                    fcntl.flock(fd, flag | fcntl.LOCK_NB)
+                    opened.acquire(exclusive=exclusive, wait=False)
                     break
                 except BlockingIOError:
                     if time.monotonic() >= deadline:
                         raise AgenticError('could not acquire the authoring lock in time', code='lock_timeout',
                                            details={'timeout_seconds': timeout}) from None
                     time.sleep(0.01)
-            named = os.stat(self.lock_path, follow_symlinks=False)
-            if (opened.st_dev, opened.st_ino) != (named.st_dev, named.st_ino):
-                raise StoreError('the authoring lock identity changed during acquisition', code='state_mismatch')
+            try:
+                opened.verify()
+            except PrivateFileError as exc:
+                raise StoreError('the authoring lock identity changed during acquisition', code='state_mismatch') from exc
             with _LOCK_REGISTRY_MUTEX:
-                _LOCK_REGISTRY[key] = {'fd': fd, 'exclusive': exclusive, 'depth': 1, 'path': path}
+                _LOCK_REGISTRY[key] = {'lock': opened, 'exclusive': exclusive, 'depth': 1, 'path': path}
             try:
                 yield
             finally:
@@ -516,6 +511,6 @@ class Store:
                     if exclusive:
                         # Before the unlock, so a reader that starts after the release already sees it moved.
                         _AUTHORING_GENERATION += 1
-                fcntl.flock(fd, fcntl.LOCK_UN)
+                opened.release()
         finally:
-            os.close(fd)
+            opened.close()

@@ -1,18 +1,18 @@
 """Private, registration-scoped workflow synchronization receipts."""
 from contextlib import contextmanager
-import fcntl
 import hashlib
 import hmac
 import json
-import os
+import stat
 from pathlib import Path
 import secrets
 import sqlite3
-import stat
 
 from qorqut_agentic.errors import AgenticError, InvalidRequestError
 from qorqut_agentic.util import check_operation_id
 from qorqut_operations.storage import safe_io
+from qorqut_system import locks, private_files
+from qorqut_system.errors import PrivateFileError
 
 
 def binding(registration):
@@ -39,17 +39,17 @@ def receipt(registration, instance_id, actor_id, operation_id):
     key = fingerprint([instance_id, actor_id, operation_id])
     root = Path(registration['workspace']) / '.qorqut/workflow-attention'
     with safe_io.directory(root, create=True) as directory:
-        if os.fstat(directory).st_mode & 0o077:
+        if not private_files.is_private(private_files.stat_folder(directory)):
             raise AgenticError('Workflow receipt directory is not private', code='access_unavailable')
-        descriptor = os.open(key + '.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=directory)
+        handle = locks.open_lock(directory, key + '.lock')
         try:
-            info = os.fstat(descriptor)
-            if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077:
+            info = private_files.stat_folder(handle.descriptor)
+            if not stat.S_ISREG(info.st_mode) or not private_files.is_private(info):
                 raise AgenticError('Workflow receipt lock is not private', code='access_unavailable')
-            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            handle.acquire()
             yield Receipt(directory, key + '.json')
         finally:
-            os.close(descriptor)
+            handle.close()
 
 
 class Receipt:
@@ -71,21 +71,8 @@ class Receipt:
         data = json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
         if len(data) > 262144:
             raise InvalidRequestError('Workflow synchronization receipt exceeds its limit')
-        temporary = '.workflow-' + secrets.token_hex(16)
-        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
-                     0o600, dir_fd=self.directory)
-        try:
-            with os.fdopen(fd, 'wb') as stream:
-                stream.write(data)
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(temporary, self.name, src_dir_fd=self.directory, dst_dir_fd=self.directory)
-            os.fsync(self.directory)
-        finally:
-            try:
-                os.unlink(temporary, dir_fd=self.directory)
-            except FileNotFoundError:
-                pass
+        private_files.replace_entry(self.directory, self.name, data, mode=0o600, prefix='.workflow-', chmod=False)
+        private_files.sync_folder(self.directory)
 
 # Host-side operations: the engine remains the only authority for run controls.
 from dataclasses import replace
@@ -123,27 +110,24 @@ _CONTEXT_ENVELOPE = schema({'version': {'const': 1}, 'payload': schema(_CONTEXT_
 def signing_key(directory):
     """Create or read the independent host key without following symlinks."""
     with safe_io.directory(directory, create=True) as parent:
-        lock = os.open('attention-workflow-context.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC,
-                       0o600, dir_fd=parent)
+        handle = locks.open_lock(parent, 'attention-workflow-context.lock')
         try:
-            if not stat.S_ISREG(os.fstat(lock).st_mode) or os.fstat(lock).st_mode & 0o077:
+            info = private_files.stat_folder(handle.descriptor)
+            if not stat.S_ISREG(info.st_mode) or not private_files.is_private(info):
                 raise DomainError('authority_invalid', 'Workflow context key lock is not private')
-            fcntl.flock(lock, fcntl.LOCK_EX)
+            handle.acquire()
             try:
-                fd = os.open('attention-workflow-context.key', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
-                             0o600, dir_fd=parent)
+                private_files.create_entry(parent, 'attention-workflow-context.key', secrets.token_bytes(48),
+                                           mode=0o600)
+                private_files.sync_folder(parent)
             except FileExistsError:
-                fd = None
-            if fd is not None:
-                with os.fdopen(fd, 'wb') as stream:
-                    stream.write(secrets.token_bytes(48)); stream.flush(); os.fsync(stream.fileno())
-                os.fsync(parent)
+                pass
             value = safe_io._read(parent, 'attention-workflow-context.key', limit=4096, private=True)
             if len(value) < 32:
                 raise DomainError('authority_invalid', 'Workflow context signing material is invalid')
             return value
         finally:
-            os.close(lock)
+            handle.close()
 
 
 def sign_context(key, payload):
