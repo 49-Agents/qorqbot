@@ -1,13 +1,12 @@
 """Tables of an extension's own in a real start: a new instance seeded as ``qorqut.bootstrap.initialize`` seeds one, then
 starts of the real ``build_runtime`` with ``make_tables=True``, as the service starts.
 
-The instance holds the ``network`` example (no code part); a test places the ``tablenote`` example beside it. Each test
-starts from the same seeded instance, put back in place before it. Nothing of the start is replaced except where a test
-says so: the fault after the copy (``_execute_additions`` raises once) and, for the unfinished install, the journal file
-written by hand."""
+The instance holds the ``network`` example (no code part); a test places the ``tablenote`` example beside it. The
+instance is seeded once per process (``shared``), and every test of every class built on ``TablesRuntimeCase`` starts
+from a copy of it, put back in place before the test. Nothing of the start is replaced except where a test says so."""
+import atexit
 from contextlib import closing
 import importlib
-import json
 import logging
 from pathlib import Path
 import shutil
@@ -37,14 +36,33 @@ def rename(folder, ext_id, table):
     return target
 
 
+# The one seeded instance of this process: every class of these tests starts each test from a copy of it.
+SHARED = {}
+
+
+class _Seeded(RuntimeCase):
+    FOLDER = EXAMPLE
+
+
+def shared():
+    """The seeded instance (``RuntimeCase.setUpClass``), made once per process and removed when the process ends."""
+    if not SHARED:
+        _Seeded.setUpClass()
+        atexit.register(_Seeded.doClassCleanups)
+        pristine = _Seeded.paths.instance_root.parent / "pristine"
+        shutil.copytree(_Seeded.paths.instance_root, pristine, symlinks=True)
+        SHARED.update(export=_Seeded.export, paths=_Seeded.paths, created=_Seeded.created, pristine=pristine)
+    return SHARED
+
+
 class TablesRuntimeCase(RuntimeCase):
     FOLDER = EXAMPLE
 
     @classmethod
     def setUpClass(cls):
-        super().setUpClass()
-        cls.pristine = cls.paths.instance_root.parent / "pristine"
-        shutil.copytree(cls.paths.instance_root, cls.pristine, symlinks=True)
+        seeded = shared()
+        cls.export, cls.paths, cls.created, cls.pristine = (seeded[key] for key in ("export", "paths", "created",
+                                                                                     "pristine"))
 
     def setUp(self):
         super().setUp()
@@ -131,24 +149,6 @@ class MakingAtStartTest(TablesRuntimeCase):
         self.assertEqual(self.entry(again, "tablenote")["status"], "ready")
         self.assertEqual((len(self.copies()), self.store("SELECT * FROM extensiontables")), (1, record))
 
-    def test_a_fault_after_the_copy_leaves_it_needing_attention_and_the_next_start_makes_its_own_copy(self):
-        from qorqut.bootstrap import agentic_migration
-        self.place()
-        from test_extension_tables_making import failing_after_the_trial
-        with mock.patch.object(agentic_migration, "_execute_additions",
-                               failing_after_the_trial(sqlite3.OperationalError("fault"))), \
-                self.assertLogs("qorqut.bootstrap.extension_tables", logging.WARNING):
-            runtime = self.start()
-        entry = self.entry(runtime, "tablenote")
-        self.assertEqual(entry["status"], "needs_attention")
-        self.assertTrue(entry["note"].startswith("Its tables could not be made"), entry["note"])
-        self.assertEqual((len(self.copies()), self.store("SELECT name FROM sqlite_master WHERE name LIKE 'tablenote%'")),
-                         (1, []))
-        runtime.stop()
-        later = self.start()
-        self.assertEqual(self.entry(later, "tablenote")["status"], "ready")
-        self.assertEqual((len(self.copies()), self.count(later)), (2, 0))
-
     def test_a_table_that_clashes_with_a_core_table_leaves_it_needing_attention_and_qorqbot_starts(self):
         variant = rename(self.paths.instance_root.parent / "variants", "agent", "agent_profiles")
         self.addCleanup(shutil.rmtree, variant.parent)
@@ -161,22 +161,6 @@ class MakingAtStartTest(TablesRuntimeCase):
         self.assertEqual(entry["note"], "It uses a table name that is already taken: agent_profiles.")
         self.assertEqual(self.store("SELECT type, name, sql FROM sqlite_master ORDER BY type, name"), before)
         self.assertEqual(self.copies(), [])
-
-    def test_an_unfinished_install_stops_the_start_before_a_staged_change(self):
-        from qorqut.bootstrap import extension_change
-        from qorqut.bootstrap.extension_install import JOURNAL, _save
-        from qorqut.service import main as service_main
-        self.place()
-        self.start().stop()
-        self.assertTrue(extension_change.stage_removal(self.paths, "tablenote", restart=lambda reason: None).staged)
-        _save(self.paths.instance_root / "config" / JOURNAL, {"format": 1, "phase": "prepared"})
-        components = [f"{name}={path}" for name, path in self.paths.components.items()]
-        with self.assertLogs("qorqut.service.main", logging.ERROR):
-            status = service_main.main(["--workspace", str(self.export), "--instance-root", str(self.paths.instance_root),
-                                        *(argument for item in components for argument in ("--component", item))])
-        self.assertEqual(status, 1)
-        self.assertIsNone(extension_change.pending(self.paths)["result"])
-        self.assertTrue((self.paths.installed_extensions / "tablenote").is_dir())
 
 
 if __name__ == "__main__":

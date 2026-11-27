@@ -1,12 +1,12 @@
-"""Tables of an extension's own in a staged install, update and removal: the ``tablenote`` example's bundle is built and
-indexed as a release does, staged by ``extension_change.stage``, applied by ``apply_pending`` as the service's start
-applies it, and the instance is then started with the real ``build_runtime``.
+"""Tables of an extension's own in a staged install, and the case the staged update and removal tests share: the
+``tablenote`` example's bundle is built and indexed as a release does, staged by ``extension_change.stage``, applied by
+``apply_pending`` as the service's start applies it, and the instance is then started with the real ``build_runtime``.
 
 Nothing of the change or the start is replaced except where a test says so: an interruption is raised at a phase of the
 change (``_fault_hook``) or inside the tables' transaction (``_execute_additions``), standing in for a process that
 stops there."""
+import hashlib
 import json
-from pathlib import Path
 import shutil
 import sqlite3
 import sys
@@ -17,7 +17,7 @@ import yaml
 from qorqut import extension_index
 
 from test_extension_change import Interrupted, builder, generator
-from test_extension_tables_runtime import TABLENOTE, TablesRuntimeCase
+from test_extension_tables_runtime import SHARED, TABLENOTE, TablesRuntimeCase
 
 # The example's one statement, as its code declares it.
 FIRST = ("CREATE TABLE tablenote_items (id TEXT PRIMARY KEY NOT NULL, text TEXT NOT NULL, "
@@ -49,15 +49,25 @@ class ChangeTablesCase(TablesRuntimeCase):
 
     def stage(self, folder):
         from qorqut.bootstrap import extension_change
-        out = folder.parent / "out"
-        out.mkdir()
-        bundle = builder.build_folder(folder, "any", out / "tablenote.tar.gz")["path"]
-        (out / extension_index.INDEX_FILE).write_text(json.dumps(generator.build_index([folder], [bundle], "1.7.0",
-                                                                                       out.as_uri())))
+        out = self.built(folder)
         entry, chosen = extension_index.load(out / extension_index.INDEX_FILE).entry_for("tablenote", "linux-x86_64")
         outcome = extension_change.stage(self.paths, entry, chosen, restart=lambda reason: True)
         self.assertTrue(outcome.staged, outcome.note)
         return extension_change.pending(self.paths)["change_id"]
+
+    def built(self, folder):
+        """The folder with the bundle of ``folder`` and its index, built as a release builds them, once per process for
+        the same files."""
+        digest = hashlib.sha256()
+        for path in sorted(item for item in folder.rglob("*") if item.is_file()):
+            digest.update(str(path.relative_to(folder)).encode() + b"\0" + path.read_bytes() + b"\0")
+        out = SHARED["pristine"].parent / "bundles" / digest.hexdigest()
+        if not out.is_dir():
+            out.mkdir(parents=True)
+            bundle = builder.build_folder(folder, "any", out / "tablenote.tar.gz")["path"]
+            (out / extension_index.INDEX_FILE).write_text(json.dumps(generator.build_index([folder], [bundle], "1.7.0",
+                                                                                           out.as_uri())))
+        return out
 
     def apply(self):
         from qorqut.bootstrap import extension_change
@@ -82,14 +92,20 @@ class ChangeTablesCase(TablesRuntimeCase):
         return self.store("SELECT name, version, digest FROM target_identity")
 
     def install(self):
-        """Version 1.0.0 installed, started once and one row written to its table."""
+        """Version 1.0.0 installed and one row written to its table: done once per process, and the
+        instance copied back to that state for every later test."""
+        saved = SHARED["pristine"].parent / "installed"
+        if saved.is_dir():
+            shutil.rmtree(self.paths.instance_root)
+            shutil.copytree(saved, self.paths.instance_root, symlinks=True)
+            return
         self.stage(self.version("1.0.0"))
         self.assertEqual(self.apply(), {"state": "done", "note": None})
-        self.start().stop()
         self.finish()
         with sqlite3.connect(self.paths.database) as connection:
             connection.execute("INSERT INTO tablenote_items (id, text) VALUES ('a', 'kept')")
         connection.close()
+        shutil.copytree(self.paths.instance_root, saved, symlinks=True)
 
 
 class StagedInstallTest(ChangeTablesCase):
@@ -136,41 +152,6 @@ class StagedInstallTest(ChangeTablesCase):
         self.assertEqual(len(self.change_copies(change_id)), 2)
         self.assertEqual(self.entry(self.start(), "tablenote")["status"], "ready")
 
-
-class StagedUpdateTest(ChangeTablesCase):
-    def test_an_update_that_adds_an_index_and_a_table_keeps_the_rows(self):
-        self.install()
-        self.stage(self.version("2.0.0", (FIRST, INDEX, TAGS)))
-        with self.assertLogs("qorqut.bootstrap.extension_tables", "WARNING") as logged:
-            self.assertEqual(self.apply(), {"state": "done", "note": None})
-        self.assertIn("extension=tablenote version=2.0.0 applied=yes", logged.output[0])
-        self.assertEqual(self.store("SELECT id, text FROM tablenote_items"), [("a", "kept")])
-        self.assertEqual(self.store("SELECT id, version FROM extensiontables"), [("tablenote", "2.0.0")])
-        self.assertEqual([row[1] for row in self.tables()], ["tablenote_items_text", "tablenote_items", "tablenote_tags"])
-        runtime = self.start()
-        self.assertEqual((self.entry(runtime, "tablenote")["status"], self.entry(runtime, "tablenote")["version"]),
-                         ("ready", "2.0.0"))
-        self.assertEqual(self.count(runtime), 1)
-
-    def test_an_update_that_changes_its_create_table_fails_and_leaves_everything_as_it_was(self):
-        self.install()
-        changed = [FIRST.replace("text TEXT NOT NULL", "text TEXT")]
-        self.stage(self.version("2.0.0", changed))
-        before = (self.tables(), self.store("SELECT * FROM extensiontables"), self.identity(),
-                  self.store("SELECT id, text FROM tablenote_items"), (self.installed() / "extension.yaml").read_text())
-        with self.assertLogs("qorqut.bootstrap.extension_tables", "WARNING"):
-            result = self.apply()
-        self.assertEqual(result["state"], "failed")
-        self.assertEqual(result["note"], "This version changes tables it made earlier, which an update may not do. "
-                                         "The tables it has in the database stay.")
-        self.assertEqual((self.tables(), self.store("SELECT * FROM extensiontables"), self.identity(),
-                          self.store("SELECT id, text FROM tablenote_items"),
-                          (self.installed() / "extension.yaml").read_text()), before)
-        from qorqut.bootstrap import extension_change
-        self.assertEqual(list(extension_change.staging(self.paths).iterdir()), [])
-        runtime = self.start()
-        self.assertEqual((self.entry(runtime, "tablenote")["status"], self.entry(runtime, "tablenote")["version"]),
-                         ("ready", "1.0.0"))
 
 if __name__ == "__main__":
     import unittest

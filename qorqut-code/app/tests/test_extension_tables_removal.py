@@ -32,7 +32,7 @@ class RemovalKeepsTest(ChangeTablesCase):
         self.assertEqual(self.store("SELECT id, text FROM tablenote_items"), [("a", "kept")])
         runtime.stop()
         # Installed again: nothing is made, and its tool counts the row it wrote before.
-        shutil.rmtree(self.release / "1.0.0")  # the same bundle, built again
+        shutil.rmtree(self.release / "1.0.0", ignore_errors=True)  # the same bundle again
         change_id = self.stage(self.version("1.0.0"))
         from qorqut.composition import extension_tables
         with mock.patch.object(extension_tables, "judge", wraps=extension_tables.judge) as judged:
