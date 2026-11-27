@@ -48,7 +48,7 @@ async function renderSettings(c) {
   const body = {
     connections: `<div class="st-block" data-search="connections browser websites extensions openrouter voice input microphone treg whatsapp" data-connectors-slot></div>`,
     agents: `${global ? settingsGroup('Agent sessions', '<div class="st-rows" data-agent-mode></div>') : ''}
-      ${settingsGroup('Clients', `<div class="st-rows" data-agent-clients></div>${global ? '<div class="st-rows" data-agent-extras></div>' : ''}`)}
+      ${settingsGroup('Clients', `<div class="st-rows" data-agent-clients></div>${global ? '<div class="st-rows" data-claude-folder></div><div class="st-rows" data-agent-extras></div>' : ''}`)}
       <div class="record-section" data-search="agents model provider account switch client effort claude codex"><div class="record-section-head"><h4>Client, model and effort</h4></div>
         <p class="st-help">What each agent runs on. Leave a field empty to use the default.</p><div data-agent-options></div></div>
       ${global ? settingsGroup('Experimental', settingsRow({label: 'Testing mode', keywords: 'testing overseer global agent roster chat workspace experimental',
@@ -206,7 +206,7 @@ async function renderSettings(c) {
   });
   if (global) {
     connectorsPanel.mount(pane.querySelector('[data-connectors-slot]'), {compact: true, rows: true});
-    paintAgentMode(pane); paintAgentClients(pane); void paintAgentOptions(pane); void paintAbout(pane);
+    paintAgentMode(pane); paintAgentClients(pane); paintClaudeFolder(pane); void paintAgentOptions(pane); void paintAbout(pane);
   }
   pane.querySelector("#envsave").onclick = () => saveEnv(p);
   pane.querySelector("#envadd").onclick = () => {
@@ -294,6 +294,13 @@ function paintAgentClients(pane) {
   const host = pane.querySelector('[data-agent-clients]'); if (!host) return;
   const panel = agentClients.mount(host);
   panel.root.addEventListener('agent-clients-painted', () => pane.dispatchEvent(new Event('settings-painted')));
+}
+
+// Model/Provider section: the Claude Code folder every agent runs with, and restarting Claude agents with it (js/claude-folder.js).
+function paintClaudeFolder(pane) {
+  const host = pane.querySelector('[data-claude-folder]'); if (!host || typeof claudeFolder === 'undefined') return;
+  const panel = claudeFolder.mount(host, {toast});
+  panel.root.addEventListener('claude-folder-painted', () => pane.dispatchEvent(new Event('settings-painted')));
 }
 
 // One row per agent: client, model and effort (js/agent-options.js). The agent list is the one the agents menu shows.
