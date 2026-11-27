@@ -101,7 +101,9 @@
 .agfocus-review-open .sg .sg-asks .sg-question-notes{margin-top:8px}
 /* Every Signoff's comment line looks like the approve/reject one: one line, a left bar, growing as the owner types. */
 .agfocus-review-open .sg .sg-detail-footer .sg-feedback,.agfocus-review-open .sg .sg-question .sg-question-notes{min-height:36px;padding:7px 10px;line-height:20px;resize:none}
-.agfocus-review-open .sg .sg-asks .sg-actions .sg-approve{min-height:44px;height:44px;padding:0 22px;background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-size:14px;font-weight:600}
+/* Every answer button of an ask is one size; only the primary one is filled. */
+.agfocus-review-open .sg .sg-asks .sg-actions button{min-height:44px;height:44px;padding:0 22px;font-size:14px}
+.agfocus-review-open .sg .sg-asks .sg-actions .sg-approve{background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-weight:600}
 .agfocus-review-open .sg-focus.sg-single .sg-urgent:has(.sg-asks) > h2{display:none}
 .agfocus-review-open .sg .sg-asks .sg-attention-meta .sg-notice{margin:0 0 6px;color:var(--warn);font-size:12px}
 /* Every queue symbol is full white, as bright as a request's open circle (an open Task's state). */
