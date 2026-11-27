@@ -187,7 +187,10 @@ const connectorsPanel = (() => {
       </section>`;
     container.appendChild(root);
     let view = null, browserView = null, browserTimer = 0, browserChecks = 0;
-    let accountsView = null, accountsTimer = 0, waTimer = 0, waVersion = 0, restartTimer = 0;
+    let accountsView = null, accountsTimer = 0, waTimer = 0, waVersion = 0, restartTimer = 0, loadTimer = 0;
+    // A request that got no answer from Qorqbot at all, as opposed to one it answered with a refusal.
+    const unreached = failure => !failure?.code || failure.code === 'network_unavailable' || failure.code === 'invalid_response'
+      || failure.httpStatus >= 500;
     const SIGN_IN_STATUS = {true: ['Session saved', 'ok'], false: ['No session', 'warn'], null: ['Status unavailable while the browser is off', '']};
     function paintAccounts() {
       const section = root.querySelector('[data-cx-accounts]'), rows = accountsView?.sites;
@@ -214,7 +217,11 @@ const connectorsPanel = (() => {
         accountsView = next; accountsError(''); paintAccounts();
         return true;
       } catch (failure) {
-        if (live()) accountsError(failure.message || 'Website sign-ins could not be loaded.');
+        if (live()) {
+          accountsError(failure.message || 'Website sign-ins could not be loaded.');
+          // The list keeps being read, so the sentence goes once Qorqbot answers again (after a restart, say).
+          if (!change) { clearTimeout(accountsTimer); accountsTimer = setTimeout(loadAccounts, 5000); }
+        }
         return false;
       }
     }
@@ -301,10 +308,10 @@ const connectorsPanel = (() => {
     // restarting) the card says so and the list is read again until Qorqbot answers.
     function cardFailure(id, failure, fallback) {
       if (!live() || !view) return;
-      const unreached = !failure?.code || failure.code === 'network_unavailable' || failure.code === 'invalid_response' || failure.httpStatus >= 500;
-      const text = unreached ? extensionCards.UNREACHED : failure.message || fallback;
+      const none = unreached(failure);
+      const text = none ? extensionCards.UNREACHED : failure.message || fallback;
       view.connectors = view.connectors.map(item => item.kind === 'contract' && item.id === id
-        ? {...item, result: text, failed: true, unreached} : item);
+        ? {...item, result: text, failed: true, unreached: none} : item);
       paint();
     }
     // WhatsApp's own setup state replaces the card's entry: {state, note, qr, send_ready} from its route.
@@ -341,7 +348,12 @@ const connectorsPanel = (() => {
         view = coreData(await api('/root/connectors'));
         if (!live()) return;
         error(''); paint();
-      } catch (failure) { if (live()) error(failure.message || 'Extensions could not be loaded.'); }
+      } catch (failure) {
+        if (!live()) return;
+        error(failure.message || 'Extensions could not be loaded.');
+        // No answer at all (Qorqbot stopping or restarting): read again until it answers, which clears the line.
+        if (unreached(failure)) { clearTimeout(loadTimer); loadTimer = setTimeout(load, 3000); }
+      }
     }
     // A contract extension's action: one POST to its connection route, answered with its entry as it is then.
     async function connection(id, body) {
@@ -454,7 +466,7 @@ const connectorsPanel = (() => {
     document.addEventListener('visibilitychange', focus);
     const watch = new MutationObserver(() => {
       if (live()) return;
-      clearTimeout(browserTimer); clearTimeout(accountsTimer); clearTimeout(waTimer); clearTimeout(restartTimer); watch.disconnect();
+      clearTimeout(browserTimer); clearTimeout(accountsTimer); clearTimeout(waTimer); clearTimeout(restartTimer); clearTimeout(loadTimer); watch.disconnect();
       window.removeEventListener('focus', focus); document.removeEventListener('visibilitychange', focus);
     });
     watch.observe(container.ownerDocument.body, {childList: true, subtree: true});

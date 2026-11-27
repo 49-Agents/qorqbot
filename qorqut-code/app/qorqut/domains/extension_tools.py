@@ -84,6 +84,7 @@ class ExtensionTools:
         self.machine, self.restart = machine, restart
         # The last change staged or applied for each extension in this process, in one sentence, for the owner's card.
         self.results = {}
+        self.failures = {}  # by id: whether the result in ``results`` says the change failed or cannot be used yet
 
     # -- registration --------------------------------------------------------------------------------------------------
 
@@ -325,7 +326,7 @@ class ExtensionTools:
         if not outcome.staged:
             raise _kind(DomainError("operation_failed", f"{name} was not {DONE_WORDS[action]}. {outcome.note}"),
                         outcome.kind)
-        self.results[ext_id] = outcome.note or RESTARTING
+        self.results[ext_id], self.failures[ext_id] = outcome.note or RESTARTING, False
         return self.results[ext_id]
 
     # -- results -------------------------------------------------------------------------------------------------------
@@ -371,6 +372,7 @@ class ExtensionTools:
             extra = f" It cannot be used yet: {found.note}"
         name = (found.name if found is not None else None) or applied["id"]
         self.results[applied["id"]] = result_sentence(name, applied) + extra
+        self.failures[applied["id"]] = applied["result"]["state"] == change.FAILED or bool(extra)
         if not applied.get("signoff_id"):
             return
         with self.app.database.read() as uow:
@@ -433,6 +435,7 @@ class ChangeProgram:
                             lambda name: f"{name} was not {DONE_WORDS[args['action']]}. {outcome.note}")
             raise DomainError("operation_failed", outcome.note)
         self.tools.results[args["extension"]] = outcome.note or RESTARTING
+        self.tools.failures[args["extension"]] = False
         if outcome.note:
             self.tools.tell(signoff_id, job["principal_id"], lambda name: outcome.note)
         return ProgramResult(data={"operation": operation, "staged": True})

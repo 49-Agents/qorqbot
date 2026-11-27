@@ -420,3 +420,45 @@ test('a refused change shows its sentence on the card, no answer says so and is 
     assert.equal(await card.locator('button, input').count(), 0);
   } finally { await browser.close(); }
 });
+
+test('lines saying Qorqbot does not answer go once it answers, and a change that failed at the start is a warning', {skip: !available && 'Playwright Chromium unavailable'}, async () => {
+  const browser = await chromium.launch({headless: true});
+  try {
+    const page = await browser.newPage({viewport: {width: 1120, height: 900}});
+    await page.setContent('<main id="panel"></main>');
+    await page.addStyleTag({path: path.join(__dirname, '../css/connectors.css')});
+    await page.evaluate(() => {
+      window.esc = value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
+      window.coreData = value => value;
+      const card = (id, result, failed) => ({id, kind: 'contract', name: id, summary: 'A test extension.', version: '1.0.0',
+        delivery: 'downloadable', status: 'ready', note: null, can_set_up: false, setup: {kind: 'none', fields: []}, agents: [],
+        offers: [{action: 'remove'}], result, failed, restarting: false});
+      window.down = true;
+      window.api = async url => {
+        if (window.down) { const failure = new Error("Qorqbot isn't responding."); failure.code = 'network_unavailable'; throw failure; }
+        if (url === '/root/browser-setup') return {kind: 'built_in', tool_installed: true, chrome_installed: true, ready: true, state: 'healthy', explanation: '', agents: []};
+        if (url === '/root/browser-accounts') return {sites: []};
+        return {platform: 'linux', clients: [], connectors: [
+          card('tablenote', 'Table Note was not updated. Its tables could not be made.', true),
+          card('network', 'Installed network 1.0.0. Qorqbot restarted.', false)]};
+      };
+      window.post = async () => { throw new Error('nothing is posted here'); };
+    });
+    await page.addScriptTag({path: path.join(__dirname, '../js/extension-cards.js')});
+    await page.addScriptTag({path: path.join(__dirname, '../js/connectors.js')});
+    await page.evaluate(() => connectorsPanel.mount(document.querySelector('#panel'), {rows: true}));
+    // Opened while Qorqbot restarts: the page and the website sign-ins say it does not answer.
+    await page.locator('[data-cx-error]').getByText("Qorqbot isn't responding.").waitFor();
+    // (The sign-ins line is checked by its text and its own hidden flag: its section waits for a first list.)
+    await page.waitForFunction(() => { const line = document.querySelector('[data-cx-accounts-error]');
+      return !line.hidden && line.textContent === "Qorqbot isn't responding."; });
+    // Back: both lines go by themselves, without a click or a focus.
+    await page.evaluate(() => { window.down = false; });
+    await page.locator('[data-cx-error]').waitFor({state: 'hidden', timeout: 10000});
+    await page.waitForFunction(() => document.querySelector('[data-cx-accounts-error]').hidden, null, {timeout: 10000});
+    const failed = page.locator('[data-cx-card="tablenote"] [data-ext-result]');
+    await failed.getByText('Table Note was not updated. Its tables could not be made.').waitFor();
+    assert.equal(await failed.getAttribute('data-tone'), 'warn');
+    assert.equal(await page.locator('[data-cx-card="network"] [data-ext-result]').getAttribute('data-tone'), 'info');
+  } finally { await browser.close(); }
+});

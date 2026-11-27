@@ -495,6 +495,25 @@ class OwnerCardTest(ToolsCase):
         self.assertFalse(private.exists())
         self.assertEqual(self.signoffs(), 0)
 
+    def test_a_change_that_fails_at_the_start_that_applies_it_is_marked_failed_on_the_card(self):
+        waiting = self.click(action="install", version="1.0.0")
+        self.assertEqual((waiting["result"], waiting["failed"]), (tools.RESTARTING, False))
+        # The staged folder is gone when the start comes: the change fails there, after the restart.
+        shutil.rmtree(change.staging(self.paths))
+        self.next_start()
+        after = self.card()
+        self.assertEqual((after["result"], after["failed"]),
+                         ("Network was not installed. The staged folder is gone, so nothing was changed.", True))
+        # Installed, but what the start found makes it unusable: a failure to the owner as well.
+        self.click(action="install", version="1.0.0")
+        self.next_start(shipped=lambda: frozenset({"qorqut-plugin-network"}))
+        after = self.card()
+        self.assertTrue(after["result"].startswith("Installed Network 1.0.0. Qorqbot restarted. It cannot be used yet:"))
+        self.assertTrue(after["failed"])
+        self.click(action="remove", delete_data=False)
+        self.next_start()
+        self.assertEqual((self.card()["result"], self.card()["failed"]), ("Removed Network. Qorqbot restarted.", False))
+
     def test_remove_keeps_the_data_unless_chosen(self):
         self.place()
         self.registry()
