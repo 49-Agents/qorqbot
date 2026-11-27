@@ -116,9 +116,10 @@ const voiceInput = (() => {
   const refresh = () => readStatus();
   const say = text => { if (typeof toast === 'function') toast(text); };
 
-  // options: {form, input, before, maxLength, onChange, insertText}. The button is inserted before `before` inside `form`;
+  // options: {form, input, before, maxLength, onChange, insertText, hotkeyFallback}. The button is inserted before `before` inside `form`;
   // `onChange` is called whenever the recording state changes. `insertText(text)`, for a field that is not a textarea (the
-  // Focus notes), puts the words in itself and returns whether it could.
+  // Focus notes), puts the words in itself and returns whether it could. `hotkeyFallback: false` leaves it out of the
+  // hotkey's choice unless it has the caret or is recording.
   function attach(options) {
     const {form, input} = options;
     const button = document.createElement('button');
@@ -207,7 +208,9 @@ const voiceInput = (() => {
         }
         // A send pressed during transcription is taken too.
         then = after || then;
-      } catch (failure) { then = null; if (!disposed) say(failure.message || 'Your words could not be turned into text. Try again.'); }
+      // The service's own sentence (OpenRouter's balance, a refused key) says what to do; the generic wording for a
+      // server-side refusal would not.
+      } catch (failure) { then = null; if (!disposed) say(failure.serverMessage || failure.message || 'Your words could not be turned into text. Try again.'); }
       after = null; transcribing = false;
       state = 'idle'; paint();
       if (!disposed && !input.disabled) input.focus();
@@ -264,6 +267,8 @@ const voiceInput = (() => {
       get input() { return input; },
       get usable() { return !disposed && !button.hidden && form.isConnected && form.getClientRects().length > 0; },
       get busy() { return state !== 'idle'; },
+      // Whether the hotkey falls back to this one when nothing is being typed in (the chat does; the Focus notes do not).
+      fallback: options.hotkeyFallback !== false,
     };
     controllers.add(controller);
     if (status) paint(); else void readStatus();
@@ -281,10 +286,10 @@ const voiceInput = (() => {
     };
   }
 
-  // The composer the hotkey acts on: one that is recording, else the one being typed in, else the last one on screen.
+  // The field the hotkey acts on: one that is recording, else the one being typed in, else the last chat on screen.
   function target() {
     const usable = [...controllers].filter(c => c.usable);
-    return usable.find(c => c.busy) || usable.find(c => c.input === document.activeElement) || usable.at(-1) || null;
+    return usable.find(c => c.busy) || usable.find(c => c.input === document.activeElement) || usable.filter(c => c.fallback).at(-1) || null;
   }
   if (typeof document !== 'undefined') {
     document.addEventListener('keydown', event => {
