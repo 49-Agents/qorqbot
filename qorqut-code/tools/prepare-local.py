@@ -91,7 +91,7 @@ _snapshot = importlib.util.module_from_spec(_spec)
 exec(compile(Path(_spec.origin).read_bytes(), _spec.origin, "exec"), _snapshot.__dict__)
 
 ENGINES = [("qorqut-agentic", "qorqut-agentic"), ("qorqut-operations", "qorqut-code/qorqut-operations"), ("qorqut-context", "qorqut-code/qorqut-context"),
-           ("document-history", "dependencies/document-history")]
+           ("qorqut-system", "qorqut-system"), ("document-history", "dependencies/document-history")]
 HOST = ("host", "qorqut-code/app")
 EMAIL_ENGINE = ("email-engine", "services/email-engine")
 FASTMAIL_BRIDGE = ("qorqut-fastmail", "extensions/qorqut-fastmail")
@@ -105,7 +105,7 @@ PAPER_SERVICE = ("paper-service", "services/paper-service")
 PAPER_BRIDGE = ("qorqut-paper", "extensions/qorqut-paper")
 CONTENT = [("content-library", "extensions/content-library"), ("qorqut-content", "extensions/qorqut-content")]
 
-REQUIRED = ["qorqut-agentic/pyproject.toml", "qorqut-code/app/pyproject.toml", "qorqut-code/app/service-constraints.txt", "qorqut-code/app/package-sources.json",
+REQUIRED = ["qorqut-agentic/pyproject.toml", "qorqut-system/pyproject.toml", "qorqut-code/app/pyproject.toml", "qorqut-code/app/service-constraints.txt", "qorqut-code/app/package-sources.json",
             "qorqut-code/qorqut-operations/pyproject.toml", "qorqut-code/qorqut-context/pyproject.toml", "qorqut-code/dashboard/index.html",
             "qorqut-agentic/src/qorqut_agentic/resources/defaults/roles/imported-roles", "dependencies/document-history/pyproject.toml",
             "qorqut-agentic/src/qorqut_agentic/resources/defaults/operations/source-instructions/email/plugin.yaml"]

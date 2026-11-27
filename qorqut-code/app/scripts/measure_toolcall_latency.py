@@ -26,7 +26,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[3]
 sys.path[:0] = [str(REPO / path) for path in (
     "qorqut-code/app", "qorqut-code/qorqut-operations", "qorqut-code/qorqut-context",
-    "qorqut-agentic/src", "dependencies/document-history")]
+    "qorqut-agentic/src", "qorqut-system/src", "dependencies/document-history")]
 
 from qorqut.agentic.view import HostAgenticView
 from qorqut.agents.models import EffectiveAgentConfig

@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+license = "PolyForm-Noncommercial-1.0.0"
+license-files = ["LICENSE", "LICENSES/Apache-2.0.txt", "RELEASE-LICENSES.json"]
+name = "qorqut-system"
+version = "0.1.0"
+description = "The one Qorqut package that touches the operating system: private files, locks, processes, local channels, programs and places."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+qorqut_system = ["py.typed"]

@@ -150,7 +150,8 @@ def main():
     env = dict(os.environ)
     path = [str(app_tests)]
     if args.no_isolate:  # a development checkout: qorqut and its sibling packages are found through the source folders
-        path += [str(code / "app"), str(code / "qorqut-operations"), str(code / "qorqut-context"), str(args.repository / "qorqut-agentic/src")]
+        path += [str(code / "app"), str(code / "qorqut-operations"), str(code / "qorqut-context"), str(args.repository / "qorqut-agentic/src"),
+                 str(args.repository / "qorqut-system/src")]
     env["PYTHONPATH"] = os.pathsep.join(path + ([env["PYTHONPATH"]] if env.get("PYTHONPATH") else []))
     machine = f"{sys.platform} {os.uname().machine}"
 

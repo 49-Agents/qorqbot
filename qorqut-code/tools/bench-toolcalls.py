@@ -26,6 +26,7 @@ import time
 from pathlib import Path
 
 PACKAGES = ("qorqut-code/app", "qorqut-code/qorqut-operations", "qorqut-code/qorqut-context", "qorqut-agentic/src",
+            "qorqut-system/src",
             "dependencies/document-history/src")
 OWNER_TOKEN = "bench-owner-token-0123456789abcdef0123456789"
 OPERATIONS = (("tasks_list", {}), ("agents_activity_list", {}), ("focus_get", {"scope": "global"}),
