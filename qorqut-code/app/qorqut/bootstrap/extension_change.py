@@ -232,7 +232,7 @@ def _stage(paths, entry, bundle, requested_by, signoff_id, restart) -> Outcome:
             raise _Refused("other_platform", f"The bundle is for {header['platform']}, not {bundle.platform}.")
         archive.unlink()
         # The dependency wheels judged against the app that runs and made importable, before anything is written.
-        extension_deps.prepare(unpacked / entry.id)
+        extension_deps.prepare(unpacked / entry.id, other=extension_deps.others(paths.installed_extensions, entry.id))
     except extension_deps.DepsError as exc:
         undo()
         return Outcome(False, str(exc), "dependencies")
@@ -293,12 +293,15 @@ def _apply(paths, change):
             shutil.rmtree(staged.parent)
             return failed("The staged folder breaks the contract: " + findings[0])
         # Judged again against the app that starts now, which may be another than the one that staged it.
+        other = extension_deps.others(paths.installed_extensions, change["id"])
         try:
             if extension_deps.missing_site(staged):
-                extension_deps.prepare(staged)
-            problem = extension_deps.findings(staged, installed=True)
+                extension_deps.prepare(staged, other=other)
+            problem = extension_deps.findings(staged, installed=True, other=other)
         except extension_deps.DepsError as error:
             problem = str(error)
+        except Exception as error:  # noqa: BLE001 - recorded as the change's failure, so the start goes on
+            problem = extension_deps.NOT_JUDGED.format(error.__class__.__name__)
         if problem:
             shutil.rmtree(staged.parent)
             return failed(problem)

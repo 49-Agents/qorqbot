@@ -324,12 +324,27 @@ class ExtensionTools:
             outcome = change.stage(self.paths, SimpleNamespace(id=ext_id, version=version), bundle,
                                    requested_by=ctx.principal_id, restart=self.restart)
         if not outcome.staged:
-            raise _kind(DomainError("operation_failed", f"{name} was not {DONE_WORDS[action]}. {outcome.note}"),
-                        outcome.kind)
+            sentence = f"{name} was not {DONE_WORDS[action]}. {outcome.note}"
+            self.not_staged(ext_id, sentence, outcome)
+            raise _kind(DomainError("operation_failed", sentence), outcome.kind)
         self.results[ext_id], self.failures[ext_id] = outcome.note or RESTARTING, False
         return self.results[ext_id]
 
     # -- results -------------------------------------------------------------------------------------------------------
+
+    def name_of(self, ext_id):
+        """The name the owner knows ``ext_id`` by: its installed folder's, else its index entry's, else the id."""
+        try:
+            found = self.extensions.get(ext_id)
+        except DomainError:
+            found = next((item for item in self.extensions.offered if item.id == ext_id), None)
+        return (found.name if found is not None else None) or ext_id
+
+    def not_staged(self, ext_id, sentence, outcome):
+        """A change that could not be staged leaves its sentence as the card's result, failed. Not when another change
+        waits: the card shows that one's state."""
+        if outcome.kind != "waiting":
+            self.results[ext_id], self.failures[ext_id] = sentence, True
 
     def tell(self, signoff_id, author_id, sentence):
         """Write ``sentence(name)`` on the Signoff as a note by ``author_id`` (the program's worker); the note is the inbox
@@ -431,6 +446,8 @@ class ChangeProgram:
                                    requested_by=asked, signoff_id=signoff_id, restart=self.tools.restart)
         if not outcome.staged:
             change.not_done(args["action"], args["extension"], asked, outcome.kind, args.get("delete_data", False))
+            self.tools.not_staged(args["extension"], f"{self.tools.name_of(args['extension'])} was not "
+                                                     f"{DONE_WORDS[args['action']]}. {outcome.note}", outcome)
             self.tools.tell(signoff_id, job["principal_id"],
                             lambda name: f"{name} was not {DONE_WORDS[args['action']]}. {outcome.note}")
             raise DomainError("operation_failed", outcome.note)

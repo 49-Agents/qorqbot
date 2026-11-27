@@ -462,3 +462,42 @@ test('lines saying Qorqbot does not answer go once it answers, and a change that
     assert.equal(await page.locator('[data-cx-card="network"] [data-ext-result]').getAttribute('data-tone'), 'info');
   } finally { await browser.close(); }
 });
+
+test('a refused sign-ins list is not read again, and an older answer never paints over a newer one', {skip: !available && 'Playwright Chromium unavailable'}, async () => {
+  const browser = await chromium.launch({headless: true});
+  try {
+    const page = await browser.newPage({viewport: {width: 1120, height: 900}});
+    await page.setContent('<main id="panel"></main>');
+    await page.addStyleTag({path: path.join(__dirname, '../css/connectors.css')});
+    await page.evaluate(() => {
+      window.esc = value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
+      window.coreData = value => value;
+      const card = result => ({id: 'network', kind: 'contract', name: 'network', summary: 'A test extension.', version: '1.0.0',
+        delivery: 'downloadable', status: 'ready', note: null, can_set_up: false, setup: {kind: 'none', fields: []}, agents: [],
+        offers: [{action: 'remove'}], result, failed: false, restarting: false});
+      window.reads = {accounts: 0, list: 0};
+      window.api = async url => {
+        if (url === '/root/browser-setup') return {kind: 'built_in', tool_installed: true, chrome_installed: true, ready: true, state: 'healthy', explanation: '', agents: []};
+        if (url === '/root/browser-accounts') {
+          window.reads.accounts += 1;
+          const failure = new Error('Only the owner can see website sign-ins.'); failure.code = 'forbidden'; failure.httpStatus = 403; throw failure;
+        }
+        // The first list answers late with what was true before; the second answers at once with what is true now.
+        const read = ++window.reads.list;
+        if (read === 1) { await new Promise(done => setTimeout(done, 1500)); return {platform: 'linux', clients: [], connectors: [card('Older answer.')]}; }
+        return {platform: 'linux', clients: [], connectors: [card('Newer answer.')]};
+      };
+      window.post = async () => { throw new Error('nothing is posted here'); };
+    });
+    await page.addScriptTag({path: path.join(__dirname, '../js/extension-cards.js')});
+    await page.addScriptTag({path: path.join(__dirname, '../js/connectors.js')});
+    await page.evaluate(() => { window.panel = connectorsPanel.mount(document.querySelector('#panel'), {rows: true}); window.panel.reload(); });
+    const result = page.locator('[data-cx-card="network"] [data-ext-result]');
+    await result.getByText('Newer answer.').waitFor();
+    await page.waitForTimeout(6500);
+    assert.equal(await result.textContent(), 'Newer answer.');
+    // Qorqbot answered with a refusal: its sentence stays, and the list is not asked for again.
+    assert.equal(await page.evaluate(() => window.reads.accounts), 1);
+    assert.equal(await page.evaluate(() => document.querySelector('[data-cx-accounts-error]').textContent), 'Only the owner can see website sign-ins.');
+  } finally { await browser.close(); }
+});

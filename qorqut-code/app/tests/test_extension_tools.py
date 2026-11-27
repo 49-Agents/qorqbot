@@ -309,6 +309,10 @@ class InstallTest(ToolsCase):
         self.assertEqual(self.notes(row["id"])[-1], f"Network was not installed. {sentence}")
         self.assertIn("note_added", self.delivered(self.rt.coordinator.principal_id, row["id"]))
         self.assertEqual((change.pending(self.paths), self.restarts, self.installed().exists()), (None, [], False))
+        # The owner's card says it too, marked failed.
+        card = connections.current(NS(database=self.rt.database, application=self.rt.application, extension_setups=None,
+                                      extension_tools=self.tools, extension_registry=self.tools.extensions), "network")
+        self.assertEqual((card["result"], card["failed"]), (f"Network was not installed. {sentence}", True))
 
     def test_what_cannot_be_asked_for(self):
         self.assertEqual(plain(self.ask(tools.INSTALL_TOOL, extension="crm_extra").error)["code"], "not_found")
@@ -542,6 +546,10 @@ class OwnerCardTest(ToolsCase):
                          "Network was not installed. The downloaded bundle does not have the checksum the index gives.")
         self.assertEqual((change.pending(self.paths), self.restarts, self.card()["offers"]),
                          (None, [], [{"action": "install", "version": "1.0.0"}]))
+        # The card read afterwards keeps the sentence, marked failed.
+        self.assertEqual((self.card()["result"], self.card()["failed"]),
+                         ("Network was not installed. The downloaded bundle does not have the checksum the index gives.",
+                          True))
 
     def test_two_changes_at_once_stage_one_and_the_second_touches_nothing(self):
         import threading
@@ -590,6 +598,8 @@ class OwnerCardTest(ToolsCase):
                          {"action": "remove", "delete_data": True})
         self.click(action="install", version="1.0.0")
         self.assertEqual(self.refused("waiting", action="install", version="1.0.0"), change.WAITING)
+        # The card keeps showing the change that waits.
+        self.assertEqual((self.card()["result"], self.card()["failed"]), (tools.RESTARTING, False))
 
     def test_an_address_that_does_not_answer_and_a_bundle_of_another_version_are_said(self):
         from dataclasses import replace as replaced

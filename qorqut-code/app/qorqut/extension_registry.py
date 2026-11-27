@@ -216,8 +216,12 @@ def _load(item):
     from qorqut.extensions import Extension
     code = item.folder / CODE_FOLDER
     module_name, _, attribute = item.manifest.factory.partition(":")
-    # Appended, never put before the app's own packages, so the app's distributions always win.
-    sys.path.extend(map(str, _import_folders(code)))
+    # After the app's own packages, so the app's distributions always win; every extension's code/ before any deps/site,
+    # so no wheel takes the name of another extension's package.
+    folders = _import_folders(code)
+    sites = [index for index, entry in enumerate(sys.path) if extension_deps.is_site(entry)]
+    sys.path.insert(sites[0] if sites else len(sys.path), str(code))
+    sys.path.extend(map(str, folders[1:]))
     problem = None
     try:
         module = importlib.import_module(module_name)
@@ -360,8 +364,13 @@ def install_code(runtime, extensions, operations):
             operations.register(descriptor)
 
 
+def _brought(folder):
+    """``extension_deps.others`` of one folder: what its ``deps/site/`` holds, by distribution."""
+    return {name: value for name, value in extension_deps.others(folder.parent, None).items() if value[1] == folder.name}
+
+
 def _with_unsupported(found, app_version, platform):
-    result = []
+    result, brought = [], {}
     for item in found:
         reason = None
         manifest = item.manifest
@@ -371,10 +380,13 @@ def _with_unsupported(found, app_version, platform):
             # A build without a version number (a source checkout) does not compare ``requires.qorqbot``.
             elif version_numbers(app_version) is not None and not admits(app_version, manifest.requires_qorqbot):
                 reason = f"It needs Qorqbot {manifest.requires_qorqbot}, and this is Qorqbot {app_version}."
-            # Unpacked at its install against the app of then: after an app update it may no longer fit.
+            # Unpacked at its install against the app of then: after an app update it may no longer fit. Judged with
+            # what the extensions before it bring; a judgement that fails is its sentence (``findings`` never raises).
             elif extension_deps.site(item.folder).is_dir():
-                reason = extension_deps.findings(item.folder, installed=True)
+                reason = extension_deps.findings(item.folder, installed=True, other=brought)
         result.append(replace(item, unsupported=reason))
+        if reason is None and not item.refused and extension_deps.site(item.folder).is_dir():
+            brought = {**_brought(item.folder), **brought}
     # An extension that needs another is unsupported while that one is missing, refused or itself unsupported.
     changed = True
     while changed:
