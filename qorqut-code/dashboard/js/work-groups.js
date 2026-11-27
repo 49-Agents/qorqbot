@@ -5,7 +5,7 @@ const WORK_ITEM_TYPES = {tasks:'task',data_tables:'table',agent_profiles:'agent'
   email_conversations:'material',context_entities:'entity',documents:'material',notes:'material',uploads:'material'};
 const workDate = value => sjDateTime(value);
 const workStateLabel = task => TASK_SPECIAL_TYPES.includes(task.task_type)
-  ? [TASK_TYPE_LABELS[task.task_type], customerStateText(task)].filter(Boolean).join(' · ') : T_LABEL[task.status] || task.status;
+  ? [typeof taskTypeLabel === 'function' ? taskTypeLabel(task) : TASK_TYPE_LABELS[task.task_type], customerStateText(task)].filter(Boolean).join(' · ') : T_LABEL[task.status] || task.status;
 const workBall = task => taskTypeIcon(task.task_type) || `<span class="ball ${esc(task.status)}" aria-hidden="true"><span class="core"></span></span>`;
 
 // The root route already supplies Global context. `scope` is sent only by a caller whose operation declares it

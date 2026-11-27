@@ -52,7 +52,10 @@ function rwTypeLabel(record) {
   const source = record.source || {};
   if (source.type === 'project') return 'Project';
   if (source.type === 'signoff') return 'Signoff';
-  if (source.type === 'task') return TASK_TYPE_LABELS[record.task_type || source.task_type] || 'Task';
+  if (source.type === 'task') {
+    const task = {task_type: record.task_type || source.task_type, record_type: record.record_type ?? source.record_type};
+    return typeof taskTypeLabel === 'function' ? taskTypeLabel(task) : TASK_TYPE_LABELS[task.task_type] || 'Task';
+  }
   if (source.type === 'email') return 'Email';
   if (source.type === 'reference') return 'Reference';
   if (source.type === 'action') return 'Action';
@@ -105,7 +108,7 @@ function rwRecordFromItem(item, options = {}) {
   // A context slug is only a fallback for an item that has no explicit project id.
   const project = projectId == null ? (hasProjectId ? null : options.project || null) : (explicitSlug || knownSlug || null);
   const scopeMissing = projectId != null && !project;
-  const taskType = source.task_type || item.task_type || '';
+  const taskType = source.task_type || item.task_type || '', recordType = source.record_type ?? item.record_type ?? null;
   const label = source.type === 'project'
     ? (source.label || source.project_name || 'Project')
     : (source.label || item.label || source.title || item.reference?.title || 'Record');
@@ -113,7 +116,7 @@ function rwRecordFromItem(item, options = {}) {
   const threaded = source.type === 'reference' ? !!binding : RW_THREAD_TYPES.has(source.type) && source.type !== 'reference';
   return {
     source: {type: source.type, id: source.id, project_id: projectId},
-    project, project_name: source.project_name || null, label, task_type: taskType, state: source.state || item.state || null,
+    project, project_name: source.project_name || null, label, task_type: taskType, record_type: recordType, state: source.state || item.state || null,
     resource_type: source.resource_type || item.resource_type || null, summary: source.summary || item.summary || null,
     opening_target: item.opening_target || null, url: source.url || item.url || item.opening_target?.url || item.reference?.target?.url || null,
     can_thread: options.can_thread ?? threaded,
@@ -951,12 +954,14 @@ function recordWorkspaceMount(host, options = {}) {
     // The first canonical Task read is the subtype authority even when the opening descriptor
     // omitted or carried a stale task_type. Normalize the entry's header metadata in place;
     // the dashboard mount already uses the same fresh task, so never remount just to relabel.
-    const normalizeTaskType = fresh => {
+    // `force`: the record type list or the record type changed, so the type tab's label is worked out again.
+    const normalizeTaskType = (fresh, {force = false} = {}) => {
       if (!alive() || !fresh) return;
-      const nextType = String(fresh.task_type || 'task');
+      const nextType = String(fresh.task_type || 'task'), nextRecord = fresh.record_type ?? null;
       const currentType = String(item.record.task_type || 'task');
-      if (nextType === currentType && String(item.record.source?.task_type || 'task') === nextType) return;
-      item.record = {...item.record, task_type: nextType,
+      if (!force && nextType === currentType && String(item.record.source?.task_type || 'task') === nextType
+        && (item.record.record_type ?? null) === nextRecord) return;
+      item.record = {...item.record, task_type: nextType, record_type: nextRecord,
         revision: fresh.revision ?? item.record.revision,
         state: fresh.status ?? item.record.state,
         label: fresh.title || item.record.label};
@@ -979,7 +984,7 @@ function recordWorkspaceMount(host, options = {}) {
       }
       const previousScroll = item.dashHost.scrollTop;
       const previousDashboard = item.dashboard;
-      item.record = {...item.record, task_type: nextType,
+      item.record = {...item.record, task_type: nextType, record_type: fresh.record_type ?? null,
         revision: fresh.revision ?? item.record.revision,
         state: fresh.status ?? item.record.state,
         label: fresh.title || item.record.label};
@@ -1252,6 +1257,9 @@ async function rwTaskDashboard(host, record, ctx, call) {
       task: local, project: record.project || null,
       current: () => ctx.alive() && host.isConnected,
       apply(fresh) { Object.assign(local, fresh); Object.assign(task, fresh); },
+      // The record type is shown and edited here; the tab label follows it.
+      typeEditor: true,
+      typeShown: () => ctx.normalizeTaskType?.(local, {force: true}),
       openTask: link => { void ctx.navigate(rwRecordFromItem({source: {type: 'task', id: link.task_id, project_id: link.project_id ?? null, project_slug: link.project_slug, label: link.label || link.title}}, {project: link.project_slug})); },
       // Associated Signoffs/Actions open on the same stack; Back returns to this Story/record dashboard.
       openRelated: other => {

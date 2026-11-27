@@ -21,6 +21,8 @@ the plain text, so a plan without tags is stored exactly as before steps could c
 ``queue_rank`` orders a worker's open Tasks: lower comes first, and a Task without one sorts as zero.
 ``plan_template`` names the saved plan the steps were copied from at hand-over, when there was one; the Task's own plan
 is what is worked, so later changes to the template never reach it.
+``record_type`` names a record type an extension adds on top of the Task's type (see ``record_types``); it is stored only
+while set, and the type's extra values are ordinary custom fields.
 """
 
 from qorqut_agentic.behavior.tool_help import text as instruction_text
@@ -31,6 +33,7 @@ import unicodedata
 
 from qorqut_operations import owner_text
 from qorqut_operations.contracts import DomainError
+from qorqut_operations.tasks.record_types import TYPE_ID
 
 TYPES = ("task", "story", "customer", "email")
 KEY = "$task"
@@ -44,7 +47,8 @@ PLAN_TEXT_LIMIT = 1000
 POSITIONS = ("last", "next")
 DEFAULTS = {"task_type": "task", "overview": "", "email_conversation_id": None,
             "customer_kind": None, "customer_state": "", "customer_profile": {},
-            "status_line": "", "next_step": "", "plan": [], "queue_rank": None, "plan_template": None}
+            "status_line": "", "next_step": "", "plan": [], "queue_rank": None, "plan_template": None,
+            "record_type": None}
 # Stored whenever the Task is not all-default, exactly as before Customers existed, so a repeated write of an older
 # Story or Email Task stays a no-op. The customer attributes are stored only while they hold something.
 STORED_ALWAYS = ("task_type", "overview", "email_conversation_id")
@@ -71,6 +75,10 @@ STATUS_LINE_SCHEMA = {"type": "string", "maxLength": 1000,
 NEXT_STEP_SCHEMA = {"type": "string", "maxLength": 1000,
                     "description": f"The one pending action on this Task and who takes it, at most {LINE_LIMIT} characters. "
                                    "Replaced as a whole; empty when nothing is pending."}
+RECORD_TYPE_SCHEMA = {"anyOf": [{"type": "string", "pattern": TYPE_ID.pattern}, {"type": "null"}],
+                      "description": "A record type an extension adds, by its id from tasks_config_get record_types. It sets "
+                                     "task_type to the type's base. Its extra fields go in fields, together with the Task's "
+                                     "other custom fields, because fields is replaced as a whole. Null clears it."}
 NOTIFY_TAGS = ("start", "done", "both")
 # What finishes a step besides the worker's word, and the one field that may name the check's target.
 CHECK_TARGETS = {"review": None, "signoff": "signoff_id", "task": "task_id", "file": "path"}
@@ -291,6 +299,9 @@ def validate_attributes(task):
     values = attributes(task)
     if values["task_type"] not in TYPES:
         raise DomainError("validation_error", "Task type must be task, story, customer or email")
+    record_type = values["record_type"]
+    if record_type is not None and (not isinstance(record_type, str) or not TYPE_ID.fullmatch(record_type)):
+        raise DomainError("validation_error", "Invalid Task record type")
     if not isinstance(values["overview"], str) or len(values["overview"]) > 20000:
         raise DomainError("validation_error", "Task overview must be text up to 20000 characters")
     email = values["email_conversation_id"]
