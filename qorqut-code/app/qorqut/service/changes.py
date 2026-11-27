@@ -221,6 +221,8 @@ class ChangeFeed:
         self._versions: dict[tuple[str, str], int] = {}
         self._wildcard_seq = 0
         self._commits = 0
+        # Writable commits that changed at least one row, of any table, tracked by a kind or not (see `database_version`).
+        self._writes = 0
         self._subscribers: dict[int, Subscriber] = {}
         self._listeners: list = []
         self._commit_listeners: list = []
@@ -278,6 +280,8 @@ class ChangeFeed:
         """
         with self._lock:
             self._commits += 1
+            if wrote:
+                self._writes += 1
             listeners = list(self._commit_listeners) if wrote else ()
         for listener in listeners:
             try:
@@ -380,6 +384,17 @@ class ChangeFeed:
     def versions(self, kinds, scope):
         with self._lock:
             return {kind: self._versions.get((kind, scope or GLOBAL_SCOPE), 0) for kind in kinds}
+
+    def database_version(self):
+        """A value that moves whenever the database may have changed: after every in-process commit that changed a row,
+        whatever the table, and after every write by another process the ticker notices (a wildcard).
+
+        For a read that depends on more tables than any kind names (the owner's attention queue and reply notifications
+        read conversations, read boundaries, completed replies, board placements, reminders, Signoffs, profiles, projects
+        and extension tables). Read it before the read it versions: a write that commits afterwards moves it, so a value
+        can only be older than the data read under it, never newer."""
+        with self._lock:
+            return self._writes, self._wildcard_seq
 
     def route_versions(self, kinds, scope):
         """(kind, scope) -> version for PR3's ETag, expanding GLOBAL_ONLY_KINDS

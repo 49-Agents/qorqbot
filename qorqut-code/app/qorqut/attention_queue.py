@@ -73,6 +73,22 @@ def discarded(runtime_directory, owner, ids=()):
     return _saved(runtime_directory, owner, '.calendar-discarded.json', ids, keep=recent_calendar_key, limit=CALENDAR_KEEP_MAX)
 
 
+def preferences_state(runtime_directory, owner):
+    """What the owner's viewed and discarded files are now (inode, modification time and size), without reading them.
+
+    A saved change replaces the file (``_saved``), so every change shows here; the queue's revalidation tag includes it."""
+    directory = Path(runtime_directory) / 'dashboard-preferences'
+    name = hashlib.sha256(owner.encode()).hexdigest()
+    found = []
+    for suffix in ('.attention.json', '.calendar-discarded.json'):
+        try:
+            stat = (directory / (name + suffix)).stat()
+            found.append([stat.st_ino, stat.st_mtime_ns, stat.st_size])
+        except FileNotFoundError:
+            found.append(None)
+    return found
+
+
 def queue(runtime, ctx, change=None):
     with runtime.database.read() as uow:
         if ctx.principal_kind != 'human' or ctx.principal_id != installation_owner(uow):

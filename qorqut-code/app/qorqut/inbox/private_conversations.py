@@ -113,6 +113,21 @@ def visible_conversation(app, ctx, conversation_id, uow):
     return bool(service and service.readable(ctx, conversation_id, uow))
 
 
+def _once(memo, key, compute):
+    """``compute()`` once per ``key`` in ``memo``, a refusal included; without a memo, every time."""
+    if memo is None:
+        return compute()
+    if key not in memo:
+        try:
+            memo[key] = (True, compute())
+        except DomainError as error:
+            memo[key] = (False, error)
+    done, value = memo[key]
+    if not done:
+        raise value.with_traceback(None)
+    return value
+
+
 class PrivateConversations:
     def __init__(self, inbox, *, clock=None, references=None):
         # ``references`` is the Signoff conversation's own reference reader (``SignoffNotes``): a private message
@@ -245,21 +260,30 @@ class PrivateConversations:
     def namespace(self, ctx):
         return 'project:' + ctx.project_id if ctx.project_id else 'global'
 
-    def source_check(self, selected, kind, identity, uow):
-        """Authorize the caller's canonical read of the bound object."""
+    def source_check(self, selected, kind, identity, uow, memo=None):
+        """Authorize the caller's canonical read of the bound object.
+
+        With a ``memo`` (see ``resolve``) a kind's scoped context and the authorization of its read operation, which depend
+        on the selected context alone, are decided once for the unit; the bound object itself is read for every source."""
         if kind == 'task':
-            from qorqut_operations.tasks.scope import task_context
-            scoped = task_context(selected, {'scope': 'global'} if selected.project_id is None else {}, uow)
-            self.app.authorize(scoped, self.app.registry.get('tasks_get'), (), uow, namespace=self.namespace(scoped))
+            def scope():
+                from qorqut_operations.tasks.scope import task_context
+                scoped = task_context(selected, {'scope': 'global'} if selected.project_id is None else {}, uow)
+                self.app.authorize(scoped, self.app.registry.get('tasks_get'), (), uow, namespace=self.namespace(scoped))
+                return scoped
+            scoped = _once(memo, ('source_scope', kind, selected), scope)
             if not uow.repository('tasks', project_id=scoped.project_id).get(identity):
                 # Like every other Task read, a Task that moved answers record_moved for a caller who may read it where it is now.
                 raise self.domains.tasks.missing(scoped, uow, identity)
             return
         if kind == 'table':
             # A general and a CRM Table are one source kind; the private channel never reads or posts to the team thread.
-            from qorqut_operations.tables.operations import table_context
-            scoped = table_context(selected, {'scope': 'global'} if selected.project_id is None else {}, uow)
-            self.app.authorize(scoped, self.app.registry.get('tables_get'), (), uow, namespace=self.namespace(scoped))
+            def scope():
+                from qorqut_operations.tables.operations import table_context
+                scoped = table_context(selected, {'scope': 'global'} if selected.project_id is None else {}, uow)
+                self.app.authorize(scoped, self.app.registry.get('tables_get'), (), uow, namespace=self.namespace(scoped))
+                return scoped
+            scoped = _once(memo, ('source_scope', kind, selected), scope)
             if not uow.repository('data_tables', project_id=scoped.project_id).get(identity):
                 raise DomainError('not_found', 'Table does not exist in this scope')
             return
@@ -273,8 +297,11 @@ class PrivateConversations:
             service = getattr(self.app, 'signoffs', None)
             if service is None:
                 raise DomainError('operation_unavailable', 'Signoff review is not installed')
-            scoped = service._context(selected, uow)
-            self.app.authorize(scoped, self.app.registry.get('signoffs_get'), (), uow, namespace=self.namespace(scoped))
+            def scope():
+                scoped = service._context(selected, uow)
+                self.app.authorize(scoped, self.app.registry.get('signoffs_get'), (), uow, namespace=self.namespace(scoped))
+                return scoped
+            scoped = _once(memo, ('source_scope', kind, selected), scope)
             row = service._row(scoped, identity, uow)
             if row['review_project_id'] != scoped.project_id:
                 raise DomainError('not_found', 'Select this signoff’s owning review scope')
@@ -284,21 +311,28 @@ class PrivateConversations:
         board = getattr(self.app, 'attention', None)
         if board is None:
             raise DomainError('operation_unavailable', 'Owner attention is not installed')
-        self.app.authorize(selected, self.app.registry.get('focus_get'), (), uow, namespace='global')
+        _once(memo, ('source_scope', kind, selected),
+              lambda: self.app.authorize(selected, self.app.registry.get('focus_get'), (), uow, namespace='global'))
         row = uow.connection.execute('SELECT source_json,context_json FROM focus_cards WHERE id=?', (identity,)).fetchone()
         if row is None:
             raise DomainError('not_found', 'Focus card does not exist')
         if row['source_json'] is not None or row['context_json'] is not None:
             raise DomainError('validation_error', 'This card is bound to a source; discuss it under that source')
 
-    def resolve(self, ctx, args, uow):
-        """One place for the pair ACL, the effective scope and the source read."""
-        ctx = self.app.current_context(ctx, uow)
-        role = self.role(ctx, uow, args)
+    def resolve(self, ctx, args, uow, memo=None):
+        """One place for the pair ACL, the effective scope and the source read.
+
+        ``memo`` is a dictionary a caller keeps for one read unit while it checks many sources for the same context (see
+        ``channel_available``). The caller's refreshed context and pair role are then worked out once, each effective
+        project is selected once and each kind's read is authorized once per selection (``source_check``); every source
+        still runs its own scope check and reads its own bound object. A refusal is kept and raised again, as checking the
+        same inputs against the unit's one snapshot again would."""
+        ctx, role = _once(memo, ('caller', ctx, args.get('agent_id'), args.get('peer_role')),
+                          lambda: self.caller(ctx, uow, args))
         source = plain(args['source'])
         project = self.effective_project(ctx, source)
-        selected = self.select(ctx, project, uow)
-        self.source_check(selected, source['type'], source['id'], uow)
+        selected = _once(memo, ('select', ctx, project), lambda: self.select(ctx, project, uow))
+        self.source_check(selected, source['type'], source['id'], uow, memo)
         return role, {'type': source['type'], 'id': source['id'], 'project_id': project}
 
     def readable(self, ctx, conversation_id, uow):
@@ -332,10 +366,18 @@ class PrivateConversations:
                 'latest_sequence': row['latest_sequence'] if row else 0,
                 'message_count': message_count(uow, row['id']) if row else 0}
 
-    def channel_available(self, ctx, source, uow):
-        """True while this caller could read the Ordubashy channel for the source right now."""
+    def caller(self, ctx, uow, args=None):
+        """The caller's context refreshed in this unit and its pair role."""
+        ctx = self.app.current_context(ctx, uow)
+        return ctx, self.role(ctx, uow, args)
+
+    def channel_available(self, ctx, source, uow, memo=None):
+        """True while this caller could read the Ordubashy channel for the source right now.
+
+        A caller asking for many sources in one read unit passes the same ``memo`` dictionary to each call (see ``resolve``);
+        it must not outlive that unit."""
         try:
-            self.resolve(ctx, {'source': source}, uow)
+            self.resolve(ctx, {'source': source}, uow, memo)
         except DomainError as error:
             if error.code in UNAVAILABLE:
                 return False
