@@ -116,6 +116,8 @@ class OperationDescriptor:
     replay_validator: Callable | None = None
     external_read: bool = False
     transport_only: bool = False
+    # False for a write that never reads ``expected_revision``: the tool schema then does not offer that option.
+    takes_revision: bool = True
     # Read-only widening of the Global gate. A caller in the global namespace is admitted when it holds
     # ``global_capability`` OR one capability named here. The primary stays required of every declaration (it is what
     # project policy, catalogs and bindings continue to name); an empty set, the default, leaves a descriptor exactly as

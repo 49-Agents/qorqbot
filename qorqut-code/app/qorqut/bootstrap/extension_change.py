@@ -336,7 +336,8 @@ def apply_pending(paths) -> None:
 def report(change) -> None:
     """Write how the change ended to the log. The service gives ``finish`` the reporter that also tells the agent who
     asked (``domains/extension_tools.py``)."""
-    LOGGER.info("extension_change_finished action=%s extension=%s state=%s requested_by=%s", change["action"],
+    # A warning, as the service's log holds warnings and above only: the one line a change leaves at the start after it.
+    LOGGER.warning("extension_change_finished action=%s extension=%s state=%s requested_by=%s", change["action"],
                 change["id"], change["result"]["state"], change.get("requested_by") or "")
 
 

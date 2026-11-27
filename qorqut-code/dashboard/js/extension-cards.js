@@ -15,11 +15,13 @@ const extensionCards = (() => {
   };
   const UNKNOWN = {label: 'Unknown', tone: 'idle'};
   const NOT_YET = 'Setting this up from Qorqbot is not available yet.';
+  const UNREACHED = 'Qorqbot did not answer. It may be restarting. This card is checked again until it answers.';
   const REMOVE_AFTER = 'Qorqbot restarts once. Projects, tables and records it created stay.';
   const status = item => STATUS[item.status] || UNKNOWN;
   const kind = item => item.setup?.kind || null;
   // Whether set-up can work, decided by the server (`can_set_up`): a refused folder or code part only shows its note.
-  const usable = item => !!item.setup && item.can_set_up === true;
+  // Nothing is offered on a card while its change waits for Qorqbot to restart.
+  const usable = item => !!item.setup && item.can_set_up === true && !item.restarting;
   // The requests the card sends (the shapes of qorqut.extension_connections.parse_action).
   const path = id => `/root/connections/${encodeURIComponent(id)}`;
   const request = {
@@ -85,7 +87,7 @@ const extensionCards = (() => {
     const shown = status(item), told = note(item);
     const buttons = [...steps(item), ...downloads(item)].map(step => `<button type="button" class="${step.quiet ? 'quiet' : ''}" data-ext-action="${esc(step.kind)}" data-cx-id="${esc(item.id)}"${step.version ? ` data-ext-version="${esc(step.version)}"` : ''}>${esc(step.label)}</button>`).join('');
     const title = `<h3>${esc(item.name)}</h3><span class="cx-status" data-tone="${shown.tone}">${esc(shown.label)}</span>`;
-    const result = item.result ? `<p class="cx-note" data-tone="info" data-ext-result>${noteHtml(item.result, esc)}</p>` : '';
+    const result = item.result ? `<p class="cx-note" data-tone="${item.failed ? 'warn' : 'info'}" data-ext-result>${noteHtml(item.result, esc)}</p>` : '';
     const body = `${told ? `<p class="cx-note" data-tone="${told.tone}">${noteHtml(told.text, esc)}</p>` : ''}${result}${form(item, esc)}${removal(item, esc)}${agentRows(item, esc)}`;
     const search = [item.name, item.summary, shown.label].join(' ').toLowerCase();
     if (rows) return `<div class="cx-row" data-cx-card="${esc(item.id)}" data-cx-contract data-tone="${shown.tone}" data-search="${esc(search)}">
@@ -96,6 +98,6 @@ const extensionCards = (() => {
       <div class="cx-card-head"><span class="cx-icon">${icon}</span><div class="cx-card-title">${title}</div>${buttons}</div>
       <p class="cx-does">${esc(item.summary)}</p>${body}</article>`;
   }
-  return {STATUS, NOT_YET, REMOVE_AFTER, status, steps, downloads, note, noteHtml, switches, path, request, render};
+  return {STATUS, NOT_YET, REMOVE_AFTER, UNREACHED, status, steps, downloads, note, noteHtml, switches, path, request, render};
 })();
 if (typeof module !== 'undefined') module.exports = extensionCards;

@@ -117,6 +117,12 @@ test('a downloadable extension offers the owner Install, Update and Remove from 
   for (const shape of ['{"action": "install", "version"', '{"action": "remove", "delete_data"']) assert.ok(shapes.includes(shape), shape);
 });
 
+test('a card whose change waits for the restart offers no set-up step and no switch', () => {
+  const waiting = entry('ready', {can_set_up: true, restarting: true});
+  assert.deepEqual([cards.steps(waiting), cards.switches(waiting)], [[], []]);
+  assert.ok(cards.steps(entry('ready', {can_set_up: true})).length > 0);
+});
+
 test('the card script is loaded before the Connections panel', () => {
   const index = read('index.html');
   assert.ok(index.indexOf('/js/extension-cards.js') > 0 && index.indexOf('/js/extension-cards.js') < index.indexOf('/js/connectors.js'));

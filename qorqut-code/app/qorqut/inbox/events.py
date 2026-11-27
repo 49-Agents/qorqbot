@@ -119,6 +119,13 @@ class HostEventRouting:
         # to the later durable external receipt. Setup failures still notify.
         if data.get('category') == 'platform_action' and after.get('state') == 'applied':
             return False
+        # A proposal the owner changed (``signoffs.amend``) ends as superseded by its replacement in the same step. The
+        # replacement goes to the same proposer and carries what happens next, so the ended one is no outcome of its own.
+        # (The capture holds no ``superseded_by_id``; the error code ``superseded`` is written only by that replacement.)
+        error = after.get('error_json')
+        error = json.loads(error) if isinstance(error, str) else error
+        if after.get('state') == 'conflicted' and before.get('state') != 'conflicted' and (error or {}).get('code') == 'superseded':
+            return False
         return terminal
 
     def augment_direct(self, uow, capture, project, record, direct, responsible):

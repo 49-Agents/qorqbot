@@ -262,6 +262,8 @@ def tool_schema(registry, name):
         return schema
     options = (OPTION_SCHEMAS if descriptor.effect_kind != "read" else
                {key: OPTION_SCHEMAS[key] for key in ("project_id", "review_project_id")})
+    if not getattr(descriptor, "takes_revision", True):
+        options = {key: value for key, value in options.items() if key != "expected_revision"}
     schema["properties"] = {**options, **schema.get("properties", {})}
     if descriptor.name in mcp_presentation.COMPACT_OPERATIONS:
         schema["properties"]["response_detail"] = (

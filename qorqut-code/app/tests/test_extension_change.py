@@ -227,6 +227,15 @@ class InstallTest(ChangeCase):
         update = (DISTRIBUTION / "native_update.py").read_text()
         self.assertEqual(update.count("config/extensions.json"), 1)
 
+    def test_the_result_at_the_next_start_leaves_a_line_the_service_log_writes(self):
+        # The service sets no log level of its own, so only warnings and above are written.
+        self.assertStaged(self.stage())
+        change.apply_pending(self.paths)
+        with self.assertLogs("qorqut.bootstrap.extension_change", "WARNING") as written:
+            change.finish(self.paths)
+        self.assertEqual(len(written.records), 1)
+        self.assertIn("extension_change_finished action=install extension=network state=done", written.output[0])
+
     def test_a_bad_checksum_changes_nothing(self):
         bundle = replace(self.index.entry("network").bundles[0], sha256="0" * 64)
         self.assertEqual(self.stage(bundle=bundle),

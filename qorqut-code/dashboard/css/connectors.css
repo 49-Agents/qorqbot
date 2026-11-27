@@ -115,3 +115,4 @@ button.cx-link:hover { background: none; color: var(--fg); transform: none; }
 .cx-note code { font: .92em var(--mono); padding: 0 4px; border-radius: 4px; background: var(--hover); }
 /* The set-up button is not offered again while its form is open. */
 [data-cx-card]:has([data-ext-form]:not([hidden])) [data-ext-action="key"] { display: none; }
+[data-cx-card]:has([data-ext-remove]:not([hidden])) [data-ext-action="remove-choose"] { display: none; }

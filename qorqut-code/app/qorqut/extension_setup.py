@@ -154,6 +154,11 @@ class ExtensionSetups:
         """The extension as the registry lists it. No handler is asked."""
         return self.registry.get(ext_id, connection=connection)
 
+    def kept(self, ext_id):
+        """After an install that found the extension's private folder kept from an earlier removal: write the status its
+        set-up reports now, so a kept key that still fits the fields is ``ready`` again. Called for nothing else."""
+        return self._run(ext_id, "kept", lambda handler: handler.status())
+
     def _run(self, ext_id, action, call, *, starting=False, screen=lambda text: text):
         entry = self._usable(ext_id)
         if entry.manifest.setup_kind == "none":

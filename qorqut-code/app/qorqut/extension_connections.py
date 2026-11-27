@@ -162,8 +162,12 @@ def act(runtime, context, ext_id, request):
         tools = getattr(runtime, "extension_tools", None)
         if tools is None:
             raise DomainError("operation_unavailable", "Extensions cannot be downloaded in this composition.")
-        tools.owner_change(context, ext_id, action, version=request.get("version"),
-                           delete_data=request.get("delete_data", False))
+        try:
+            tools.owner_change(context, ext_id, action, version=request.get("version"),
+                               delete_data=request.get("delete_data", False))
+        except DomainError as problem:
+            # A change refused or failed before the restart is an ordinary answer: the card shows its sentence.
+            return {**current(runtime, ext_id), "result": problem.message, "failed": True}
     elif action == "switch":
         result = runtime.application.invoke(context, "extensions_switch", {
             "scope": "global", "extension": ext_id, "agent_id": request["agent_id"], "on": request["on"]},

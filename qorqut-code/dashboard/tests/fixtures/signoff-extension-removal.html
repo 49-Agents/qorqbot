@@ -25,7 +25,7 @@ const post = (url,body) => { if(url==='/root/attention-queue')return Promise.res
   const signoff={...items[id], state:action==='approve'?'approved':'rejected', actionable:false, status_revision:items[id].status_revision+1, decision:{kind:action,at:new Date().toISOString(),feedback:body.feedback}};
   items[id]=signoff; return Promise.resolve({status:'ok',data:{signoff}}); };
 const fields = (deleted) => [{path:'extension',before:null,after:'Network'},{path:'version',before:null,after:'1.0.0'},
-  {path:'after_approval',before:null,after:`Qorqbot restarts once. ${deleted?'Its private data is deleted.':'Its private data stays.'} Projects, tables and records it created stay.`}];
+  {path:'after_approval',before:null,after:'Qorqbot restarts once. Projects, tables and records it created stay.'}];
 const removal = (id, deleted, more = {}) => ({id, state: 'pending', category: 'internal_change', operation_name: 'extensions_remove', review_project_id: null, status_revision: 1, proposal_revision: 1,
   payload_hash: 'h' + id, actionable: true, title: 'Remove the extension Network', editable_fields: ['delete_data'], rejection_requires_message: false, proposer_agent_id: 'a1', proposer_display_name: 'Ordubashy',
   created_at: new Date().toISOString(), updated_at: new Date().toISOString(),

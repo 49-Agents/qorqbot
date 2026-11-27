@@ -365,3 +365,58 @@ test('the owner installs and removes a downloadable extension on its card, and s
     assert.equal(await page.evaluate(() => window.sent.length), 2);
   } finally { await browser.close(); }
 });
+
+test('a refused change shows its sentence on the card, no answer says so and is checked again, and a waiting change offers nothing', {skip: !available && 'Playwright Chromium unavailable'}, async () => {
+  const browser = await chromium.launch({headless: true});
+  try {
+    const page = await browser.newPage({viewport: {width: 1120, height: 900}});
+    await page.setContent('<main id="panel"></main>');
+    await page.addStyleTag({path: path.join(__dirname, '../css/connectors.css')});
+    await page.evaluate(() => {
+      window.esc = value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
+      window.coreData = value => value;
+      const keyed = {id: 'keyed', kind: 'contract', name: 'Keyed', summary: 'Tells its agents whether a token is saved.', version: '1.0.0',
+        delivery: 'downloadable', status: 'ready', note: null, can_set_up: true, setup: {kind: 'key', fields: [{id: 'token', label: 'Token', secret: true}]},
+        agents: [{agent_id: 'agent-1', name: 'Ordubashy', role: 'ordubashy', on: true, in_effect: true}],
+        offers: [{action: 'update', version: '1.0.1'}, {action: 'remove'}], result: null, restarting: false};
+      window.listed = [keyed];
+      window.reads = 0;
+      window.api = async url => {
+        if (url === '/root/browser-setup') return {kind: 'built_in', tool_installed: true, chrome_installed: true, ready: true, state: 'healthy', explanation: '', agents: []};
+        if (url === '/root/browser-accounts') return {sites: []};
+        window.reads += 1;
+        return {platform: 'linux', clients: [], connectors: structuredClone(window.listed)};
+      };
+      window.answer = null;
+      window.post = async () => window.answer();
+    });
+    await page.addScriptTag({path: path.join(__dirname, '../js/extension-cards.js')});
+    await page.addScriptTag({path: path.join(__dirname, '../js/connectors.js')});
+    await page.evaluate(() => connectorsPanel.mount(document.querySelector('#panel'), {rows: true}));
+    const card = page.locator('[data-cx-card="keyed"]');
+    await card.locator('.cx-status').getByText('Ready').waitFor();
+    // The removal choices open in place of the card's own Remove.
+    await card.getByRole('button', {name: 'Remove', exact: true}).click();
+    assert.equal(await card.locator('[data-ext-action="remove-choose"]').isVisible(), false);
+    await card.locator('[data-ext-remove-cancel]').click();
+    assert.equal(await card.locator('[data-ext-action="remove-choose"]').isVisible(), true);
+    // A change refused before the restart is an ordinary answer: its sentence on the card, as a warning.
+    await page.evaluate(() => { window.answer = async () => ({...window.listed[0], failed: true,
+      result: 'Keyed was not updated. The downloaded bundle does not have the checksum the index gives.'}); });
+    await card.getByRole('button', {name: 'Update to 1.0.1'}).click();
+    const said = card.locator('[data-ext-result]');
+    await said.getByText('Keyed was not updated. The downloaded bundle does not have the checksum the index gives.').waitFor();
+    assert.equal(await said.getAttribute('data-tone'), 'warn');
+    // No answer at all: the card says so, and the list is read again until Qorqbot answers.
+    const before = await page.evaluate(() => window.reads);
+    await page.evaluate(() => { window.answer = async () => { const failure = new Error("Qorqbot isn't responding."); failure.code = 'network_unavailable'; throw failure; }; });
+    await card.getByRole('button', {name: 'Update to 1.0.1'}).click();
+    await said.getByText('Qorqbot did not answer. It may be restarting. This card is checked again until it answers.').waitFor();
+    assert.equal(await page.locator('[data-cx-error]').isVisible(), false, 'nothing at the top of the page');
+    await page.evaluate(() => { window.listed = [{...window.listed[0], offers: [], restarting: true, result: 'Qorqbot restarts to apply this change.'}]; });
+    await card.getByText('Qorqbot restarts to apply this change.').waitFor({timeout: 10000});
+    assert.ok(await page.evaluate(() => window.reads) > before);
+    // While its change waits for the restart the card offers nothing: no Disconnect, no switch.
+    assert.equal(await card.locator('button, input').count(), 0);
+  } finally { await browser.close(); }
+});

@@ -61,7 +61,6 @@ CHANGED = "The index has changed since this was asked. Ask again."
 ONLY_ORDUBASHY = "Only Ordubashy can ask the owner to install or remove an extension."
 RESTARTS = "Qorqbot restarts once."
 REPLACED = "Changes made to the extension's texts on this installation are replaced."
-DATA_STAYS, DATA_DELETED = "Its private data stays.", "Its private data is deleted."
 RECORDS_STAY = "Projects, tables and records it created stay."
 REMOVE_LABEL, DELETE_LABEL = "Remove", "Remove and delete its data"
 DELETE_NOTE = "Chose to delete the extension's private data as well."
@@ -76,6 +75,7 @@ class ExtensionTools:
 
     def __init__(self, runtime, extensions, *, index=None, app_version=None, platform=None, machine=None, restart=None):
         from qorqut import extension_registry
+        self.runtime = runtime
         self.app, self.paths, self.programs = runtime.application, runtime.paths, runtime.programs
         self.signoffs, self.extensions = runtime.signoffs, extensions
         self.index = index or (lambda: extension_index.app_index(self.paths))
@@ -91,7 +91,7 @@ class ExtensionTools:
         common = dict(effect_kind="compound", supports_signoff=True, signoff_category="internal_change",
                       scope_kinds=frozenset({"global"}), exposure=frozenset({"mcp"}),
                       resolve_namespace=lambda ctx, args: "global", global_capability="read_global_context",
-                      apply=self.apply, validate_targets=self.validate_targets)
+                      apply=self.apply, validate_targets=self.validate_targets, takes_revision=False)
         self.app.registry.register(OperationDescriptor(INSTALL_TOOL, ARGUMENTS, description=INSTALL_DESCRIPTION,
                                                        prepare=self.prepare_install, **common))
         self.app.registry.register(OperationDescriptor(REMOVE_TOOL, ARGUMENTS, description=REMOVE_DESCRIPTION,
@@ -214,7 +214,8 @@ class ExtensionTools:
     def _removal(self, ctx, args, name, version, delete_data, uow):
         job = {"scope": "global", "action": change.REMOVE, "extension": args["extension"], "version": None, "url": None,
                "sha256": None, "size": None, "platform": None, "delete_data": delete_data}
-        after = f"{RESTARTS} {DATA_DELETED if delete_data else DATA_STAYS} {RECORDS_STAY}"
+        # The same sentence as on the Connections card: the two buttons say what happens to the private data.
+        after = f"{RESTARTS} {RECORDS_STAY}"
         fields = (("extension", name), ("version", version), ("after_approval", after))
         card = ({"approve_label": DELETE_LABEL, "amend_note": DELETE_NOTE} if delete_data else
                 {"approve_label": REMOVE_LABEL, "amend_and_approve": {"label": DELETE_LABEL, "changes": {"delete_data": True}}})
@@ -329,10 +330,24 @@ class ExtensionTools:
             self.signoffs.notes.append(InvocationContext(Principal(author_id, "system"), source="worker"), row,
                                        sentence(name), uow)
 
+    def _kept_setup(self, ext_id):
+        """An install that finds the private folder a removal kept: the status is what the extension's set-up reports
+        (``ExtensionSetups.kept``), not ``not_set_up``. Without a kept folder nothing more is done than before."""
+        from qorqut.extension_private import PrivateFolder
+        setups = getattr(self.runtime, "extension_setups", None)
+        if setups is None or not PrivateFolder(self.paths.instance_root, ext_id).path.is_dir():
+            return
+        try:
+            setups.kept(ext_id)
+        except DomainError:
+            pass  # set-up cannot work for it here (no code loaded, refused): its status stays as the start found it
+
     def report(self, applied):
         """``finish``'s reporter: the log line, the result for the owner's card, and the result on the Signoff the change
         came from."""
         change.report(applied)
+        if applied["action"] == change.INSTALL and applied["result"]["state"] != change.FAILED:
+            self._kept_setup(applied["id"])
         try:
             found = self.extensions.get(applied["id"])
         except DomainError:
@@ -353,20 +368,18 @@ class ExtensionTools:
 
 
 def result_sentence(name, applied):
-    """The result of a change applied at a start, in one or two sentences."""
+    """The result of a change applied at a start: what was done, that Qorqbot restarted, then any note. One form for the
+    three changes."""
     action, result = applied["action"], applied["result"]
     if result["state"] == change.FAILED:
         return f"{name} was not {DONE_WORDS[action]}. {result['note']}"
-    if action == change.REMOVE:
-        # A removal's note is the only word on its data: deleted in part or not at all. Without one it was deleted.
-        if applied["delete_data"] and not result["note"]:
-            return f"Removed {name}. Its private data was deleted."
-        text = f"Removed {name}."
-    elif action == change.UPDATE:
-        text = f"Updated {name} to {applied['version']}. Qorqbot restarted."
-    else:
-        text = f"Installed {name} {applied['version']}. Qorqbot restarted."
-    return f"{text} {result['note']}" if result["note"] else text
+    done = {change.INSTALL: f"Installed {name} {applied['version']}.", change.UPDATE: f"Updated {name} to {applied['version']}.",
+            change.REMOVE: f"Removed {name}."}[action]
+    note = result["note"]
+    # A removal's note is the only word on its data: deleted in part or not at all. Without one it was deleted.
+    if action == change.REMOVE and applied["delete_data"] and not note:
+        note = "Its private data was deleted."
+    return " ".join(filter(None, (done, "Qorqbot restarted.", note)))
 
 
 class ChangeProgram:

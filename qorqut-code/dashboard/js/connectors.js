@@ -287,14 +287,25 @@ const connectorsPanel = (() => {
     }
     // While an extension's change waits for Qorqbot's restart, read the list again every few seconds; a read that
     // fails while Qorqbot restarts is tried again, and the card shows the result once Qorqbot is back.
+    // The same after a card's request got no answer (Qorqbot may be restarting): until the list loads again.
     function watchRestart() {
       clearTimeout(restartTimer);
-      if (!view?.connectors.some(item => item.kind === 'contract' && item.restarting) || !live()) return;
+      if (!view?.connectors.some(item => item.kind === 'contract' && (item.restarting || item.unreached)) || !live()) return;
       restartTimer = setTimeout(async () => {
         if (!live()) return;
         try { view = coreData(await api('/root/connectors')); if (live()) { error(''); paint(); } }
         catch { watchRestart(); }
       }, 3000);
+    }
+    // A request of a contract card that failed: its sentence on that card. With no answer at all (Qorqbot stopping or
+    // restarting) the card says so and the list is read again until Qorqbot answers.
+    function cardFailure(id, failure, fallback) {
+      if (!live() || !view) return;
+      const unreached = !failure?.code || failure.code === 'network_unavailable' || failure.code === 'invalid_response' || failure.httpStatus >= 500;
+      const text = unreached ? extensionCards.UNREACHED : failure.message || fallback;
+      view.connectors = view.connectors.map(item => item.kind === 'contract' && item.id === id
+        ? {...item, result: text, failed: true, unreached} : item);
+      paint();
     }
     // WhatsApp's own setup state replaces the card's entry: {state, note, qr, send_ready} from its route.
     function setWhatsApp(setup) {
@@ -362,7 +373,7 @@ const connectorsPanel = (() => {
         const pressed = extAction.closest('[data-ext-remove]') ? [...extAction.closest('[data-ext-remove]').querySelectorAll('[data-ext-action]')] : [extAction];
         pressed.forEach(button => { button.disabled = true; });
         try { await connection(id, extensionCards.request[extAction.dataset.extAction](extAction.dataset.extVersion)); }
-        catch (failure) { if (live()) { error(failure.message || 'The extension could not be changed.'); pressed.forEach(button => { button.disabled = false; }); } }
+        catch (failure) { cardFailure(id, failure, 'The extension could not be changed.'); }
         return;
       }
       const siteAction = event.target.closest('[data-cx-site-action]');
@@ -413,7 +424,7 @@ const connectorsPanel = (() => {
       if (!toggle) return;
       toggle.disabled = true;
       try { await connection(toggle.dataset.cxId, extensionCards.request.switch(toggle.dataset.agentId, toggle.checked)); }
-      catch (failure) { if (live()) { error(failure.message || 'The extension could not be switched.'); toggle.checked = !toggle.checked; toggle.disabled = false; } }
+      catch (failure) { cardFailure(toggle.dataset.cxId, failure, 'The extension could not be switched.'); }
     });
     root.addEventListener('submit', async event => {
       const fieldsForm = event.target.closest('[data-ext-form]');

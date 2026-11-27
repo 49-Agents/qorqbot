@@ -41,7 +41,9 @@ browserTest('the removal card has Remove, Remove and delete its data, and Reject
   await ready(page, 'removal');
   assert.deepEqual(await buttons(page, 'removal'), [['Remove', 'approve', true], ['Remove and delete its data', 'amend-approve', false],
     ['Reject', 'reject', false]]);
-  assert.match(await page.locator('.sg-row[data-id="removal"]').textContent(), /Its private data stays\./);
+  // The card says what happens on approval; the two buttons say what happens to the private data.
+  assert.match(await page.locator('.sg-row[data-id="removal"]').textContent(), /Qorqbot restarts once\. Projects, tables and records it created stay\./);
+  assert.doesNotMatch(await page.locator('.sg-row[data-id="removal"]').textContent(), /private data stays/);
   await ready(page, 'plain');
   assert.deepEqual(await buttons(page, 'plain'), [['Approve', 'approve', true], ['Reject', 'reject', false]]);
 }));
@@ -78,7 +80,7 @@ browserTest('when the edit is saved and the approval fails, the card shows the e
   const state = await page.evaluate(() => ({edited: testHarness.items['removal-edited'].state, old: document.querySelectorAll('.sg-row[data-id="removal"]').length,
     text: document.querySelector('.sg-row[data-id="removal-edited"]').textContent}));
   assert.deepEqual([state.edited, state.old], ['pending', 0]);
-  assert.match(state.text, /Its private data is deleted\./);
+  assert.match(state.text, /Qorqbot restarts once\. Projects, tables and records it created stay\./);
   // Reloading it offers the ordinary decision on the edited proposal, whose approval says the data is deleted too.
   await page.evaluate(() => { testHarness.flags.failApprove = false; });
   await ready(page, 'removal-edited');

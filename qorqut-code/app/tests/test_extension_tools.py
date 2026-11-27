@@ -341,7 +341,7 @@ class RemoveTest(ToolsCase):
         self.assertEqual((preview["title"], preview["approve_label"]), ("Remove the extension Network", "Remove"))
         self.assertEqual(preview["amend_and_approve"], {"label": "Remove and delete its data", "changes": {"delete_data": True}})
         self.assertEqual(tools.ExtensionTools.fields(preview)["after_approval"],
-                         "Qorqbot restarts once. Its private data stays. Projects, tables and records it created stay.")
+                         "Qorqbot restarts once. Projects, tables and records it created stay.")
         detail = plain(self.rt.signoffs.get(self.rt.owner, row["id"]).data)["signoff"]
         self.assertEqual(detail["editable_fields"], ["delete_data"])
         self.assertEqual(plain(self.ask(tools.REMOVE_TOOL, ctx=self.rt.worker).error)["code"], "policy_denied")
@@ -353,7 +353,7 @@ class RemoveTest(ToolsCase):
         self.next_start()
         self.assertFalse(self.installed().exists())
         self.assertEqual((self.private / "token").read_text(), "kept or deleted")
-        self.assertEqual(self.notes(row["id"])[-1], "Removed Network.")
+        self.assertEqual(self.notes(row["id"])[-1], "Removed Network. Qorqbot restarted.")
 
     def test_remove_and_delete_its_data_deletes_only_its_private_folder(self):
         row = self.held(tools.REMOVE_TOOL)
@@ -363,15 +363,22 @@ class RemoveTest(ToolsCase):
         self.assertEqual(self.notes(new["id"]), [tools.DELETE_NOTE])
         self.assertNotIn("amend_and_approve", new["preview_json"])
         self.assertEqual(new["preview_json"]["approve_label"], "Remove and delete its data")
-        self.assertIn("Its private data is deleted.", tools.ExtensionTools.fields(new["preview_json"])["after_approval"])
+        # The same sentence as the Connections card: the button says what happens to the private data.
+        self.assertEqual(tools.ExtensionTools.fields(new["preview_json"])["after_approval"],
+                         "Qorqbot restarts once. Projects, tables and records it created stay.")
         job = self.approve(new)
         self.assertTrue(job["arguments_json"]["delete_data"])
         self.run_job(job)
         self.next_start()
         self.assertFalse(self.private.exists())
         self.assertEqual((self.neighbour / "token").read_text(), "never touched")
-        self.assertEqual(self.notes(new["id"])[-1], "Removed Network. Its private data was deleted.")
-        self.assertIn("note_added", self.delivered(self.rt.coordinator.principal_id, new["id"]))
+        self.assertEqual(self.notes(new["id"])[-1], "Removed Network. Qorqbot restarted. Its private data was deleted.")
+        # Ordubashy hears of the replacement and of its result, and nothing of his own proposal ending: the owner's edit
+        # replaced it, which is no outcome of its own.
+        ordubashy = self.rt.coordinator.principal_id
+        self.assertEqual(self.delivered(ordubashy, row["id"]), [])
+        self.assertEqual(self.delivered(ordubashy, new["id"])[-2:], ["action_outcome", "note_added"])
+        self.assertEqual(self.signoff(row["id"])["state"], "conflicted")
 
     def test_the_owner_can_choose_nothing_else(self):
         row = self.held(tools.REMOVE_TOOL)
@@ -392,7 +399,7 @@ class RemoveTest(ToolsCase):
         applied = change.pending(self.paths)
         self.assertEqual(applied["result"], {"state": "done", "note": change.NOT_DELETED})
         self.assertEqual(tools.result_sentence("Network", applied),
-                         "Removed Network. Its private data was not deleted, because its private folder is not a plain folder.")
+                         "Removed Network. Qorqbot restarted. Its private data was not deleted, because its private folder is not a plain folder.")
         self.assertEqual((outside / "keep").read_text(), "outside")
 
     def test_a_deletion_that_fails_partway_does_not_stop_the_start_and_is_reported(self):
@@ -415,7 +422,7 @@ class RemoveTest(ToolsCase):
         self.assertNotIn("locked", " ".join(logged.output))
         self.assertFalse(self.installed().exists())
         self.assertTrue((self.private / "file").exists())
-        self.assertEqual(self.notes(new["id"])[-1], "Removed Network. Its private data could not be deleted completely.")
+        self.assertEqual(self.notes(new["id"])[-1], "Removed Network. Qorqbot restarted. Its private data could not be deleted completely.")
 
     def test_a_folder_whose_manifest_cannot_be_read_can_be_removed_and_is_named_by_its_id(self):
         (self.installed() / "extension.yaml").write_text("id: [not a manifest\n")
@@ -428,7 +435,7 @@ class RemoveTest(ToolsCase):
         connections.act(runtime, self.rt.owner, "network", {"action": "remove", "delete_data": False})
         self.next_start()
         self.assertFalse(self.installed().exists())
-        self.assertEqual(self.tools.results["network"], "Removed Network.")
+        self.assertEqual(self.tools.results["network"], "Removed Network. Qorqbot restarted.")
 
     def test_a_built_in_or_missing_extension_cannot_be_removed(self):
         self.assertEqual(plain(self.ask(tools.REMOVE_TOOL, extension="crm_extra").error)["code"], "not_found")
@@ -472,9 +479,7 @@ class OwnerCardTest(ToolsCase):
         self.index = self.update_source()
         self.registry()
         self.assertEqual(self.card()["offers"], [{"action": "update", "version": "1.0.1"}, {"action": "remove"}])
-        with self.assertRaises(DomainError) as stale:
-            self.click(action="update", version="1.0.2")
-        self.assertEqual(stale.exception.code, "invalid_transition")
+        self.assertEqual(self.refused(action="update", version="1.0.2"), "The index has changed since the card was shown. Look again.")
         self.click(action="update", version="1.0.1")
         self.next_start()
         self.assertEqual(self.card()["result"], "Updated Network to 1.0.1. Qorqbot restarted.")
@@ -485,7 +490,7 @@ class OwnerCardTest(ToolsCase):
         self.next_start()
         gone = self.card()
         self.assertEqual((gone["status"], gone["result"], gone["offers"]),
-                         ("not_installed", "Removed Network. Its private data was deleted.",
+                         ("not_installed", "Removed Network. Qorqbot restarted. Its private data was deleted.",
                           [{"action": "install", "version": "1.0.1"}]))
         self.assertFalse(private.exists())
         self.assertEqual(self.signoffs(), 0)
@@ -498,14 +503,19 @@ class OwnerCardTest(ToolsCase):
         (private / "token").write_text("kept")
         self.click(action="remove", delete_data=False)
         self.next_start()
-        self.assertEqual(((private / "token").read_text(), self.card()["result"]), ("kept", "Removed Network."))
+        self.assertEqual(((private / "token").read_text(), self.card()["result"]), ("kept", "Removed Network. Qorqbot restarted."))
+
+    def refused(self, **body):
+        """The answer to a click whose change was refused or failed before the restart: an ordinary answer, the entry with
+        the sentence as its result, marked failed."""
+        entry = self.click(**body)
+        self.assertTrue(entry.get("failed"), entry)
+        return entry["result"]
 
     def test_a_failure_before_the_restart_is_said_and_changes_nothing(self):
         bundle = Path(self.index.entry("network").bundles[0].url.removeprefix("file://"))
         bundle.write_bytes(bundle.read_bytes()[:-1] + b"x")
-        with self.assertRaises(DomainError) as failed:
-            self.click(action="install", version="1.0.0")
-        self.assertEqual(failed.exception.message,
+        self.assertEqual(self.refused(action="install", version="1.0.0"),
                          "Network was not installed. The downloaded bundle does not have the checksum the index gives.")
         self.assertEqual((change.pending(self.paths), self.restarts, self.card()["offers"]),
                          (None, [], [{"action": "install", "version": "1.0.0"}]))
@@ -539,9 +549,7 @@ class OwnerCardTest(ToolsCase):
     def test_closed_for_writes_stages_nothing(self):
         with self.rt.database.transaction() as uow:
             uow.repository("maintenance_state").insert({"id": "service", "state": "closed", "message": "Recovery"})
-        with self.assertRaises(DomainError) as closed:
-            self.click(action="install", version="1.0.0")
-        self.assertEqual(closed.exception.code, "maintenance")
+        self.assertEqual(self.refused(action="install", version="1.0.0"), "Recovery")
         self.assertEqual((change.pending(self.paths), self.restarts), (None, []))
 
     def test_no_restart_asked_for_says_so_and_does_not_wait_for_one(self):
@@ -558,9 +566,88 @@ class OwnerCardTest(ToolsCase):
         self.assertEqual(connections.parse_action({"action": "remove", "delete_data": True}),
                          {"action": "remove", "delete_data": True})
         self.click(action="install", version="1.0.0")
-        with self.assertRaises(DomainError) as waiting:
-            self.click(action="install", version="1.0.0")
-        self.assertEqual(waiting.exception.message, change.WAITING)
+        self.assertEqual(self.refused(action="install", version="1.0.0"), change.WAITING)
+
+    def test_an_address_that_does_not_answer_and_a_bundle_of_another_version_are_said(self):
+        from dataclasses import replace as replaced
+        real, entry = self.index, self.index.entry("network")
+
+        def serving(bundle):
+            # The index as the tools read it, with the one bundle address changed.
+            return NS(entries=real.entries, entry=real.entry, entry_for=lambda ext_id, platform: (entry, bundle))
+        self.index = serving(replaced(entry.bundles[0], url=(self.root / "nothing-here.tar.gz").as_uri()))
+        self.assertTrue(self.refused(action="install", version="1.0.0").startswith(
+            "Network was not installed. The bundle could not be downloaded or unpacked:"))
+        # The index names 1.0.0 but its address serves the bundle of 1.0.1.
+        newer = self.update_source().entry("network").bundles[0]
+        self.index = serving(newer)
+        self.assertEqual(self.refused(action="install", version="1.0.0"),
+                         "Network was not installed. The bundle holds network 1.0.1, not network 1.0.0.")
+        self.assertEqual((change.pending(self.paths), self.restarts), (None, []))
+
+
+class KeptSetupTest(ToolsCase):
+    """Removal keeps the private folder so that it serves the extension when it comes back: an install that finds a kept
+    key that still fits the fields is ``ready`` again. An install with nothing kept asks nothing more."""
+
+    def setUp(self):
+        super().setUp()
+        from test_extension_change import builder, generator
+        from qorqut.extension_setup import ExtensionSetups, KeySetup
+        folder = self.release / "keyed-source" / "keyed"
+        shutil.copytree(Path(__file__).resolve().parent / "fixtures" / "extension-contract" / "keyed", folder)
+        out = self.release / "keyed-out"
+        out.mkdir()
+        bundle = builder.build_folder(folder, "any", out / "keyed.tar.gz")["path"]
+        (out / extension_index.INDEX_FILE).write_text(json.dumps(generator.build_index([folder], [bundle], "1.7.0", out.as_uri())))
+        self.index = extension_index.load(out / extension_index.INDEX_FILE)
+        self.registry()
+        self.asked = []
+        test = self
+
+        def handler(ext_id):
+            manifest = test.tools.extensions.get(ext_id).manifest
+            return KeySetup(PrivateFolder(test.paths.instance_root, ext_id), manifest.setup_fields, check=lambda values: None)
+
+        class Setups:
+            @property
+            def current(self):
+                return ExtensionSetups(test.tools.extensions, handler)
+
+            def kept(self, ext_id):
+                test.asked.append(ext_id)
+                return self.current.kept(ext_id)
+        self.setups = Setups()
+        self.tools.runtime = NS(extension_setups=self.setups)
+        self.card = NS(database=self.rt.database, application=self.rt.application, extension_setups=None,
+                       extension_tools=self.tools)
+
+    def click(self, **body):
+        self.card.extension_registry = self.tools.extensions
+        return connections.act(self.card, self.rt.owner, "keyed", connections.parse_action(body))
+
+    def test_installing_again_finds_the_kept_key(self):
+        self.click(action="install", version="1.0.0")
+        self.next_start()
+        self.assertEqual((self.asked, self.tools.extensions.get("keyed").status), ([], "not_set_up"))
+        self.setups.current.accept("keyed", {"token": "kept-token"})
+        self.assertEqual(self.tools.extensions.get("keyed").status, "ready")
+        self.click(action="remove", delete_data=False)
+        self.next_start()
+        self.assertTrue((PrivateFolder(self.paths.instance_root, "keyed").path / "setup.json").is_file())
+        self.click(action="install", version="1.0.0")
+        self.next_start()
+        self.assertEqual((self.asked, self.tools.extensions.get("keyed").status), (["keyed"], "ready"))
+        self.assertEqual(self.tools.results["keyed"], "Installed Keyed 1.0.0. Qorqbot restarted.")
+
+
+class ToolSchemaTest(ToolsCase):
+    def test_the_two_tools_offer_no_expected_revision(self):
+        from qorqut.transport.mcp import tool_schema
+        for name in (tools.INSTALL_TOOL, tools.REMOVE_TOOL):
+            properties = tool_schema(self.rt.application.registry, name)["properties"]
+            self.assertEqual((set(properties) - {"idempotency_key", "project_id", "review_project_id", "supersedes_signoff_id",
+                                                 "expected_superseded_status_revision"}), {"extension"}, name)
 
 
 class NothingNewTest(ToolsCase):
