@@ -26,7 +26,6 @@ from __future__ import annotations
 
 from contextlib import ExitStack, contextmanager
 from datetime import datetime, timezone
-import fcntl
 import hashlib
 import json
 import os
@@ -36,6 +35,8 @@ import shutil
 import stat
 import tempfile
 from typing import Mapping, Protocol
+
+from qorqut_system import locks, private_files
 
 from . import controlled
 from .engine import Context, atomic_write, check_ownership, file_lock
@@ -91,11 +92,7 @@ def _now():
 
 
 def _fsync_directory(path):
-    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
+    private_files.sync_folder(path)
 
 
 def _sha256(path):
@@ -623,7 +620,7 @@ def _capture(repository, runtime, target, source, index_name, markers, barrier, 
             raise RecoveryError("object_missing", f"The object closure cannot be packed: {error}") from error
         handle.flush()
         os.fsync(handle.fileno())
-    os.chmod(pack, 0o600)
+    private_files.set_private(pack)
     logs = []
     for rel in source.of("git", "log"):
         size, sha = _copy_stable(repository / ".git" / rel, target / LOG_ROOT / rel[len("logs/"):], 0o600)
@@ -633,10 +630,10 @@ def _capture(repository, runtime, target, source, index_name, markers, barrier, 
         kind = source.runtime_class[rel]
         info = source.runtime_entries[rel]
         if kind == "dir":
-            directories.append({"path": rel, "mode": stat.S_IMODE(info.st_mode)})
+            directories.append({"path": rel, "mode": private_files.mode_of(info, mask=0o7777)})
         elif kind == "authority":
             size, sha = _copy_stable(runtime / rel, target / RUNTIME_ROOT / rel, 0o600)
-            files.append({"path": rel, "bytes": size, "sha256": sha, "mode": stat.S_IMODE(info.st_mode)})
+            files.append({"path": rel, "bytes": size, "sha256": sha, "mode": private_files.mode_of(info, mask=0o7777)})
     derived = ([{"area": "git", "path": rel, "reason": "template, accelerator or index Git rebuilds from the objects"}
                 for rel in source.of("git", "derived")] +
                [{"area": "runtime", "path": rel, "owner": "qorqut_context.search.SQLiteIndex",
@@ -945,14 +942,14 @@ class _Restore:
         with ExitStack() as stack:
             for path in sorted(set(self.locks.values()), key=str):
                 try:
-                    descriptor = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+                    handle = locks.open_lock(path.parent, path.name)
                 except OSError as error:
                     raise RecoveryError("restore_conflict", "A restore lock location is not usable; it was left untouched") from error
-                stack.callback(os.close, descriptor)
-                if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                stack.callback(handle.close)
+                if not stat.S_ISREG(os.fstat(handle.descriptor).st_mode):
                     raise RecoveryError("restore_conflict", "A restore lock location is not a regular file; it was left untouched")
                 try:
-                    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    handle.acquire(exclusive=True, wait=False)
                 except BlockingIOError as error:
                     raise RecoveryError("restore_conflict", "Another restore owns this location", retryable=True) from error
             yield
@@ -1035,8 +1032,8 @@ class _Restore:
             if (size, sha) != (item["bytes"], item["sha256"]):
                 raise RecoveryError("invalid_capture", f"A captured runtime file changed during restore: {item['path']}")
         for item in self.manifest["runtime"]["directories"]:
-            os.chmod(runtime / item["path"], item["mode"])
-        os.chmod(runtime, 0o700)
+            private_files.set_private(runtime / item["path"], mode=item["mode"])
+        private_files.set_private(runtime, mode=0o700)
         # Content is validated before any ownership marker exists, so nothing here can be opened as a Context.
         _check_closure(repository, self.manifest)
         _git_content(repository, lambda event: _read_optional(runtime / "events" / event / "input.bin"),

@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import base64
-import fcntl
 import hashlib
 import hmac
 import ipaddress
@@ -16,6 +15,7 @@ from urllib.parse import urlsplit
 from qorqut.agents.models import GLOBAL_CAPABILITIES
 from qorqut.bootstrap.client import path_has_symlink
 from qorqut_operations.contracts import DomainError, Principal, canonical_bytes
+from qorqut_system import locks, private_files
 
 COOKIE_NAME = "qorqut_session"
 SESSION_SECONDS = 12 * 60 * 60
@@ -98,26 +98,21 @@ class Authentication:
             if path_has_symlink(path):
                 raise DomainError("authority_invalid", "Session signing material is not at its registered path")
             path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            lock = os.open(path.with_suffix(".lock"), os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+            handle = locks.open_lock(path.parent, path.with_suffix(".lock").name)
             try:
-                fcntl.flock(lock, fcntl.LOCK_EX)
+                handle.acquire()
                 try:
-                    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+                    private_files.create_entry(path.parent, path.name, secrets.token_bytes(48))
                 except FileExistsError:
-                    descriptor = None
-                if descriptor is not None:
-                    with os.fdopen(descriptor, "wb") as stream:
-                        stream.write(secrets.token_bytes(48))
-                        stream.flush()
-                        os.fsync(stream.fileno())
-                descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+                    pass
+                descriptor = private_files.open_read(path.parent, path.name)
                 with os.fdopen(descriptor, "rb") as stream:
-                    if os.fstat(stream.fileno()).st_mode & 0o077:
+                    if not private_files.is_private(os.fstat(stream.fileno())):
                         raise DomainError("authority_invalid", "Session signing material must have mode 0600")
                     self._key = stream.read(4096)
             finally:
-                fcntl.flock(lock, fcntl.LOCK_UN)
-                os.close(lock)
+                handle.release()
+                handle.close()
         if not isinstance(self._key, bytes) or len(self._key) < 32:
             raise DomainError("authority_invalid", "Session signing material is invalid")
         return self._key

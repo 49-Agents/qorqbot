@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import argparse
 from contextlib import contextmanager
-import fcntl
 import hashlib
 import json
 import os
 from pathlib import Path
 import uuid
+
+from qorqut_system import locks, private_files
 
 from .errors import ReleaseError
 from .io import atomic_json, canonical, digest, file_digest, durable_makedirs, fsync_directory
@@ -79,7 +80,7 @@ def dataset_lock(root):
     no_alias(root)
     durable_makedirs(root)
     with (root / '.experience-bindings.lock').open('a+b') as stream:
-        fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+        locks.acquire(stream)
         yield
 
 
@@ -112,7 +113,7 @@ def verify_binding(plan, component):
     verify_dataset(selection, session_format)
     expected = expected_receipt(plan, component)
     binding = Path(expected['binding_path'])
-    if not binding.is_symlink() or str(binding.resolve()) != selection['dataset_path'] or os.readlink(binding) != selection['dataset_path']:
+    if not binding.is_symlink() or str(binding.resolve()) != selection['dataset_path'] or private_files.read_link(binding) != selection['dataset_path']:
         raise ReleaseError('experience binding is absent or incorrect')
     receipt_path = Path(selection['receipt_path'])
     no_alias(receipt_path)
@@ -130,7 +131,7 @@ def bind_experiences(plan, component, artifact):
     dataset, root = Path(selection['dataset_path']), Path(selection['data_root'])
     binding = source / 'experiences/sessions'
     no_alias(binding.parent)
-    if os.path.lexists(binding) and (not binding.is_symlink() or os.readlink(binding) != str(dataset)):
+    if os.path.lexists(binding) and (not binding.is_symlink() or private_files.read_link(binding) != str(dataset)):
         raise ReleaseError('existing binding path requires reconciliation; nothing is changed')
     with dataset_lock(root):
         parent = dataset.parent
@@ -146,10 +147,10 @@ def bind_experiences(plan, component, artifact):
         durable_makedirs(dataset, anchor=root)
         verify_dataset(selection, session_format)
         if os.path.lexists(binding):
-            if not binding.is_symlink() or os.readlink(binding) != str(dataset):
+            if not binding.is_symlink() or private_files.read_link(binding) != str(dataset):
                 raise ReleaseError('existing binding path requires reconciliation; nothing is deleted')
         else:
-            binding.symlink_to(dataset, target_is_directory=True)
+            private_files.make_link(dataset, binding, target_is_directory=True)
         fsync_directory(binding.parent)  # also retry an existing, previously unflushed link
         receipt = expected_receipt(plan, component)
         atomic_json(Path(selection['receipt_path']), receipt)
@@ -161,9 +162,7 @@ def unbind_experiences(plan, component):
     receipt = verify_binding(plan, component)
     with dataset_lock(Path(component['experience_binding']['data_root'])):
         Path(receipt['binding_path']).unlink()
-        fd = os.open(Path(receipt['binding_path']).parent, os.O_RDONLY | os.O_DIRECTORY)
-        try: os.fsync(fd)
-        finally: os.close(fd)
+        private_files.sync_folder(Path(receipt['binding_path']).parent)
         result = {**receipt, 'operation': 'unbind-experiences', 'dataset_retained': True}
         atomic_json(Path(component['experience_binding']['receipt_path']), result)
         return result

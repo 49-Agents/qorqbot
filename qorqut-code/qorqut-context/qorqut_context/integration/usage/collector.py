@@ -29,14 +29,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-import fcntl
-import os
 from pathlib import Path
 import threading
 from typing import Any, Protocol
 
 from qorqut_context.integration import usage as context_usage
 from qorqut_operations.contracts import DomainError, utc_now
+from qorqut_system import locks
 
 STEP_STATUSES = ("busy", "idle", "partial", "ready", "unavailable")
 MAX_PAGE_SIZE = context_usage.MAX_BATCH
@@ -175,10 +174,10 @@ class ContextUsageCollector:
     @contextmanager
     def _exclusive(self):
         self.lock_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        descriptor = os.open(self.lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        handle = locks.open_lock(self.lock_path.parent, self.lock_path.name)
         try:
             try:
-                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                handle.acquire(exclusive=True, wait=False)
             except BlockingIOError:
                 held = False
             else:
@@ -187,9 +186,9 @@ class ContextUsageCollector:
                 yield held
             finally:
                 if held:
-                    fcntl.flock(descriptor, fcntl.LOCK_UN)
+                    handle.release()
         finally:
-            os.close(descriptor)
+            handle.close()
 
     def _step(self) -> CollectionStep:
         traversal = self._current or self._next()

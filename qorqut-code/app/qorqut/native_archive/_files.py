@@ -2,26 +2,30 @@
 
 Adapted from the v2.2 donor ``app/qorqut_app/native/transcripts/_files.py`` at
 ``qorqut-v2.2/qorqut-code`` commit df7daa7fddf387a7e91212f5ed831b32c0735f96 (exact
-descriptor-relative traversal from ``/`` with ``O_NOFOLLOW`` and regular-file checks).
+descriptor-relative traversal from ``/`` that never follows a link, and regular-file checks).
 Differences: only the final
 component of the archive root may be created (its parent must already exist, so a mistaken
 root cannot fabricate a directory tree), writers publish immutable files with ``link`` instead
 of replacing, appends use positional writes, and the source is opened with a stable identity
 check. Nothing here caches a path or resolves one with ``realpath``.
+
+The folder, file and lock operations are the system layer's
+(``qorqut_system.private_files`` and ``qorqut_system.locks``); this module keeps the walk from ``/``
+and the archive's own shapes. Folders here are the opened folder numbers its caller keeps.
 """
 from __future__ import annotations
 
 from contextlib import contextmanager
 import errno
-import fcntl
 import os
 from pathlib import PurePosixPath
 import stat
 import time
 from uuid import uuid4
 
-DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
-FILE_READ = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+from qorqut_system import locks, private_files
+
+FILE_READ = os.O_RDONLY | os.O_NONBLOCK
 TEMP_PREFIX = ".tmp-"
 
 
@@ -33,9 +37,9 @@ class LockTimeout(Exception):
     pass
 
 
-def _open_dir(name: str, parent_fd: int) -> int:
+def _open_dir(name: str, parent, *, create: bool = False) -> private_files.Folder:
     try:
-        return os.open(name, DIR_FLAGS, dir_fd=parent_fd)
+        return private_files.open_child_folder(parent, name, create=create)
     except OSError as error:
         if error.errno in {errno.ELOOP, errno.ENOTDIR}:
             raise UnsafePath(f"{name!r} is a symlink or not a directory") from error
@@ -45,39 +49,24 @@ def _open_dir(name: str, parent_fd: int) -> int:
 def open_directory_chain(path: str, *, create_last: bool = False) -> int:
     """Open ``path`` one component at a time from ``/``; create at most its final component."""
     parts = PurePosixPath(path).parts
-    fd = os.open("/", DIR_FLAGS)
+    folder = private_files.open_folder("/")
     try:
         for index, part in enumerate(parts[1:], 1):
-            created = False
             if create_last and index == len(parts) - 1:
-                try:
-                    os.mkdir(part, 0o700, dir_fd=fd)
-                    created = True
-                except FileExistsError:
-                    pass
-            child = _open_dir(part, fd)
-            if created:
-                os.fsync(fd)
-            os.close(fd)
-            fd = child
-        return fd
+                child = _open_dir(part, folder, create=True)
+            else:
+                child = _open_dir(part, folder)
+            folder.close()
+            folder = child
+        return folder.descriptor
     except BaseException:
-        os.close(fd)
+        folder.close()
         raise
 
 
 def open_child_directory(parent_fd: int, name: str, *, create: bool = False) -> int:
-    created = False
-    if create:
-        try:
-            os.mkdir(name, 0o700, dir_fd=parent_fd)
-            created = True
-        except FileExistsError:
-            pass
-    fd = _open_dir(name, parent_fd)
-    if created:
-        os.fsync(parent_fd)
-    return fd
+    folder = _open_dir(name, parent_fd, create=create)
+    return folder.descriptor
 
 
 def _checked_regular(fd: int, name: str) -> os.stat_result:
@@ -91,7 +80,7 @@ def _checked_regular(fd: int, name: str) -> os.stat_result:
 def open_regular(dir_fd: int, name: str, flags: int = FILE_READ, mode: int = 0o600) -> int:
     """Open an existing (or, with ``O_CREAT``, new) regular file; refuse symlinks and special files."""
     try:
-        fd = os.open(name, flags | os.O_NOFOLLOW | os.O_CLOEXEC, mode, dir_fd=dir_fd)
+        fd = private_files.open_entry(dir_fd, name, flags, mode=mode)
     except OSError as error:
         if error.errno in {errno.ELOOP, errno.ENXIO, errno.EISDIR}:
             raise UnsafePath(f"{name!r} is a symlink or special file") from error
@@ -148,13 +137,13 @@ def pwrite_full(fd: int, data: bytes | memoryview, offset: int) -> None:
 
 
 def fsync_directory(fd: int) -> None:
-    os.fsync(fd)
+    private_files.sync_folder(fd)
 
 
 def stage_temporary(dir_fd: int, content: bytes) -> str:
     """Write ``content`` to a private, fsynced temporary file; the caller publishes or discards it."""
     name = TEMP_PREFIX + uuid4().hex
-    fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=dir_fd)
+    fd = private_files.open_entry(dir_fd, name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode=0o600)
     try:
         pwrite_full(fd, content, 0)
         os.fsync(fd)
@@ -169,38 +158,35 @@ def stage_temporary(dir_fd: int, content: bytes) -> str:
 def publish_immutable(source_fd: int, temporary: str, target_fd: int, name: str) -> None:
     """Make ``temporary`` visible as ``name`` unless ``name`` exists; the temporary is always removed."""
     try:
-        os.link(temporary, name, src_dir_fd=source_fd, dst_dir_fd=target_fd, follow_symlinks=False)
+        private_files.link_entry(source_fd, temporary, name, target_folder=target_fd)
     finally:
         unlink_quietly(source_fd, temporary)
     fsync_directory(target_fd)
 
 
 def replace_atomic(dir_fd: int, temporary: str, name: str) -> None:
-    os.rename(temporary, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+    private_files.rename_entry(dir_fd, temporary, name)
     fsync_directory(dir_fd)
 
 
 def unlink_quietly(dir_fd: int, name: str) -> None:
-    try:
-        os.unlink(name, dir_fd=dir_fd)
-    except FileNotFoundError:
-        pass
+    private_files.remove_entry(dir_fd, name, missing_ok=True)
 
 
 def remove_temporaries(dir_fd: int) -> None:
-    for name in os.listdir(dir_fd):
+    for name in private_files.list_entries(dir_fd):
         if name.startswith(TEMP_PREFIX):
             unlink_quietly(dir_fd, name)
 
 
 def remove_all_files(dir_fd: int) -> None:
-    for name in os.listdir(dir_fd):
+    for name in private_files.list_entries(dir_fd):
         unlink_quietly(dir_fd, name)
 
 
 def exists(dir_fd: int, name: str) -> bool:
     try:
-        os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+        private_files.stat_entry(dir_fd, name)
     except FileNotFoundError:
         return False
     return True
@@ -209,12 +195,20 @@ def exists(dir_fd: int, name: str) -> bool:
 @contextmanager
 def exclusive_lock(dir_fd: int, name: str, timeout: float):
     """Process-safe advisory lock on ``name`` (flock on its own open description, so threads exclude too)."""
-    fd = open_regular(dir_fd, name, os.O_RDWR | os.O_CREAT)
+    try:
+        handle = locks.open_lock(dir_fd, name, create=True)
+    except OSError as error:
+        if error.errno in {errno.ELOOP, errno.ENXIO, errno.EISDIR}:
+            raise UnsafePath(f"{name!r} is a symlink or special file") from error
+        raise
+    if not stat.S_ISREG(os.fstat(handle.descriptor).st_mode):
+        handle.close()
+        raise UnsafePath(f"{name!r} is not a regular file")
     try:
         deadline = time.monotonic() + timeout
         while True:
             try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                handle.acquire(exclusive=True, wait=False)
                 break
             except OSError as error:
                 if error.errno not in {errno.EAGAIN, errno.EACCES}:
@@ -224,7 +218,7 @@ def exclusive_lock(dir_fd: int, name: str, timeout: float):
                 time.sleep(0.005)
         yield
     finally:
-        os.close(fd)
+        handle.close()
 
 
 class Source:
@@ -242,11 +236,11 @@ class Source:
         pure = PurePosixPath(path)
         parent_fd = open_directory_chain(str(pure.parent))
         try:
-            info = os.stat(pure.name, dir_fd=parent_fd, follow_symlinks=False)
+            info = private_files.stat_entry(parent_fd, pure.name)
             if not stat.S_ISREG(info.st_mode):
                 raise UnsafePath("the transcript source is a symlink or special file")
             try:
-                fd = os.open(pure.name, FILE_READ, dir_fd=parent_fd)
+                fd = private_files.open_entry(parent_fd, pure.name, FILE_READ)
             except OSError as error:
                 if error.errno in {errno.ELOOP, errno.ENXIO}:
                     raise UnsafePath("the transcript source is a symlink or special file") from error
@@ -266,7 +260,7 @@ class Source:
     def path_identity(self) -> tuple[int, int] | None:
         """Identity of what the source *name* refers to now (None when it vanished or is not plain)."""
         try:
-            info = os.stat(self.name, dir_fd=self.parent_fd, follow_symlinks=False)
+            info = private_files.stat_entry(self.parent_fd, self.name)
         except FileNotFoundError:
             return None
         return (info.st_dev, info.st_ino) if stat.S_ISREG(info.st_mode) else None

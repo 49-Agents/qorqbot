@@ -3,14 +3,12 @@
 A dismissal names one placement (``viewbox:{item id}:{placement sequence}``), so placing the same link again is a new
 placement and reappears. It is kept apart from the owner's viewed acknowledgements, pins and every operational record.
 """
-import fcntl
 import hashlib
 import json
-import os
-import tempfile
 from pathlib import Path
 
 from qorqut_operations.contracts import DomainError
+from qorqut_system import locks, private_files
 
 MAX_ATTENTION_ID = 200
 MAX_PER_AGENT = 200
@@ -60,7 +58,7 @@ def dismiss(viewbox, runtime_directory, ctx, agent_id, body):
     directory = path.parent
     directory.mkdir(parents=True, exist_ok=True)
     with path.with_suffix('.lock').open('a') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        locks.acquire(lock)
         everything = _load(path)
         ids = list(everything.get(agent_id, ()))
         if attention_id not in ids:
@@ -69,16 +67,7 @@ def dismiss(viewbox, runtime_directory, ctx, agent_id, body):
                 # A replaced placement never returns, so the oldest ones off the board are the safe ones to forget.
                 stale = [x for x in ids if x not in current][:len(ids) - MAX_PER_AGENT]
                 ids = [x for x in ids if x not in stale]
-            fd, temporary = tempfile.mkstemp(dir=directory, prefix='.viewbox-dismissed-')
-            try:
-                with os.fdopen(fd, 'w') as stream:
-                    json.dump({**everything, agent_id: ids}, stream)
-                    stream.flush()
-                    os.fsync(stream.fileno())
-                os.replace(temporary, path)
-                directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
-                try: os.fsync(directory_fd)
-                finally: os.close(directory_fd)
-            finally:
-                if os.path.exists(temporary): os.unlink(temporary)
+            private_files.replace_entry(directory, path.name, json.dumps({**everything, agent_id: ids}).encode(),
+                                        prefix='.viewbox-dismissed-', chmod=False)
+            private_files.sync_folder(directory)
     return {'agent_id': agent_id, 'dismissed_attention_ids': sorted(ids)}

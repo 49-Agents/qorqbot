@@ -4,7 +4,6 @@ The request key owns one directory. A sealed receipt makes retries reuse the
 same bytes; filenames never select a directory or overwrite another upload.
 """
 from contextlib import contextmanager
-import fcntl
 import hashlib
 import json
 import os
@@ -14,12 +13,12 @@ import stat
 import uuid
 
 from qorqut_operations.contracts import DomainError
+from qorqut_system import locks, private_files
 from qorqut.file_viewer.paths import escape_label, viewer_url
 
 MAX_BYTES = 25 * 1024 * 1024
 KEY = re.compile(r"[A-Za-z0-9._:-]{8,120}")
-DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
-READ = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+READ = os.O_RDONLY | os.O_NONBLOCK
 
 
 def validate(key, name, data):
@@ -41,28 +40,24 @@ def directory(root, workspace, identity):
         raise DomainError("forbidden", "The agent workspace is outside this instance") from None
     if not parts or any(p in (".", "..") for p in parts):
         raise DomainError("forbidden", "Invalid agent workspace")
-    descriptor = None
+    folder = None
     try:
-        descriptor = os.open(root, DIRECTORY)
+        folder = private_files.open_folder(root)
         for part in (*parts, "downloads", identity):
-            try:
-                os.mkdir(part, mode=0o700, dir_fd=descriptor)
-            except FileExistsError:
-                pass
-            child = os.open(part, DIRECTORY, dir_fd=descriptor)
-            os.close(descriptor)
-            descriptor = child
-        yield descriptor
+            child = private_files.open_child_folder(folder, part, create=True, sync=False)
+            folder.close()
+            folder = child
+        yield folder
     except OSError as error:
         raise DomainError("file_unavailable", "The file could not be saved in the agent's downloads") from error
     finally:
-        if descriptor is not None:
-            os.close(descriptor)
+        if folder is not None:
+            folder.close()
 
 
-def read(descriptor, name, limit):
+def read(folder, name, limit):
     try:
-        fd = os.open(name, READ, dir_fd=descriptor)
+        fd = private_files.open_entry(folder, name, READ)
     except FileNotFoundError:
         return None
     try:
@@ -78,9 +73,9 @@ def read(descriptor, name, limit):
         os.close(fd)
 
 
-def create(descriptor, name, data):
+def create(folder, name, data):
     temporary = ".incoming-" + uuid.uuid4().hex
-    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=descriptor)
+    fd = private_files.open_entry(folder, temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode=0o600)
     try:
         with os.fdopen(fd, "wb") as stream:
             stream.write(data)
@@ -88,10 +83,10 @@ def create(descriptor, name, data):
             os.fsync(stream.fileno())
         # Link is exclusive: an existing file is never overwritten, including
         # one left after a crash between saving the bytes and the receipt.
-        os.link(temporary, name, src_dir_fd=descriptor, dst_dir_fd=descriptor, follow_symlinks=False)
-        os.fsync(descriptor)
+        private_files.link_entry(folder, temporary, name)
+        private_files.sync_folder(folder)
     finally:
-        os.unlink(temporary, dir_fd=descriptor)
+        private_files.remove_entry(folder, temporary)
 
 
 def save(root, profile, principal_id, binding, key, name, data):
@@ -106,12 +101,12 @@ def save(root, profile, principal_id, binding, key, name, data):
     expected = {"agent_id": profile["agent_id"], "principal_id": principal_id, "binding": binding,
                 "name": name, "filename": filename, "sha256": digest, "size": len(data)}
     with directory(root, profile["workspace"], identity) as parent:
-        lock = os.open(".upload.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, 0o600, dir_fd=parent)
+        lock = locks.open_lock(parent, ".upload.lock", nonblock=True)
         try:
-            if not stat.S_ISREG(os.fstat(lock).st_mode):
+            if not stat.S_ISREG(os.fstat(lock.descriptor).st_mode):
                 raise DomainError("file_unavailable", "The attachment is unavailable")
             try:
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                lock.acquire(exclusive=True, wait=False)
             except BlockingIOError:
                 raise DomainError("busy", "This file is still being saved; retry shortly", retryable=True) from None
             receipt = read(parent, ".receipt.json", 16384)
@@ -127,7 +122,7 @@ def save(root, profile, principal_id, binding, key, name, data):
             if receipt is None:
                 create(parent, ".receipt.json", json.dumps(expected, sort_keys=True).encode())
         finally:
-            os.close(lock)
+            lock.close()
     path = Path(profile["workspace"]) / "downloads" / identity / filename
     relative = path.relative_to(root).as_posix()
     return {"id": identity, "name": name, "size": len(data), "path": str(path), "url": viewer_url(path=relative),

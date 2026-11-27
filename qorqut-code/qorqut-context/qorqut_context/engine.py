@@ -3,15 +3,14 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
-import fcntl
 import hashlib
 import json
-import os
 from pathlib import Path
 import secrets
 import shutil
 import string
-import tempfile
+
+from qorqut_system import locks, private_files
 
 from .git_store import CONFIG_PATH, CURRENT_CONFIG, FORMAT_VERSION, Git, Snapshot
 from .schema import (Conflict, ContextError, RECORD_KINDS, change_details, digest, encode,
@@ -23,33 +22,21 @@ from . import controlled, graph_edits, input_modes as modes, personal, questions
 
 def atomic_write(path: Path, content: bytes):
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(prefix=".write-", dir=path.parent)
-    try:
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(content)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
-    finally:
-        Path(temporary).unlink(missing_ok=True)
+    private_files.replace_entry(path.parent, path.name, content, prefix=".write-", chmod=False)
+    private_files.sync_folder(path.parent)
 
 
 @contextmanager
 def file_lock(path: Path):
     with path.open("a+b") as handle:
         try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            locks.acquire(handle, exclusive=True, wait=False)
         except BlockingIOError as error:
             raise Conflict("Another writer/query is using this shared context") from error
         try:
             yield
         finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+            locks.release(handle)
 
 
 def check_ownership(path: Path, expected: dict) -> bool:
@@ -978,11 +965,7 @@ class Context:
             removed = self._outbox(event_id, commit) is not None
             if removed:
                 self._outbox_path(event_id).unlink()
-                directory = os.open(self.runtime / "questions", os.O_RDONLY | os.O_DIRECTORY)
-                try:
-                    os.fsync(directory)
-                finally:
-                    os.close(directory)
+                private_files.sync_folder(self.runtime / "questions")
             return {"event_id": event_id, "published_commit": commit, "acknowledged": True, "removed": removed}
 
     def _ensure_index(self, snapshot, before=None):
@@ -1002,11 +985,7 @@ class Context:
         if directory.exists():
             shutil.rmtree(directory)
         self.job_path.unlink(missing_ok=True)
-        descriptor = os.open(self.runtime, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
+        private_files.sync_folder(self.runtime)
 
     def _finish(self, job, commit):
         if self.git.head() != commit:
