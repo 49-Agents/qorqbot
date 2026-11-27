@@ -73,12 +73,28 @@ function chatViewTable(head, align, rows) {
   const row = (tag, cells) => `<tr>${align.map((_, i) => cell(tag, cells[i] ?? '', i)).join('')}</tr>`;
   return `<div class="gc-table-wrap" role="region" aria-label="Table" tabindex="0"><table><thead>${row('th', head)}</thead>${rows.length ? `<tbody>${rows.map(cells => row('td', cells)).join('')}</tbody>` : ''}</table></div>`;
 }
+// List items nest by indentation: an item indented more than the one before opens a list inside it. A bullet and a
+// numbered item side by side at one level are two lists.
+function chatViewList(items) {
+  let html = '';
+  const open = [];
+  for (const item of items) {
+    while (open.length > 1 && item.indent < open.at(-1).indent) html += `</li></${open.pop().tag}>`;
+    const top = open.at(-1);
+    if (!top || item.indent > top.indent) { html += `<${item.tag}><li>`; open.push({tag: item.tag, indent: item.indent}); }
+    else if (top.tag !== item.tag) { html += `</li></${top.tag}><${item.tag}><li>`; open[open.length - 1] = {tag: item.tag, indent: item.indent}; }
+    else html += '</li><li>';
+    html += chatViewInline(item.text);
+  }
+  while (open.length) html += `</li></${open.pop().tag}>`;
+  return html;
+}
 function chatViewMarkdown(source) {
   const lines = String(source ?? '').replace(/\r\n?/g, '\n').split('\n');
   const out = [];
   let paragraph = [], list = null, quote = [];
   const flushParagraph = () => { if (paragraph.length) out.push(`<p>${paragraph.map(chatViewInline).join('<br>')}</p>`); paragraph = []; };
-  const flushList = () => { if (list) out.push(`<${list.tag}>${list.items.map(item => `<li>${chatViewInline(item)}</li>`).join('')}</${list.tag}>`); list = null; };
+  const flushList = () => { if (list) out.push(chatViewList(list.items)); list = null; };
   const flushQuote = () => { if (quote.length) out.push(`<blockquote>${quote.map(chatViewInline).join('<br>')}</blockquote>`); quote = []; };
   const flush = () => { flushParagraph(); flushList(); flushQuote(); };
   for (let index = 0; index < lines.length; index++) {
@@ -94,12 +110,11 @@ function chatViewMarkdown(source) {
     if (!line.trim()) { flush(); continue; }
     const heading = /^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line);
     if (heading) { flush(); out.push(`<p class="gc-heading">${chatViewInline(heading[2])}</p>`); continue; }
-    const bullet = /^\s*[-*+]\s+(.+)$/.exec(line), numbered = /^\s*\d{1,3}[.)]\s+(.+)$/.exec(line);
+    const bullet = /^(\s*)[-*+]\s+(.+)$/.exec(line), numbered = /^(\s*)\d{1,3}[.)]\s+(.+)$/.exec(line);
     if (bullet || numbered) {
-      const tag = bullet ? 'ul' : 'ol';
+      const match = bullet || numbered;
       flushParagraph(); flushQuote();
-      if (list && list.tag !== tag) flushList();
-      (list ||= {tag, items: []}).items.push((bullet || numbered)[1]);
+      (list ||= {items: []}).items.push({tag: bullet ? 'ul' : 'ol', indent: match[1].replace(/\t/g, '    ').length, text: match[2]});
       continue;
     }
     const quoted = /^\s*>\s?(.*)$/.exec(line);
