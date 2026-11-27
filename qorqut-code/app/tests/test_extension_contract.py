@@ -922,6 +922,14 @@ class CommandLineTest(Case):
         # Without --load the code is not loaded.
         self.assertEqual(self.run_main(code)[0], 0)
 
+    def test_with_load_an_id_that_a_name_qorqbot_can_put_into_a_database_starts_with_is_refused(self):
+        from test_extension_tables_runtime import rename
+        folder = rename(self.root / "variants", "agent", "agent_x")
+        status, lines = self.run_main("--load", folder)
+        self.assertEqual(status, 1)
+        self.assertTrue(lines[0].startswith("agent: The new extension id agent cannot be used, as the name agent_"), lines)
+        self.assertEqual(self.run_main(folder)[0], 0)
+
     def test_runs_as_a_module(self):
         done = subprocess.run([sys.executable, "-B", "-m", "qorqut.extension_contract", str(EXAMPLE)],
                               capture_output=True, text=True, timeout=30)

@@ -152,6 +152,16 @@ class BuildTest(Case):
         self.assertFalse((self.root / "refused.tar.gz").exists())
         self.assertEqual([name for name in sys.modules if name.startswith("qorqut_tablenote")], [])
 
+    def test_an_id_that_a_name_qorqbot_can_put_into_a_database_starts_with_is_refused(self):
+        from test_extension_tables_runtime import rename
+        for ext_id, table in (("agent", "agent_x"), ("table", "table_x")):
+            with self.subTest(ext_id):
+                folder = rename(self.root / "variants", ext_id, table)
+                with self.assertRaisesRegex(ValueError, f"breaks the contract: The new extension id {ext_id} cannot be "
+                                                        f"used, as the name {ext_id}_"):
+                    self.build(f"{ext_id}.tar.gz", folder=folder)
+                self.assertFalse((self.root / f"{ext_id}.tar.gz").exists())
+
     def test_a_link_in_the_folder_is_refused(self):
         os.symlink(self.folder / "README.md", self.folder / "plugin" / "linked.md")
         with self.assertRaisesRegex(ValueError, "is a symbolic link"):

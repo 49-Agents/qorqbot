@@ -791,8 +791,23 @@ def check_folders(folders: Iterable[Path], *, shipped: frozenset[str] | None = N
     return result
 
 
-LOADED = "with --load also 5 (the tool names), 8 and 10, by loading the code part in a process of its own"
+LOADED = ("with --load also 5 (the tool names), 8 and 10, by loading the code part in a process of its own, and the "
+          "release's rule (b) of the names where the checkout has it")
 NOT_CHECKED_LOADED = "5 (that a skill's read_for covers each tool), 9, 11, 12, 13"
+
+
+@cache
+def _names_tool():
+    """The release's name rules (``tools/distribution/extension_names.py``) of the checkout this app is in, or None in
+    an installed app, which has no checkout: rule (b) is then not checked."""
+    path = APP.parent / "tools" / "distribution" / "extension_names.py"
+    if not path.is_file():
+        return None
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("extension_contract_names", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def load_findings(folder: Path) -> list[str]:
@@ -804,7 +819,15 @@ def load_findings(folder: Path) -> list[str]:
     from qorqut.bootstrap.extension_tables import declared
     from qorqut.composition.extension_tables import contribution_of
     from qorqut.extension_registry import TABLES_REFUSED
-    if load_manifest(folder).factory is None:
+    manifest = load_manifest(folder)
+    names = _names_tool()
+    if names is not None:
+        # Rule (b): no name Qorqbot can put into a database may start with the id followed by _.
+        taken = names.taken_prefix(manifest.id)
+        if taken is not None:
+            sentence = names.taken_sentence(manifest.id, taken)
+            return [sentence[0].upper() + sentence[1:]]
+    if manifest.factory is None:
         return []
     row, finding = declared(folder)
     if finding is not None:

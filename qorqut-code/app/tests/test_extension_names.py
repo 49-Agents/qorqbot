@@ -6,6 +6,7 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 
@@ -46,18 +47,36 @@ class ExtensionNamesTest(unittest.TestCase):
         self.assertIn("target_identity", self.core)
         self.assertEqual(self.tool.clashes(["network", "keyed"], ["tablenote"], self.core), [])
 
+    def test_the_names_of_the_extensions_the_app_ships_are_names_an_id_is_checked_against(self):
+        # The release tools' own lists: the optional connectors and the extensions the app's bundle carries.
+        factories = self.tool.shipped_factories()
+        self.assertIn("qorqut_telegram.extension:create", factories)
+        self.assertIn("qorqut_whatsapp.extension:create", factories)
+        # Telegram's own tables are composed from this checkout's package, in a process of its own.
+        telegram = [name for name in self.core if name.startswith("telegram_")]
+        self.assertIn("telegram_events", telegram)
+        self.assertEqual(self.tool.taken_prefix("telegram", self.core), telegram[0])
+        self.assertTrue(self.tool.clashes([], ["telegram"], self.core)[0].startswith("Rule (b): the new extension id "
+                                                                                      "telegram cannot be used"))
+        self.assertEqual([name for name in sys.modules if name.startswith("qorqut_telegram")], [])
+        # With no shipped extension the core alone is composed.
+        core_only = self.tool.core_names(factories=())
+        self.assertFalse(any(name.startswith("telegram_") for name in core_only))
+        self.assertLess(set(core_only), set(self.core))
+
     def test_a_core_table_named_after_a_published_id_breaks_rule_a(self):
         table = StorageContribution("tablenote-test", schema=("CREATE TABLE tablenote_x (id TEXT PRIMARY KEY)",))
         names = self.tool.core_names(extra=(table,))
         self.assertIn("tablenote_x", names)
         self.assertEqual(self.tool.clashes(["tablenote"], names=names), [
-            "Rule (a): the core name tablenote_x starts with tablenote_, and tablenote is a published extension id."])
+            "Rule (a): the name tablenote_x, which Qorqbot can put into a database, starts with tablenote_, and "
+            "tablenote is a published extension id."])
 
     def test_a_new_id_that_starts_a_core_name_breaks_rule_b(self):
         found = self.tool.clashes([], ["agent"], self.core)
         self.assertTrue(found)
-        self.assertIn("Rule (b): the new extension id agent cannot be used, as the core name agent_activity starts with "
-                      "agent_.", found)
+        self.assertIn("Rule (b): the new extension id agent cannot be used, as the name agent_activity, which Qorqbot can "
+                      "put into a database, starts with agent_.", found)
         self.assertTrue(all(line.startswith("Rule (b): the new extension id agent ") for line in found))
 
     def test_an_id_that_is_another_id_followed_by_more_breaks_the_id_rule_in_either_order(self):
@@ -78,7 +97,7 @@ class ExtensionNamesTest(unittest.TestCase):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             self.assertEqual(self.tool.main(["--released", str(self.index("network"))]), 0)
-        self.assertEqual(out.getvalue(), "No extension id and core name clash.\n")
+        self.assertEqual(out.getvalue(), "No extension id and name clash.\n")
 
 
 if __name__ == "__main__":
