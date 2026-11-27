@@ -1,5 +1,5 @@
 'use strict';
-// The Focus notes carry a floating microphone in their bottom right corner: the same button, pulse and waveform as the chat
+// The Focus notes carry a floating microphone in their bottom left corner: the same button, pulse and waveform as the chat
 // input, and the words go where the caret was.
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
@@ -21,10 +21,11 @@ async function fixture(run) {
     await page.evaluate(() => {
       let n = 0, saved = {revision: 1, card_ids: [], blocks: [{id: 'b1', text: 'Call the bank\nPlan launch', before_id: null, after_id: null}], statuses: {}};
       window.newRequestId = () => `00000000-0000-4000-8000-00000000000${++n}`;
-      window.coreData = x => x; window.toasts = []; window.toast = text => toasts.push(text);
+      window.coreData = x => { if (x?.status === 'error') { const e = new Error('Something went wrong inside Qorqbot'); e.serverMessage = x.error.message; throw e; } return x; }; window.toasts = []; window.toast = text => toasts.push(text);
       let release;
       window.heard = new Promise(resolve => { release = resolve; });
       window.finishTranscription = () => release({text: 'tomorrow'});
+      window.failTranscription = () => release({status: 'error', error: {code: 'operation_unavailable', message: 'Your OpenRouter balance is too low for voice input. Add credits at openrouter.ai.'}, httpStatus: 503});
       window.api = async url => url === '/root/connectors' ? {connectors: [{id: 'openrouter', status: 'connected'}]}
         : url.includes('transcribe') ? window.heard : structuredClone(saved);
       window.post = async (url, data) => { saved = {...saved, revision: saved.revision + 1, blocks: structuredClone(data.blocks)}; return structuredClone(saved); };
@@ -49,12 +50,12 @@ async function fixture(run) {
   } finally { await browser.close(); }
 }
 
-browserTest('the notes microphone floats in the bottom right corner and puts the words where the caret was', async () => fixture(async page => {
+browserTest('the notes microphone floats in the bottom left corner and puts the words where the caret was', async () => fixture(async page => {
   const box = await page.evaluate(() => {
     const notes = document.querySelector('.agfocus-notes').getBoundingClientRect(), mic = document.querySelector('.agfocus-notes-voice .gchat-mic').getBoundingClientRect();
-    return {right: Math.round(notes.right - mic.right), bottom: Math.round(notes.bottom - mic.bottom), size: Math.round(mic.width)};
+    return {left: Math.round(mic.left - notes.left), bottom: Math.round(notes.bottom - mic.bottom), size: Math.round(mic.width)};
   });
-  assert.deepEqual(box, {right: 12, bottom: 12, size: 36});
+  assert.deepEqual(box, {left: 12, bottom: 12, size: 36});
   // Caret after "Call the".
   await page.click('.agfocus-notes .ntdoc');
   await page.evaluate(() => {
@@ -82,4 +83,34 @@ browserTest('with no caret placed yet, the words go at the end', async () => fix
   await page.evaluate(() => finishTranscription());
   await page.waitForFunction(() => focusText.state('agent').lines.join('\n').includes('tomorrow'));
   assert.equal(await page.evaluate(() => focusText.state('agent').lines.join('\n')), 'Call the bank\nPlan launch tomorrow');
+}));
+
+browserTest('a refused transcription shows the reason the service gives, and the notes are left as they were', async () => fixture(async page => {
+  await page.click('.agfocus-notes-voice .gchat-mic');
+  await page.waitForSelector('.agfocus-notes-voice .gchat-mic[data-state="recording"]');
+  await page.click('.agfocus-notes-voice .gchat-mic');
+  await page.evaluate(() => failTranscription());
+  await page.waitForFunction(() => toasts.length > 0);
+  assert.deepEqual(await page.evaluate(() => toasts), ['Your OpenRouter balance is too low for voice input. Add credits at openrouter.ai.']);
+  assert.equal(await page.evaluate(() => focusText.state('agent').lines.join('\n')), 'Call the bank\nPlan launch');
+}));
+
+browserTest('the hotkey records into the notes only while they have the caret', async () => fixture(async page => {
+  // A second, chat-like field mounted before the notes would otherwise lose the hotkey to them.
+  await page.evaluate(() => {
+    const form = document.createElement('form'), input = document.createElement('textarea');
+    form.id = 'chat'; form.append(input); document.body.prepend(form);
+    window.chatMic = voiceInput.attach({form, input});
+  });
+  await page.waitForSelector('#chat .gchat-mic:not([hidden])');
+  await page.evaluate(() => document.activeElement?.blur());
+  await page.keyboard.press('Control+Shift+Space');
+  await page.waitForSelector('#chat .gchat-mic[data-state="recording"]');
+  assert.equal(await page.$eval('.agfocus-notes-voice .gchat-mic', el => el.dataset.state), 'idle', 'with nothing typed in, the chat records');
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('#chat .gchat-mic[data-state="idle"]');
+  await page.click('.agfocus-notes .ntdoc');
+  await page.keyboard.press('Control+Shift+Space');
+  await page.waitForSelector('.agfocus-notes-voice .gchat-mic[data-state="recording"]');
+  assert.equal(await page.$eval('#chat .gchat-mic', el => el.dataset.state), 'idle');
 }));
