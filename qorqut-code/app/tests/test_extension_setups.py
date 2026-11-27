@@ -225,7 +225,7 @@ class ConnectionsTest(KeyedCase):
             # The Learning Applier's role is not allowed, so it has no row.
             "agents": [{"agent_id": ORDUBASHY, "name": "ordubashy", "role": "ordubashy", "on": True, "in_effect": False}],
             # Without the download tools (no runtime given) the owner's downloads are empty.
-            "offers": [], "result": None, "restarting": False})
+            "offers": [], "result": None, "failed": False, "restarting": False})
         self.write(lambda uow: found.set_status("keyed", "ready", uow=uow))
         [entry] = self.read(lambda connection: extension_connections.items(found, connection))
         self.assertEqual(entry["agents"][0]["in_effect"], True)
