@@ -15,6 +15,7 @@ places.
 | `qorqut_system.publication` | publish a fully written file under a new name, exclusively |
 | `qorqut_system.retained` | address an already-open file where the system allows it |
 | `qorqut_system.identity` | compare a saved file identity with the file on disk |
+| `qorqut_system.processes` | start in the background; identity that survives a reused process id; command line, name, program, folder, parent, owner and process group of a process; the files it holds open and whether it holds a write lock on one; list processes; stop one identified process; one process asked to stop or killed by its id; stop a process with everything it started, gently then by force, also when the process itself has gone; a group asked to stop or killed by its id; ignore a hangup; watch a child's exit without reaping it; boot and machine identity |
 
 A folder opened once is passed on as a `Folder` object, and a lock file as a `LockFile`, so no descriptor number
 crosses a function boundary and the Windows version can hold a path instead.

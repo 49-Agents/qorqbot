@@ -10,7 +10,7 @@ version = "0.1.0"
 description = "The one Qorqut package that touches the operating system: private files, locks, processes, local channels, programs and places."
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = ["psutil>=7.0,<8; sys_platform == 'darwin'"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

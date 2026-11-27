@@ -14,6 +14,7 @@ import unittest
 from unittest import mock
 
 from qorqut import process_info
+from qorqut_system import processes_unix
 
 ROOT = Path('/fake/qorqbot').resolve()
 UID = os.geteuid()
@@ -33,15 +34,15 @@ class FakeTable:
 
     def patches(self, darwin=True):
         return [
-            mock.patch.object(process_info, 'darwin', return_value=darwin),
-            mock.patch.object(process_info, 'pids', return_value=list(self.table)),
-            mock.patch.object(process_info, 'uids', side_effect=lambda pid: (self.table[pid].get('uid', UID),) * 3),
-            mock.patch.object(process_info, 'is_zombie', return_value=False),
-            mock.patch.object(process_info, 'identity', side_effect=lambda pid: f'boot:{pid}'),
-            mock.patch.object(process_info, 'exe', side_effect=lambda pid: Path(self._get(pid, 'exe'))),
-            mock.patch.object(process_info, 'cwd', side_effect=lambda pid: Path(self._get(pid, 'cwd'))),
-            mock.patch.object(process_info, 'environ', side_effect=lambda pid: self._get(pid, 'env')),
-            mock.patch.object(process_info, 'parent_pid', side_effect=lambda pid: self._get(pid, 'parent')),
+            mock.patch.object(processes_unix, 'darwin', return_value=darwin),
+            mock.patch.object(processes_unix, 'pids', return_value=list(self.table)),
+            mock.patch.object(processes_unix, 'uids', side_effect=lambda pid: (self.table[pid].get('uid', UID),) * 3),
+            mock.patch.object(processes_unix, 'is_zombie', return_value=False),
+            mock.patch.object(processes_unix, 'identity', side_effect=lambda pid: f'boot:{pid}'),
+            mock.patch.object(processes_unix, 'exe', side_effect=lambda pid: Path(self._get(pid, 'exe'))),
+            mock.patch.object(processes_unix, 'cwd', side_effect=lambda pid: Path(self._get(pid, 'cwd'))),
+            mock.patch.object(processes_unix, 'environ', side_effect=lambda pid: self._get(pid, 'env')),
+            mock.patch.object(processes_unix, 'parent_pid', side_effect=lambda pid: self._get(pid, 'parent')),
         ]
 
     def owned(self, darwin=True, exclude=()):
