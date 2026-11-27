@@ -178,7 +178,7 @@ const real = [...ctx.allSteps];
 const ids = list => list.map(step => step.id);
 
 test('the tour is one list: no start, consent, terminal or managed-start step', () => {
-  assert.deepEqual(ids(real), ['assistant', 'focus', 'calendar', 'journal', 'projects', 'signoffs', 'settings', 'privacy',
+  assert.deepEqual(ids(real), ['assistant', 'focus', 'calendar', 'projects', 'signoffs', 'settings', 'privacy',
     'connect-overview', 'browser-setup', 'chat']);
   assert.ok(real.every(step => !step.variant && !step.managed && !step.terminal && !step.launch && !step.consent && !step.managedStart));
   assert.deepEqual(plan.chapters(real).map(c => c.id), ['online', 'workspace', 'projects', 'yours', 'connect']);
@@ -194,6 +194,7 @@ test('progress saved at a retired start step continues at the step after Ordubas
   assert.equal(ids(real)[plan.resumeIndex(real, {status: 'in_progress', step: 'activity'})], 'calendar');
   assert.equal(ids(real)[plan.resumeIndex(real, {status: 'in_progress', step: 'learning'})], 'settings');
   assert.equal(ids(real)[plan.resumeIndex(real, {status: 'in_progress', step: 'connectors'})], 'browser-setup');
+  assert.equal(ids(real)[plan.resumeIndex(real, {status: 'in_progress', step: 'journal'})], 'projects');
   // A replay (completed) and anything unreadable start at the beginning, without an error.
   for (const saved of [null, undefined, {status: 'completed', step: 'terminal'}, {status: 'in_progress'}, {status: 'in_progress', step: 'start', launch: 'online'}])
     assert.doesNotThrow(() => plan.resumeIndex(real, saved));

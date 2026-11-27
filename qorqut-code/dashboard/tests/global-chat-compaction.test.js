@@ -42,6 +42,8 @@ function chat(network) {
   const make = new Function('api', 'view', 'calls', 'agentGlyph', 'GLOBAL_CHAT_ACCEPTED', 'GLOBAL_CHAT_OPENING', 'GLOBAL_CHAT_HIDDEN', `
     ${moduleSource}
     const agentId = 'agent-1', base = '/root/agents/agent-1/chat', reads = {signal: null}, coreData = result => result.data, contextStatus = null, timelineBlock = null;
+    // Testing mode on: the inbox nudge markers below are drawn (they are hidden otherwise).
+    const testingModeEnabled = () => true;
     let session = null, conversation = null, inputs = [], older = null, shown, clears = 0, cursor = 0, lastRead = 0, composerScope = null;
     let stream = {}, readTimer = null, loading = false, again = false, generation = 0, reading = 0, olderBusy = false, alive = true;
     const live = () => alive, bindComposer = () => {}, saveDraft = () => {}, connect = () => {}, retry = () => {}, paintSession = () => {};

@@ -164,7 +164,7 @@ test('installed but not signed in: the button is Connect and the row names the a
 test('a pending sign-in says to finish in the browser window and offers Cancel', () => {
   const state = row('codex', {...installed, sign_in: {state: 'connecting', reason: null}});
   assert.equal(state.key, 'connecting');
-  assert.match(state.detail, /^Finish signing in in the browser window that opened\./);
+  assert.match(state.detail, /^Finish signing in on the sign-in page\. This page updates when you are done\.$/);
   assert.deepEqual(state.actions.map(a => [a.id, a.label]), [['cancel_connect', 'Cancel']]);
 });
 
@@ -790,7 +790,7 @@ test('a switch under way: the page link, the code field for Claude, the old acco
   assert.deepEqual(actionIds(state), ['cancel_connect']);
   assert.deepEqual({...state.signin}, {provider: 'claude', name: 'Claude Code', pageUrl: 'https://claude.ai/oauth/authorize?code=true&state=a"b', userCode: '',
     acceptsCode: true, codeSubmitted: false, busy: false, switching: true, previous: 'owner@example.com (Max)'});
-  assert.deepEqual(state.notes, ['No window, or Qorqbot runs on another computer? Open the page yourself and paste the code it shows.',
+  assert.deepEqual(state.notes, ['Page did not open, or Qorqbot runs on another computer? Open the sign-in page yourself and paste the code it shows.',
     'Still signed in as owner@example.com (Max) until you finish.']);
   // A first sign-in (nothing to keep) does not say it.
   const first = clients.rowState('claude', client({...installed, sign_in: {state: 'connecting', method: 'browser', page_url: null, accepts_code: true, switching: false}}));
@@ -804,7 +804,7 @@ test('Codex: a browser sign-in has a link and no field; a device code shows the 
   const browser = clients.rowState('codex', client(switching({method: 'browser', page_url: 'https://auth.openai.com/x', accepts_code: false})));
   assert.equal(browser.signin.acceptsCode, false);
   assert.equal(browser.signin.userCode, '');
-  assert.deepEqual(browser.notes, ['No window? Open the sign-in page yourself.', 'Still signed in as owner@example.com (Max) until you finish.']);
+  assert.deepEqual(browser.notes, ['Page did not open? Open the sign-in page yourself.', 'Still signed in as owner@example.com (Max) until you finish.']);
   const device = clients.rowState('codex', client(switching({method: 'device_code', page_url: 'https://auth.openai.com/codex/device', user_code: 'ABCD-EFGH', accepts_code: false})));
   assert.equal(device.signin.userCode, 'ABCD-EFGH');
   assert.equal(device.signin.acceptsCode, false);
@@ -836,7 +836,7 @@ test('a switch that failed leaves the row Ready with a note, and the server’s 
 
 test('just switched: the counts, singular and zero, restarting, the same account again, failures, and only for ten minutes', () => {
   const note = (switched, now = NOW + 1000) => clients.rowState('claude', client(signedIn({switched: {at: '2026-11-24T12:00:00Z', state: 'done', changed: true,
-    previous_account: null, account: null, restarted: 9, continued: 3, failed: 0, ...switched}})), {now}).note;
+    previous_account: {email: 'before@example.com', plan: 'Pro'}, account: null, restarted: 9, continued: 3, failed: 0, ...switched}})), {now}).note;
   assert.equal(note({}), 'Switched just now. 9 agents restarted, 3 continued where the limit stopped them.');
   assert.equal(note({restarted: 1, continued: 1}), 'Switched just now. 1 agent restarted, 1 continued where the limit stopped it.');
   assert.equal(note({restarted: 2, continued: 0}), 'Switched just now. 2 agents restarted.');
@@ -847,6 +847,14 @@ test('just switched: the counts, singular and zero, restarting, the same account
   assert.equal(note({restarted: 3, continued: 1, failed: 2}), 'Switched just now. 3 agents restarted, 1 continued where the limit stopped it. 2 did not restart.');
   assert.equal(note({}, NOW + 9 * 60e3), 'Switched just now. 9 agents restarted, 3 continued where the limit stopped them.');
   assert.equal(note({}, NOW + 11 * 60e3), '', 'gone after about ten minutes');
+  // A first sign-in (nobody was signed in before) switched nothing: the row shows only its ready text.
+  assert.equal(note({previous_account: null, restarted: 0, continued: 0}), '');
+  assert.equal(note({previous_account: null, state: 'restarting', restarted: 0}), '');
+  const first = clients.rowState('claude', client(signedIn({switched: {at: '2026-11-24T12:00:00Z', state: 'done', changed: true, previous_account: null,
+    account: {email: 'owner@example.com', plan: 'Max'}, restarted: 0, continued: 0, failed: 0}})), {now: NOW + 1000});
+  assert.equal(first.key, 'ready');
+  assert.deepEqual(first.notes, []);
+  assert.doesNotMatch(first.detail, /Switched|same account|restarting/);
   assert.equal(note({at: 'garbage'}), '');
   assert.equal(clients.rowState('claude', client(signedIn({switched: null}))).note, '');
   assert.equal(clients.needsPoll(view(signedIn({switched: {at: '2026-11-24T12:00:00Z', state: 'restarting'}}))), true);
@@ -986,7 +994,7 @@ test('the row repaints when the limit ends or a switch completes, and the sign-i
   await ui.panel.refresh({quiet: true});
   assert.equal(ui.el('claude').dataset.state, 'connecting');
   assert.ok(ui.el('claude').querySelector('[data-ac-signin]'));
-  ui.server.view = view(signedIn({switched: {at: new Date().toISOString(), state: 'done', changed: true, restarted: 2, continued: 1, failed: 0}}));
+  ui.server.view = view(signedIn({switched: {at: new Date().toISOString(), state: 'done', changed: true, previous_account: {email: 'before@example.com', plan: null}, restarted: 2, continued: 1, failed: 0}}));
   await ui.panel.refresh({quiet: true});
   assert.equal(ui.el('claude').dataset.state, 'ready');
   assert.equal(ui.el('claude').querySelector('[data-ac-signin]'), null);
@@ -1023,8 +1031,8 @@ test('the notice for an account problem: a limit, a lost sign-in, signing in, a 
     'The sign-in for owner@example.com (Max) is no longer accepted.', ['connect:Sign in again:primary']]);
   // Signing in: the same sign-in part as Settings, the old account stays, Cancel only.
   const signing = notice(problem(), switching());
-  assert.deepEqual(summary(signing), ['signing', 'Finish signing in in the browser window that opened.',
-    'No window, or Qorqbot runs on another computer? Open the page yourself and paste the code it shows. Still signed in as owner@example.com (Max) until you finish.', ['cancel_connect:Cancel:quiet']]);
+  assert.deepEqual(summary(signing), ['signing', 'Finish signing in on the sign-in page.',
+    'Page did not open, or Qorqbot runs on another computer? Open the sign-in page yourself and paste the code it shows. Still signed in as owner@example.com (Max) until you finish.', ['cancel_connect:Cancel:quiet']]);
   assert.equal(signing.signin.acceptsCode, true);
   assert.equal(notice(problem({provider: 'codex'}), switching({method: 'device_code', user_code: 'ABCD-EFGH', accepts_code: false})).text, 'Open the sign-in page and type the code shown here.');
   // A failed attempt is shown only to someone who tried here.

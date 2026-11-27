@@ -37,6 +37,8 @@ const onboardingPlan = (() => {
     if (index < 0 && RETIRED_START.has(saved.step)) index = find('focus');
     // The retired connector steps resume at the browser step, now the end of the tour.
     if (index < 0 && ['connectors', 'connect-more'].includes(saved.step)) index = find('browser-setup');
+    // The retired Journal step (a Testing mode view) continues at the step that followed it.
+    if (index < 0 && saved.step === 'journal') index = find('projects');
     return index < 0 ? 0 : index;
   }
   // Whether the hello on the last step can be answered. `clients` is GET /root/agent-clients ({claude, codex}, each with `installed` and

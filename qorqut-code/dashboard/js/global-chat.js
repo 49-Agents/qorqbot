@@ -278,10 +278,12 @@ function mountGlobalChat(pane, agent, options = {}) {
   });
   const isAgentMessage = entry => entry.speaker === 'notice' && Array.isArray(entry.agent_message?.recipients);
   const isNudge = entry => entry.speaker === 'notice' && entry.system?.verified === true && entry.system.input_type === 'inbox_nudge';
-  // Rebuild contiguous runs from the ID-keyed, ordered transcript on every render.
+  // Rebuild contiguous runs from the ID-keyed, ordered transcript on every render. Inbox nudges are internal bookkeeping: their marker
+  // is shown only in Testing mode.
   function groupActivity(sorted) {
-    const rows = [];
+    const rows = [], nudges = typeof testingModeEnabled === 'function' && testingModeEnabled();
     for (const entry of sorted) {
+      if (!nudges && isNudge(entry)) continue;
       const last = rows[rows.length - 1];
       if (!isNudge(entry) && !isAgentMessage(entry)) { rows.push(entry); continue; }
       if (last?.group) last.group.push(entry);
@@ -356,7 +358,7 @@ function mountGlobalChat(pane, agent, options = {}) {
   // Accepted messages awaiting their transcript echo. Each record claims, in send order, the first unclaimed native user entry that
   // is newer than the transcript seen when it was sent, has the exact text and is not older than the receipt. Display only.
   function acceptedBubbles(visibleIds) {
-    const held = GLOBAL_CHAT_ACCEPTED.get(globalChatScope(agentId, conversation));
+    const held = heldAccepted();
     if (!held) return [];
     const users = [...entries.values()].filter(entry => entry.speaker === 'user').sort((a, b) => a.position - b.position);
     for (const record of held.records) {
@@ -377,6 +379,21 @@ function mountGlobalChat(pane, agent, options = {}) {
       key: record.id, speaker: 'user', state: record.state, stateLabel: GLOBAL_CHAT_INPUT_STATE[record.state], inputType: 'chat', resendable: false,
       collapsedSource: null, text: record.text, actions: [],
     }}));
+  }
+  // The accepted messages of the conversation on screen. A message that opened a closed session was accepted before that session had
+  // a conversation, under the agent's opening scope (`bindComposer`); it belongs to the conversation that came up. While nothing is
+  // captured yet it is shown from there, and once the live conversation is captured it moves into that conversation's records, so
+  // the message stays on screen until its own transcript entry replaces it.
+  function heldAccepted() {
+    const scope = globalChatScope(agentId, conversation), openedScope = `${agentId}\nmanaged`;
+    const early = GLOBAL_CHAT_ACCEPTED.get(openedScope);
+    if (!scope) return conversation ? null : early || null;
+    if (early && viewingLive()) {
+      const held = GLOBAL_CHAT_ACCEPTED.get(scope) || {records: [], consumed: new Set()};
+      held.records = [...early.records.filter(record => !held.records.some(item => item.id === record.id)), ...held.records];
+      GLOBAL_CHAT_ACCEPTED.set(scope, held); GLOBAL_CHAT_ACCEPTED.delete(openedScope);
+    }
+    return GLOBAL_CHAT_ACCEPTED.get(scope) || null;
   }
   // The owner's message while it opens a sleeping or off agent (about 15 seconds): it is in the conversation at once, in the style of a
   // message being sent, and is replaced by the accepted bubble and then by the transcript's own entry. It is hidden as soon as the
@@ -811,6 +828,8 @@ function mountGlobalChat(pane, agent, options = {}) {
     slashMenu = slashCommands.attach({input: view.elements.input, form: view.elements.composer, commands: commandCatalog});
     cleanups.push(() => slashMenu.dispose());
   }
+  // Testing mode shows or hides the inbox nudge markers (`groupActivity`).
+  if (typeof testingModeSubscribe === 'function') cleanups.push(testingModeSubscribe(() => { if (live()) paintEntries('preserve'); }));
   // The focus board keeps Ordubashy first without changing this chat's input or session identity.
   if (hasContext && view.elements?.composer) {
     contextStatus=chatFocusPanelMount(view.elements.composer,agentId,{agent,visible:contextVisible,onChange:paintSession,workingTag});

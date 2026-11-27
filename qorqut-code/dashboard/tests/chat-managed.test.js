@@ -889,7 +889,7 @@ test('Switch sends switch for the product, the notice becomes the sign-in part, 
   click(t.buttons()[0]);
   await flush();
   assert.deepEqual(t.server.acts, [{provider: 'claude', action: 'switch'}]);
-  assert.match(t.box().querySelector('.mchat-notice-text').textContent, /^Finish signing in in the browser window that opened\./);
+  assert.match(t.box().querySelector('.mchat-notice-text').textContent, /^Finish signing in on the sign-in page\./);
   assert.match(t.box().querySelector('.mchat-notice-text').textContent, /Still signed in as owner@example\.com \(Max\) until you finish\./);
   assert.deepEqual(t.labels(), ['Cancel']);
   const link = t.box().querySelector('a[data-ac-open]');
