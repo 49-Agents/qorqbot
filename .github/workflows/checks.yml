@@ -28,6 +28,15 @@ jobs:
         run: python3 qorqut-code/tools/ci/changes.py
       - name: Check CI selection rules
         run: python3 -B -m unittest discover -s qorqut-code/tools/ci/tests
+      - name: Keep system-specific calls in the system layer
+        env:
+          BASE_REF: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || '' }}
+        run: |
+          if [ -n "$BASE_REF" ]; then
+            python3 qorqut-code/tools/ci/system_calls.py --base-ref "$BASE_REF"
+          else
+            python3 qorqut-code/tools/ci/system_calls.py
+          fi
       - name: Scan complete Git history for secrets
         env:
           GITLEAKS_VERSION: 8.30.1
