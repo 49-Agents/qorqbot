@@ -79,9 +79,11 @@ class HostComposition:
         return self._builder.freeze()
 
 
-def host_contributions(change_feed, extensions=NO_EXTENSIONS):
+def host_contributions(change_feed, extensions=NO_EXTENSIONS, tables=()):
     """Every contribution of the retained host domains, in registration order, then the selected extensions' own (their
-    tables, triggers and indexes sit on the host tables they reference, so they come last and in id order). The Operations engine owns the Signoff,
+    tables, triggers and indexes sit on the host tables they reference, so they come last and in id order), then
+    ``tables``: what the store records of extension tables (``extension_tables.recorded``), empty for a store without
+    that record. The Operations engine owns the Signoff,
     routine, job and neutral Context relationship/review tables; its Signoff and background machinery state the host
     tables they read (``inbox_changes``, ``documents``) as required-table contributions, checked when the store is
     composed, initialised and validated. The inbox nudge engine owns its three tables and reads ``inbox_events`` and
@@ -95,26 +97,29 @@ def host_contributions(change_feed, extensions=NO_EXTENSIONS):
             TransactionContribution("change-feed", change_publisher=require_change_feed(change_feed)),
             queue_index_storage(),
             list_index_storage(),
-            *extensions.storage())
+            *extensions.storage(),
+            *tables)
 
 
-def host_assembly(change_feed, extensions=NO_EXTENSIONS) -> Assembly:
-    """The frozen assembly of the retained host and the selected extensions. ``change_feed`` is the process's one
-    ``ChangeFeed``. The selected storage is part of the target fingerprint, so a store prepared for another extension
-    set is refused when it is opened."""
+def host_assembly(change_feed, extensions=NO_EXTENSIONS, tables=()) -> Assembly:
+    """The frozen assembly of the retained host, the selected extensions and the store's recorded extension tables
+    (``tables``, from ``extension_tables.recorded``). ``change_feed`` is the process's one ``ChangeFeed``. The selected
+    storage is part of the target fingerprint, so a store prepared for another extension set is refused when it is
+    opened. Every place that opens an existing store passes what that store records."""
     composition = HostComposition()
-    for contribution in host_contributions(change_feed, extensions):
+    for contribution in host_contributions(change_feed, extensions, tables=tables):
         composition.add(contribution)
     return composition.freeze()
 
 
-def require_selected_storage(assembly: Assembly, extensions) -> None:
-    """Refuse an opened store whose extension storage is not the selected extensions' own: the same owner names are not
-    enough, so the ordered owner/DDL entries, table specifications, immutable columns and required table / lifecycle
-    metadata of ``extensions.storage()`` must be the ones this assembly carries, and it may carry no other non-core owner,
-    table or immutable column. A deliberately incomplete core assembly (isolated checks) is judged by the same rule."""
+def require_selected_storage(assembly: Assembly, extensions, *, tables) -> None:
+    """Refuse an opened store whose extension storage is not the selected extensions' own and the store's recorded
+    tables: the same owner names are not enough, so the ordered owner/DDL entries, table specifications, immutable
+    columns and required table / lifecycle metadata of ``extensions.storage()`` and then ``tables`` must be the ones this
+    assembly carries, and it may carry no other non-core owner, table or immutable column. A deliberately incomplete
+    core assembly (isolated checks) is judged by the same rule."""
     core = host_assembly(assembly.change_publisher, NO_EXTENSIONS)
-    expected = extensions.storage()
+    expected = (*extensions.storage(), *tables)
     core_owners = {owner for owner, _ in core.schema}
     entries = [(owner, tuple(statements)) for owner, statements in assembly.schema if owner not in core_owners]
     tables = {name for item in expected for name in item.tables}

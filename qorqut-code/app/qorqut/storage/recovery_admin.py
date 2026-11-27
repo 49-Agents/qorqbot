@@ -160,10 +160,10 @@ class RecoveryAdministration:
     """
 
     def __init__(self, database, config: RecoveryAdminConfig,
-                 quiescence_factory: Callable[[], AbstractContextManager], *, background_worker=None):
+                 quiescence_factory: Callable[[], AbstractContextManager], *, extensions, background_worker=None):
         if not callable(quiescence_factory):
             raise TypeError("quiescence_factory must be callable")
-        self.database, self.config = database, config
+        self.database, self.config, self.extensions = database, config, extensions
         self._quiescence_factory = quiescence_factory
         self._background_worker = background_worker
         self._listener: socket.socket | None = None
@@ -189,7 +189,7 @@ class RecoveryAdministration:
 
     def _build_store(self) -> FullRecoveryStore:
         return FullRecoveryStore(
-            self.database, self.config.paths, repository=self.config.repository,
+            self.database, self.config.paths, extensions=self.extensions, repository=self.config.repository,
             password_file=self.config.password_file, authority_staging=self.config.authority_staging,
             restic=ResticBinary(self.config.restic_executable, self.config.restic_sha256),
             initialize_repository=self.config.initialize_repository,

@@ -162,6 +162,16 @@ class GeneratorTest(Case):
         (self.folder / "tests" / "test_network.py").write_text("")
         self.assertEqual(self.generate()["extensions"][0]["folder_sha256"], before)
 
+    def test_two_ids_of_which_one_is_the_other_followed_by_more_are_refused(self):
+        folders = []
+        for ext_id in ("ab", "ab_c"):
+            folders.append(self.root / "named" / ext_id)
+            shutil.copytree(EXAMPLE, folders[-1])
+            self.manifest(folders[-1], id=ext_id)
+        with self.assertRaisesRegex(ValueError, "cannot be indexed together: the extension id ab_c is the id ab "
+                                                "followed by _ and more"):
+            generator.build_index(folders, [], "1.7.0", BASE)
+
     def test_a_downloadable_folder_without_a_bundle_is_refused(self):
         with self.assertRaisesRegex(ValueError, "network has no bundle"):
             generator.build_index([self.folder], [], "1.7.0", BASE)

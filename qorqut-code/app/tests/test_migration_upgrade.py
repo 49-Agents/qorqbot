@@ -43,7 +43,7 @@ class ChainTests(unittest.TestCase):
     def test_the_chain_ends_at_this_build_s_own_target(self):
         self.assertEqual(upgrade.STATES, ('base', *(transform.NAME for transform in upgrade.TRANSFORMS)))
         for extensions in (ExtensionSet(()), ExtensionSet((SyntheticExtension(),))):
-            states = upgrade.chain(extensions)
+            states = upgrade.chain(extensions, tables=())
             self.assertEqual(len(states), len(upgrade.STATES))
             self.assertEqual(states[-1][0].target.digest, host_assembly(ChangeFeed(), extensions).target.digest)
             for transform, (_, old), (_, new) in zip(upgrade.TRANSFORMS, states, states[1:]):
@@ -52,7 +52,7 @@ class ChainTests(unittest.TestCase):
             self.assertEqual(len({assembly.target.digest for assembly, _ in states}), len(upgrade.STATES))
         self.assertEqual(upgrade.STATES, ('base', 'rule_checks', 'project_hierarchy', 'context_step_aside', 'action_digest',
                                           'installed_extensions', 'extension_deliveries'))
-        self.assertEqual(upgrade.chain(ExtensionSet(()))[0][0].target.digest, RELEASED_BASE_DIGEST)
+        self.assertEqual(upgrade.chain(ExtensionSet(()), tables=())[0][0].target.digest, RELEASED_BASE_DIGEST)
 
 
 class UpgradeTests(unittest.TestCase):
@@ -61,7 +61,7 @@ class UpgradeTests(unittest.TestCase):
         self.addCleanup(directory.cleanup)
         self.path = Path(directory.name).resolve() / 'operations.sqlite3'
         self.extensions = ExtensionSet((SyntheticExtension(),))
-        self.states = upgrade.chain(self.extensions)
+        self.states = upgrade.chain(self.extensions, tables=())
         database = Database(self.path, assembly=self.states[0][0])
         database.initialize_target()
         database.close()

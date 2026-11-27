@@ -761,6 +761,9 @@ def ensure_context_repository(root, env, record):
 TREG_FACTORY = 'qorqut_treg.extension:create'
 OPENROUTER_FACTORY = 'qorqut_openrouter.extension:create'
 WHATSAPP_FACTORY = 'qorqut_whatsapp.extension:create'
+GOOGLE_CALENDAR_FACTORY = 'qorqut_google_calendar.extension:create'
+# The extensions this app's own bundle carries, which an update keeps and the release's name rules check against.
+BUNDLED_FACTORIES = frozenset({GOOGLE_CALENDAR_FACTORY, TREG_FACTORY, OPENROUTER_FACTORY, WHATSAPP_FACTORY})
 
 
 def select_bundled(root, name, factory):
@@ -1023,7 +1026,7 @@ def main(argv=None):
                  *remaining, '--config', root / 'instance/config/calendar.json'], env=env, cwd=root)
             config = root / 'instance/config/extensions.json'
             selected = read_json(config)
-            factory = 'qorqut_google_calendar.extension:create'
+            factory = GOOGLE_CALENDAR_FACTORY
             if not any(item.get('factory') == factory for item in selected['extensions']):
                 selected['extensions'].append({'factory': factory, 'config': {}})
                 save_json(config, selected)

@@ -142,6 +142,7 @@ def _apply(runtime, owner_context, plan_, done):
 def run(options):
     from qorqut.bootstrap.initialize import owner_context
     from qorqut.composition.assembly import host_assembly, open_database
+    from qorqut.composition.extension_tables import recorded
     from qorqut.extensions import installed_selection
     from qorqut.installation import extensions_configuration
     from qorqut.service.changes import ChangeFeed
@@ -150,7 +151,7 @@ def run(options):
     paths = instance_paths_from_arguments(options, required=("app", "dashboard"))
     selection = (installed_selection() if options.extensions_config is None
                  else installed_selection(extensions_configuration(options.extensions_config)))
-    database = open_database(paths, host_assembly(ChangeFeed(), selection))
+    database = open_database(paths, host_assembly(ChangeFeed(), selection, tables=recorded(paths.database)))
     runtime = None
     try:
         runtime = build_runtime(options.workspace, paths=paths, database=database, extensions=selection,

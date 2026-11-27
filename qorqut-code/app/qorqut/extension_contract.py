@@ -8,7 +8,8 @@ loaded by the layer's own catalog loader, in memory.
 
 ``load_manifest`` stops at the first problem with one ``ContractError``; ``check_folder`` returns every finding as one
 plain sentence; ``check_folders`` adds the findings that need more than one folder. Run as
-``python -m qorqut.extension_contract <folder> [<folder> ...]``.
+``python -m qorqut.extension_contract [--load] <folder> [<folder> ...]``; with ``--load`` the code part of each folder
+that passes is also loaded, in a process of its own (``load_findings``).
 """
 
 from __future__ import annotations
@@ -790,16 +791,86 @@ def check_folders(folders: Iterable[Path], *, shipped: frozenset[str] | None = N
     return result
 
 
+LOADED = ("with --load also 5 (the tool names), 8 and 10, by loading the code part in a process of its own, and the "
+          "release's rule (b) of the names and its id rule against the ids Qorqbot ships, where the checkout has them")
+NOT_CHECKED_LOADED = "5 (that a skill's read_for covers each tool), 9, 11, 12, 13"
+NAMES_NOT_CHECKED = ("The extension id was not checked against the names of Qorqbot's tables or the ids of the "
+                     "extensions it ships: this Qorqbot is installed, without the release tools that know them.")
+
+
+@cache
+def _names_tool():
+    """The release's name rules (``tools/distribution/extension_names.py``) of the checkout this app is in, or None in
+    an installed app, which has no checkout: rule (b) and the id rule are then not checked."""
+    path = APP.parent / "tools" / "distribution" / "extension_names.py"
+    if not path.is_file():
+        return None
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("extension_contract_names", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_findings(folder: Path, names=None, sites=()) -> list[str]:
+    """The findings of loading the code part of a folder that passes the file rules, as a start loads it, in a process
+    of its own (``qorqut.bootstrap.extension_tables.declared``): its factory, the parts it uses, its tool names and the
+    tables it declares (``tables()``, whose statements are checked as a recorded row is). A folder without
+    ``code.factory`` has none. Nothing of its code is imported into this process.
+
+    ``names`` is the release's name rules (``extension_names.py``), given by the bundle builder beside it; without it
+    they are the checkout's (``_names_tool``), and rule (b) is not checked where there is none. ``sites`` are folders
+    with its dependency wheels unpacked (``extension_deps.unpack``), put after its ``code/`` as a start puts its
+    ``deps/site/``."""
+    from qorqut_operations.contracts import DomainError
+    from qorqut.bootstrap.extension_tables import declared
+    from qorqut.composition.extension_tables import contribution_of
+    from qorqut.extension_registry import tables_note
+    manifest = load_manifest(folder)
+    names = names or _names_tool()
+    if names is not None:
+        # Rule (b): no name Qorqbot can put into a database may start with the id followed by _.
+        taken = names.taken_prefix(manifest.id)
+        if taken is not None:
+            sentence = names.taken_sentence(manifest.id, taken)
+            return [sentence[0].upper() + sentence[1:]]
+        # The id rule against the ids of the extensions Qorqbot ships, in either order; the index builder has the rest.
+        for short, long in names.id_clashes([manifest.id]):
+            sentence = names.id_sentence(short, long)
+            return [sentence[0].upper() + sentence[1:]]
+    if manifest.factory is None:
+        return []
+    row, finding = declared(folder, others=[str(site) for site in sites])
+    if finding is not None:
+        return [finding]
+    if row is not None:
+        try:
+            contribution_of(row)
+        except DomainError as exc:
+            # The sentence a person reads, then the developer's: which statement, which rule.
+            return [f"{tables_note(manifest.id, exc)} ({exc.message})"]
+    return []
+
+
 def main(argv: list[str] | None = None) -> int:
-    folders = [Path(item) for item in (sys.argv[1:] if argv is None else argv)]
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    load = "--load" in arguments
+    folders = [Path(item) for item in arguments if item != "--load"]
     if not folders:
-        print("Usage: python -m qorqut.extension_contract <folder> [<folder> ...]", file=sys.stderr)
+        print("Usage: python -m qorqut.extension_contract [--load] <folder> [<folder> ...]", file=sys.stderr)
         return 2
     findings = check_folders(folders)
+    if load:
+        for folder, name in zip(folders, findings):
+            if not findings[name]:
+                findings[name] = load_findings(folder)
     for name, items in findings.items():
         for item in items:
             print(f"{name}: {item}")
-    print(f"Contract rules checked: {CHECKED}. Not checked yet: rules {NOT_CHECKED} of section 12.")
+    if load and _names_tool() is None:
+        print(NAMES_NOT_CHECKED)
+    print(f"Contract rules checked: {CHECKED}{'; ' + LOADED if load else ''}. "
+          f"Not checked yet: rules {NOT_CHECKED_LOADED if load else NOT_CHECKED} of section 12.")
     return 1 if any(findings.values()) else 0
 
 

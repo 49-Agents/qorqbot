@@ -141,6 +141,35 @@ class BuildTest(Case):
             self.build()
         self.assertFalse((self.root / "network.tar.gz").exists())
 
+    def test_the_code_part_is_loaded_before_the_bundle_is_built(self):
+        folder = self.root / "source" / "tablenote"
+        shutil.copytree(EXAMPLE.parent / "tablenote", folder)
+        self.assertEqual(self.build("tablenote.tar.gz", folder=folder)["bundle"]["id"], "tablenote")
+        source = folder / "code" / "qorqut_tablenote" / "extension.py"
+        source.write_text(source.read_text() + '\nSTATEMENTS = ("CREATE TABLE notes (id TEXT PRIMARY KEY)",)\n')
+        with self.assertRaisesRegex(ValueError, "breaks the contract: Its table notes is not named tablenote_… "):
+            self.build("refused.tar.gz", folder=folder)
+        self.assertFalse((self.root / "refused.tar.gz").exists())
+        self.assertEqual([name for name in sys.modules if name.startswith("qorqut_tablenote")], [])
+
+    def test_an_id_that_a_name_qorqbot_can_put_into_a_database_starts_with_is_refused(self):
+        from test_extension_tables_runtime import rename
+        for ext_id, table in (("agent", "agent_x"), ("table", "table_x")):
+            with self.subTest(ext_id):
+                folder = rename(self.root / "variants", ext_id, table)
+                with self.assertRaisesRegex(ValueError, f"breaks the contract: The new extension id {ext_id} cannot be "
+                                                        f"used, as the name {ext_id}_"):
+                    self.build(f"{ext_id}.tar.gz", folder=folder)
+                self.assertFalse((self.root / f"{ext_id}.tar.gz").exists())
+
+    def test_an_id_that_is_a_shipped_id_followed_by_more_is_refused(self):
+        from test_extension_tables_runtime import rename
+        folder = rename(self.root / "variants", "telegram_bot", "telegram_bot_items")
+        with self.assertRaisesRegex(ValueError, "breaks the contract: The extension id telegram_bot is the id telegram "
+                                                "followed by _ and more."):
+            self.build("telegram_bot.tar.gz", folder=folder)
+        self.assertFalse((self.root / "telegram_bot.tar.gz").exists())
+
     def test_a_link_in_the_folder_is_refused(self):
         os.symlink(self.folder / "README.md", self.folder / "plugin" / "linked.md")
         with self.assertRaisesRegex(ValueError, "is a symbolic link"):
@@ -163,7 +192,10 @@ class WheelTest(Case):
         code = self.folder / "code"
         (code / "qorqut_network").mkdir(parents=True)
         (code / "pyproject.toml").write_text('[project]\nname = "qorqut-network"\ndependencies = ["demo==1.0"]\n')
-        (code / "qorqut_network" / "extension.py").write_text("def create():\n    pass\n")
+        # The builder loads the code part as a start does, so the factory makes the extension.
+        (code / "qorqut_network" / "extension.py").write_text(
+            "from qorqut.extensions import Extension\n\n\nclass Network(Extension):\n    id = 'network'\n\n\n"
+            "def create(config=None):\n    return Network()\n")
         (code / "constraints.txt").write_text("# Pins of the dependency wheels.\ndemo==1.0\nplat==2.0\n")
         path = self.folder / "extension.yaml"
         data = yaml.safe_load(path.read_text())

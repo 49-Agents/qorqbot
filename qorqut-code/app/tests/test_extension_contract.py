@@ -1,5 +1,6 @@
 """The extension checker finds every way a folder breaks the extension contract (docs/EXTENSION-CONTRACT.md)."""
 import contextlib
+import importlib.util
 import io
 import os
 from pathlib import Path
@@ -894,6 +895,71 @@ class CommandLineTest(Case):
     def test_no_folder_is_an_error(self):
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(contract.main([]), 2)
+
+    def test_with_load_the_code_part_is_loaded_in_a_process_of_its_own(self):
+        # A copy: the example's own folder may hold compiled files from another test that loaded it in this process.
+        tablenote = self.root / "copied" / "tablenote"
+        shutil.copytree(EXAMPLE.parent / "tablenote", tablenote, ignore=shutil.ignore_patterns("__pycache__"))
+        status, lines = self.run_main("--load", EXAMPLE, tablenote)
+        # In an installed app the line on the names comes first (the next test); here only the summary is looked at.
+        lines = [line for line in lines if line != contract.NAMES_NOT_CHECKED]
+        self.assertEqual((status, len(lines)), (0, 1), lines)
+        self.assertIn("with --load also 5 (the tool names), 8 and 10", lines[0])
+        self.assertIn("Not checked yet: rules 5 (that a skill's read_for covers each tool), 9, 11, 12, 13", lines[0])
+        # Nothing of its code was imported here.
+        self.assertEqual([name for name in sys.modules if name.startswith("qorqut_tablenote")], [])
+        self.assertNotIn(str(tablenote / "code"), sys.path)
+        # Nor was anything written into the folder it checked.
+        self.assertEqual(list(tablenote.rglob("__pycache__")), [])
+        code = self.root / "tablenote"
+        shutil.copytree(tablenote, code)
+        source = code / "code" / "qorqut_tablenote" / "extension.py"
+        original = source.read_text()
+        for changed, said in (
+                (original.replace('return TableNote()', 'raise ZeroDivisionError()'),
+                 "Its code could not be loaded: ZeroDivisionError."),
+                (original + '\nSTATEMENTS = ("CREATE TABLE notes (id TEXT PRIMARY KEY)",)\n',
+                 "Its table notes is not named tablenote_… (The tables of tablenote are refused: statement "),
+                (original + '\nTableNote.tables = lambda self: (_ for _ in ()).throw(KeyError())\n',
+                 "Its code could not be loaded: KeyError.")):
+            with self.subTest(said):
+                source.write_text(changed)
+                status, lines = self.run_main("--load", code)
+                self.assertEqual(status, 1)
+                self.assertTrue(lines[0].startswith("tablenote: " + said), lines)
+        # Without --load the code is not loaded.
+        self.assertEqual(self.run_main(code)[0], 0)
+
+    def test_with_load_an_id_that_a_name_qorqbot_can_put_into_a_database_starts_with_is_refused(self):
+        from test_extension_tables_runtime import rename
+        folder = rename(self.root / "variants", "agent", "agent_x")
+        # The name rules of the checkout these tests are in, also where the app under test is an installed copy.
+        spec = importlib.util.spec_from_file_location(
+            "contract_test_names", REPOSITORY / "qorqut-code" / "tools" / "distribution" / "extension_names.py")
+        names = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(names)
+        with mock.patch.object(contract, "_names_tool", lambda: names):
+            status, lines = self.run_main("--load", folder)
+        self.assertEqual(status, 1)
+        self.assertTrue(lines[0].startswith("agent: The new extension id agent cannot be used, as the name agent_"), lines)
+        self.assertEqual(self.run_main(folder)[0], 0)
+        self.assertNotIn(contract.NAMES_NOT_CHECKED, lines)
+        # Where the app has no checkout, --load says the id was not checked against the names.
+        with mock.patch.object(contract, "_names_tool", lambda: None):
+            status, lines = self.run_main("--load", folder)
+        self.assertEqual((status, lines[0]), (0, contract.NAMES_NOT_CHECKED))
+
+    def test_with_load_an_id_that_is_a_shipped_id_followed_by_more_is_refused(self):
+        from test_extension_tables_runtime import rename
+        folder = rename(self.root / "variants", "telegram_bot", "telegram_bot_items")
+        spec = importlib.util.spec_from_file_location(
+            "contract_test_names", REPOSITORY / "qorqut-code" / "tools" / "distribution" / "extension_names.py")
+        names = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(names)
+        with mock.patch.object(contract, "_names_tool", lambda: names):
+            status, lines = self.run_main("--load", folder)
+        self.assertEqual((status, lines[0]), (1, "telegram_bot: The extension id telegram_bot is the id telegram "
+                                                 "followed by _ and more."))
 
     def test_runs_as_a_module(self):
         done = subprocess.run([sys.executable, "-B", "-m", "qorqut.extension_contract", str(EXAMPLE)],

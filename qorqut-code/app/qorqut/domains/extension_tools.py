@@ -408,11 +408,8 @@ def result_sentence(name, applied):
         return f"{name} was not {DONE_WORDS[action]}. {result['note']}"
     done = {change.INSTALL: f"Installed {name} {applied['version']}.", change.UPDATE: f"Updated {name} to {applied['version']}.",
             change.REMOVE: f"Removed {name}."}[action]
-    note = result["note"]
-    # A removal's note is the only word on its data: deleted in part or not at all. Without one it was deleted.
-    if action == change.REMOVE and applied["delete_data"] and not note:
-        note = "Its private data was deleted."
-    return " ".join(filter(None, (done, "Qorqbot restarted.", note)))
+    # A removal's note is the only word on its data and its tables (``extension_change._delete_data``).
+    return " ".join(filter(None, (done, "Qorqbot restarted.", result["note"])))
 
 
 def _kind(problem, kind):

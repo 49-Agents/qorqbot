@@ -400,7 +400,8 @@ class _Declared:
 
 def build_runtime(workspace, *, paths, database=None, worker_profiles=None,
                   job_consequence_verifier=None, global_capabilities_provider=human_global_capabilities,
-                  job_programs=None, register_domains=None, context=None, extensions=None, extension_code=True):
+                  job_programs=None, register_domains=None, context=None, extensions=None, extension_code=True,
+                  make_tables=False):
     """Compose the retained host over the Operations engine for the instance named by ``paths``.
 
     The operational root is ``paths.operations`` and the database only ``paths.database``: an already initialised
@@ -417,7 +418,13 @@ def build_runtime(workspace, *, paths, database=None, worker_profiles=None,
     ``extensions`` is the owner's startup ``ExtensionSet`` (``qorqut.extensions.select``); omitted, it is read from the
     trusted installation configuration. The selected storage is part of the target fingerprint, so a supplied ``database``
     must have been opened for exactly this selection. Every selected extension is installed once, here, on the still
-    open registry: ``freeze_registry`` is the caller's."""
+    open registry: ``freeze_registry`` is the caller's.
+
+    ``make_tables=True`` (the service's start, and the runtime tests) makes the tables of the loaded contract extensions
+    whose declared tables add to the store's record, before the store is opened (``bootstrap.extension_tables.make``),
+    so it needs ``database=None``; an extension whose tables cannot be made is refused and Qorqbot starts without it.
+    Every other caller keeps ``False`` and writes nothing: a loaded extension whose tables are missing is then refused
+    for that run, as the open finds the store without them."""
     from qorqut_operations.background.programs import ProgramRegistry
 
     if not isinstance(paths, InstancePaths):
@@ -443,18 +450,30 @@ def build_runtime(workspace, *, paths, database=None, worker_profiles=None,
     # folder the selection and the import path are as they were. A command that needs no extension code (``seed_instance``,
     # the package adoption) passes ``extension_code=False`` and loads none.
     loaded = {}
+    from qorqut.composition.extension_tables import recorded
+    if make_tables and database is not None:
+        raise DomainError("invalid_configuration", "Tables are made only before the store is opened here")
     if extension_code:
-        found, selection, loaded = extension_registry.load_code(found, selection)
+        found, selection, loaded = extension_registry.load_code(found, selection, recorded=recorded(paths.database))
+    if make_tables:
+        from qorqut.bootstrap.extension_tables import make
+        for ext_id, finding in make(paths, selection, loaded).items():
+            found, selection, loaded = extension_registry.unload(found, selection, loaded, ext_id, finding)
+    elif any(item.tables is not None for item in loaded.values()):
+        # Without the step, tables that are not in the store cannot be opened; those extensions sit this run out.
+        for ext_id in [ext_id for ext_id, item in loaded.items() if item.tables is not None]:
+            found, selection, loaded = extension_registry.unload(
+                found, selection, loaded, ext_id, extension_registry.TABLES_AT_NEXT_START)
     from qorqut.agentic.installation import open_installation
     agentic_layer, agentic_view = open_installation(paths, configured.ids)
     if database is None:
         from qorqut.service.changes import ChangeFeed
-        database = open_database(paths, host_assembly(ChangeFeed(), selection))
+        database = open_database(paths, host_assembly(ChangeFeed(), selection, tables=recorded(paths.database)))
     else:
         if database.path != paths.database:
             raise DomainError("invalid_configuration", "The database is not the selected instance database")
         database = database.open_existing()
-        require_selected_storage(database.assembly, selection)
+        require_selected_storage(database.assembly, selection, tables=recorded(paths.database))
     from qorqut import extension_index
     offered = extension_index.offered(extension_index.app_index(paths), found, app_version=version, platform=platform)
     installed = extension_registry.ExtensionRegistry(found, changes=require_change_feed(database.assembly.change_publisher),

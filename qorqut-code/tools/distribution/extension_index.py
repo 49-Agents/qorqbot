@@ -7,6 +7,7 @@ A bundle's address is ``--base-url`` followed by its file name. The same inputs 
 import path, as the checker does. The file format is described in ``qorqut/extension_index.py``, which reads it.
 """
 import argparse
+import functools
 import importlib.util
 import json
 from pathlib import Path
@@ -16,6 +17,15 @@ import tarfile
 
 def _bundle_builder():
     spec = importlib.util.spec_from_file_location('extension_bundle', Path(__file__).with_name('extension_bundle.py'))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@functools.cache
+def _names():
+    """The release's name rules (``extension_names.py``): the index builder refuses two ids by the id rule."""
+    spec = importlib.util.spec_from_file_location('extension_index_names', Path(__file__).with_name('extension_names.py'))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -39,6 +49,9 @@ def build_index(folders, bundles, app_version, base_url):
         if manifest.id in downloadable:
             raise ValueError(f'Two folders have the id {manifest.id}.')
         downloadable[manifest.id] = (manifest, reading.folder_digest(_bundle_builder().folder_files(folder), manifest.id))
+    names = _names()
+    for short, long in names.id_clashes(downloadable):
+        raise ValueError(f'The folders cannot be indexed together: {names.id_sentence(short, long)}')
     built = {}
     for path in bundles:
         path = Path(path)

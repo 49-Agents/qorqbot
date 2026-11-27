@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import time
 import uuid
@@ -23,6 +24,9 @@ def main():
     parser.add_argument('--image', default='qorqbot-check-prerequisites:ubuntu24')
     parser.add_argument('--core-check', type=Path, default=Path(__file__).with_name('check_native.py'))
     parser.add_argument('--probe', type=Path, default=Path(__file__).with_name('check_optional_extensions_probe.py'))
+    parser.add_argument('--tables-example', type=Path, default=None,
+                        help='an extension folder with tables of its own (the tablenote test example): it is placed, '
+                             'started so its tables are made, the app is updated over it, and it is removed again')
     args = parser.parse_args()
     archive, report = args.archive.resolve(), args.report_directory.resolve()
     bundles = []
@@ -101,6 +105,23 @@ def main():
         first, _, first_sha = bundles[0]
         execute(['./qorqbot', 'extension-install', f'/bundle-{first}.tar.gz', '--sha256', first_sha], 'running-extension-refused', expected=1)
         stop('initial-stop')
+        if args.tables_example is not None:
+            # An app update over a store that records tables of an extension's own: the new runtime opens it.
+            example = args.tables_example.resolve()
+            placed = install / 'qorqbot/instance/extensions' / example.name
+            placed.parent.mkdir(mode=0o700, exist_ok=True)
+            shutil.copytree(example, placed)
+            recorded = ('import sqlite3,sys;c=sqlite3.connect("file:instance/operations/.runtime/operations.sqlite3?mode=ro",'
+                        'uri=True);sys.exit(0 if c.execute("SELECT count(*) FROM extensiontables WHERE id=?",'
+                        f'({example.name!r},)).fetchone()[0]==1 else 1)')
+            start('tables-start')
+            stop('tables-stop')
+            execute(['/usr/bin/python3.12', '-I', '-B', '-c', recorded], 'tables-recorded')
+            execute(['./qorqbot', 'update', '/download.tar.gz', '--sha256', result['archive_sha256']], 'tables-app-update')
+            start('tables-after-update')
+            stop('tables-after-update-stop')
+            # Removed again; its table and record stay, and every later start opens the store with them.
+            shutil.rmtree(placed)
         execute(['./qorqbot', 'extension-install', f'/bundle-{first}.tar.gz', '--sha256', '0' * 64], 'bad-bundle-checksum-refused', expected=1)
         if any(name == 'fastmail' for name, _, _ in bundles):
             private = install / 'qorqbot/instance/config'

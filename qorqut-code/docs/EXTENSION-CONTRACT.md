@@ -73,18 +73,26 @@ already there, when the index has a higher version.
    and this version of Qorqbot, with every extension it requires installed. A removal is refused while another installed
    extension requires this one. Only one change waits at a time.
 2. For an install or update the bundle is downloaded, compared with the checksum and size the index gives, checked and
-   unpacked. A failure up to here changes nothing and is said in one sentence; for the owner's own click that sentence
-   shows on the extension's Connections card.
+   unpacked, and the packages it brings are judged against this Qorqbot and unpacked
+   ([section 10](#10-the-code-part), rule 14). A failure up to here changes nothing and is said in one sentence, which
+   shows on the extension's Connections card as a warning.
 3. Qorqbot restarts once: the service stops without a signal and exits with the restart code, and whoever started it
-   starts it again. At start, before it looks for extensions, it moves the folder that is replaced or removed to a
-   backup and the new folder in. A change that fails puts the old folder back.
+   starts it again. At start, before it looks for extensions, it judges the new folder's packages again, loads the new
+   code in a process of its own, makes the tables that code declares, and only then moves the folder that is replaced
+   or removed to a backup and the new folder in. A change that fails before the move leaves the installed folder where
+   it is; one that fails in the move puts it back.
 4. The result has one form for the three changes: what was done, that Qorqbot restarted, then any note. For a change
    Ordubashy asked for it is written on the approval card, which reaches his inbox. It also shows on the extension's
-   Connections card. The request and its result each leave one line in the service log.
+   Connections card, as a warning when the change failed or the extension cannot be used yet. The request and its
+   result each leave one line in the service log.
 
 - An update overwrites local changes to the plugin part.
 - A removal keeps the private part unless the owner chooses to delete it. Projects, tables and records the extension
-  created always stay.
+  created always stay. So do the database tables of its own, their rows and the database's record of them; a new
+  install finds them. After "Remove and delete its data" the note says that the private data was deleted only when
+  there was some, and that its tables in the database stay when it has any.
+- A removal forgets for which agents the extension was switched on or off. An install after it starts again from
+  `agents.on_after_setup`.
 - An install that finds a private part kept by an earlier removal asks the extension's set-up for its status, so a kept
   key that still fits is `ready` again without being typed again.
 - After an app update, an installed extension that no longer fits the new version stays installed, is not loaded and
@@ -379,13 +387,48 @@ declaration, as described in [EXTENSIONS.md](EXTENSIONS.md). On top of that, eve
 
 10. Keys and data go under `private/extensions/<id>/`, written through Qorqbot's private-file helpers.
 11. Database tables are allowed. Their names start with `<id>_`. An install or update only creates new tables; it never
-    changes or drops an existing one.
-12. Removing an extension keeps its private part and its tables unless the owner asks for them to be deleted.
+    changes or drops an existing one. An extension's statements may create only tables, indexes and triggers named
+    `<id>_...`; an index, a trigger or a foreign key may reach only the extension's own tables. A trigger body may only
+    insert into, update, delete from and select from the extension's own tables, with SQLite's built-in scalar
+    functions; table-valued functions such as `json_each`, other tables and `sqlite_master` are refused.
+    - The code declares its tables with `tables()`, which returns storage contributions. `storage()` stays refused.
+    - Qorqbot makes them at the first start that loads the code, or, for an install or update, before the new folder is
+      moved in. The new statements are first tried against the rows already there and undone again; statements that do
+      not fit cost nothing. Then the database is copied, once for a start however many extensions it makes tables
+      for, and once for an install or update; each extension's tables are made in one transaction, together with the
+      database's own record of what that extension made.
+    - An update may only add tables, indexes and triggers after its earlier statements, and every table it made keeps
+      its settings. An update that changes them fails and the installed version stays.
+    - Tables that cannot be made at a start leave the extension `needs_attention` and Qorqbot starts. What a person
+      reads about it is one plain sentence; which statement and which rule is in the service log and in the checker's
+      output.
+12. Removing an extension keeps its private part unless the owner asks for it to be deleted. Its tables, their rows and
+    the database's record of them stay either way. Whether "Remove and delete its data" also deletes the tables is not
+    decided ([section 15](#15-decisions-and-open-points)).
 
 **Dashboard**
 
 13. The Connections card is drawn by Qorqbot from the manifest and the status. An extension ships dashboard files only
     for something the card cannot show, such as how its approval card looks.
+
+**Packages**
+
+14. Packages the code needs and Qorqbot does not carry come with the bundle as wheels, pinned in
+    `code/constraints.txt` and given to the bundle builder; the folder itself holds none.
+    - They must fit the Qorqbot they are installed into: its Python and computer, none of them a package Qorqbot itself
+      has, and every requirement of the code (`code/pyproject.toml`) and of the wheels met, extras included. A version
+      that is there counts, pre-release or not.
+    - At an install or update they are judged and unpacked into `deps/site/`, and judged again at the start that applies
+      the change. A wheel that does not fit fails the change. A folder with wheels that were never unpacked is refused.
+      After an app update, packages that no longer fit make the extension `unsupported`.
+    - On the import path every extension's `code/` comes before every extension's `deps/site/`, and both come after
+      Qorqbot's own packages, which always win.
+    - One Qorqbot holds one version of a package across all extensions. An extension that brings another version than a
+      loaded extension is refused, with a sentence that names the package, both versions and the other extension.
+    - A name inside a bundle or a wheel may not leave its folder on any computer: no root, no drive, no `..`, no colon,
+      and no part that ends in a dot or a space. The writer checks each place again as it writes.
+    - A fault while judging never stops a start: it becomes a sentence on that extension, and an unexpected one is
+      logged.
 
 ## 11. What Qorqbot provides for every extension
 
@@ -416,30 +459,48 @@ none. The list and the card show extensions under this contract only, with the i
 One checker reads an extension folder and refuses it when a rule is broken. It runs in CI, when a bundle is built, and in
 the installer.
 
-What exists of it today is `qorqut/extension_contract.py`. It reads files only and checks rules 1 to 4, 6 and 7, and the
-workflow files. Qorqbot runs it at start on every extension folder it finds: a folder that breaks a rule is not loaded
-and shows in the list as `needs_attention` with the broken rule as its note. The bundle builder runs it on the folder,
-and Qorqbot runs it again on a downloaded bundle before the change is staged and on the staged folder before it is moved
-in. It is not yet run by CI.
+What exists of it today is `qorqut/extension_contract.py`. Reading files only, it checks rules 1 to 4, 6 and 7, and the
+workflow files. With `--load` it also loads the code part, in a process of its own that ends by itself and answers only
+data, and checks rule 5 (the tool names), rule 8 and rule 10. Qorqbot runs it at start on every extension folder it
+finds: a folder that breaks a rule is not loaded and shows in the list as `needs_attention` with the broken rule as its
+note. The bundle builder runs it on the folder with `--load`, so a bundle whose code does not load is not built. Qorqbot
+runs it again on a downloaded bundle before the change is staged, and on the staged folder before it is moved in, where
+the new code is loaded in a process of its own; code that does not load fails the change. It is not yet run by CI.
 
 Of the rules that need the loaded code or a built bundle:
 
 - Rule 5: the start checks that every tool name starts with `<id>_`. That each tool is covered by a skill's `read_for`
   is not checked.
 - Rule 8: checked at start, when the code part is loaded.
-- Rule 10: a code part that declares tables is refused at start, whatever their names
-  ([section 13](#13-what-exists-and-what-is-to-build)).
+- Rule 10: checked wherever the code part is loaded: at start, on a staged folder, by `--load` and by the bundle
+  builder. The start and the staged change also compare the tables with what the database already holds.
 - Rule 13: the bundle builder leaves `tests` folders out, and a bundle that holds one is refused.
 - Rules 9, 11 and 12 are not checked.
 
 To check a folder by hand:
 
 ```
-python -m qorqut.extension_contract <folder> [<folder> ...]
+python -m qorqut.extension_contract [--load] <folder> [<folder> ...]
 ```
 
 It prints one line for each broken rule. A complete example folder that passes is
-`qorqut-code/app/tests/fixtures/extension-contract/network`.
+`qorqut-code/app/tests/fixtures/extension-contract/network`; `tablenote` beside it is an example with a table of its
+own.
+
+Three more rules keep the names of extension tables and of Qorqbot's own tables apart
+(`qorqut-code/tools/distribution/extension_names.py`). They are rules for us at release time, not limits for an owner.
+
+- (a) No table, index or trigger of Qorqbot, or of an extension that comes with it, has a name that starts with
+  `<id>_` for an id ever published in an index.
+- (b) A new id is refused when such a name already starts with `<id>_`. The bundle builder and `--load` check this.
+- An id is refused when it is another published id, or the id of an extension that comes with Qorqbot, followed by
+  `_` and more. The index builder checks this; the bundle builder and `--load` check it against the ids of the
+  extensions that come with Qorqbot.
+
+Rule (a) is a command that needs the released index files. No release keeps them yet, so nothing runs it. An installed
+Qorqbot has no list of these names or of those ids, so `--load` there says that the id was not checked against them. A
+copy of Qorqbot's source that leaves out the package of an extension that comes with it leaves that extension out of
+these checks and says so in one line.
 
 1. The folder name equals `id`, and the id has the allowed form.
 2. The manifest has every required field and no unknown one.
@@ -475,7 +536,9 @@ files hold, it reports a problem and never fails.
 | Finding extension folders at start, with a status for each | Exists for folders that hold an `extension.yaml`. Index entries with no folder show as `not_installed`, or `unsupported` |
 | The plugin part copied into the agentic layer, kept in its history | Exists |
 | On and off per agent, with the session restart | Exists; switched by the owner or by Ordubashy |
-| The code part of an extension loaded from its folder | Exists for tools, services and the set-up handler. A code part that declares database tables, or any other part of the declaration, is refused until that is built |
+| The code part of an extension loaded from its folder | Exists for tools, services, the set-up handler and tables. A code part that uses any other part of the declaration is refused until that is built |
+| Packages an extension brings | Exist: judged against the running Qorqbot, unpacked at install, one version across extensions. Not tried yet with a real download on a running installation, nor on a Mac or Windows disk |
+| Tables of an extension's own | Exist: declared by the code, made at a start or before a staged folder is moved in, recorded in the database, read wherever the database is opened (start, upgrade, app update, recovery), kept over a removal. Not built: deleting them, which waits for the owner's decision; changing or dropping a table in an update, which the contract forbids |
 | Skill discovery line and the skill-read gate | Exist |
 | Approved Learning Applier proposals being applied | To build; nothing is applied today |
 | The manifest and the generated files | The manifest is read and checked. The agentic-layer package manifest is generated, the Connections card is drawn from it, and the bundle and the index entry are built from the folder |
@@ -546,6 +609,11 @@ All dates are 26 November 2026.
    no longer told to its proposer as "conflicted". The proposer gets the result of the replacement. This holds for every
    proposal the owner changes, not only for extensions.
 3. After a plain removal, installing again brings the kept set-up back without asking the owner again.
+4. A removal forgets for which agents the extension was switched on or off.
+5. Tables of an extension's own, four questions put to him. Built for now, each in one place: "Remove and delete its
+   data" deletes the private part and keeps the tables; kept data is deleted by installing again and removing with
+   "delete its data", which today still keeps the tables; a built-in extension gets its tables at the first start that
+   has it, before it is set up; the database is copied in full before a start makes tables, and every copy stays.
 
 **Written into the draft and shown to the owner, who did not object**
 

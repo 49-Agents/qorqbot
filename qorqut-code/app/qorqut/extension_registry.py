@@ -156,22 +156,84 @@ def discover(paths, *, selected=(), app_version, platform, shipped=None) -> tupl
 
 
 # -- loading the code part --------------------------------------------------------------------------------------------
-NO_TABLES = "Its code declares tables of its own, and extensions cannot bring tables yet."
+NO_TABLES = "Its code declares storage(); an extension declares the tables of its own with tables()."
+# The sentences a person reads when an extension's tables are refused or could not be made (``tables_note``). Each is
+# one sentence whose subject is the extension, which the card or the tool result names around it.
+TABLES_CHANGED = "This version changes tables it made earlier, which an update may not do."
+TABLE_TAKEN = "It uses {} name that is already taken: {}."
+NOT_NAMED = "Its {} {} is not named {}_…"
+TABLES_NOT_FIT_ROWS = "This version's changes to its tables do not fit the data already in them."
+TABLES_STATEMENT_FAILED = "A change to its tables failed in the database."
+TABLES_NOT_COPIED = "Its tables were not made, because the copy of the database that is made first could not be written."
+TABLES_FORM = "Its tables are declared in a form Qorqbot cannot record."
+TABLES_NOT_MADE = "Its tables could not be made, because Qorqbot does not accept the way they are declared."
+TABLES_NOT_MADE_NOW = "Its tables could not be made at this start."
+# The kind of refusal whose cause is the declaration itself: its statements, its record or what they would change.
+DECLARATION = "invalid_installation"
+TABLES_AT_NEXT_START = "Its tables are made at Qorqbot's next start; until then it is not loaded."
 NOT_LOADED = "Its code could not be loaded: {}."
 CODE_FOLDER = "code"
-# What the code part of a contract extension may give Qorqbot today: its tools, its install, its services and its
-# set-up. Any other part of the ``Extension`` declaration (routes, sources, policy rules and the rest) is refused for now:
+# What the code part of a contract extension may give Qorqbot today: its tools, its install, its services, its set-up
+# and its own tables. Any other part of the ``Extension`` declaration (routes, sources, policy rules and the rest) is refused for now:
 # Qorqbot takes those parts into the whole selection before the extension is installed, so they could not be taken back.
-CONTRACT_PARTS = frozenset({"catalog", "install", "services", "setup_handler"})
+CONTRACT_PARTS = frozenset({"catalog", "install", "services", "setup_handler", "tables"})
 NOT_YET = "Its code uses {}, which this version of Qorqbot does not take from an extension yet."
 
 
 @dataclass(frozen=True)
 class Loaded:
-    """A loaded code part: the extension and the tools its ``catalog()`` declared at load (``CatalogEntry`` values)."""
+    """A loaded code part: the extension and the tools its ``catalog()`` declared at load (``CatalogEntry`` values).
+    ``tables`` is the canonical record row of its declared tables when they add to what the store records (they are made
+    at this start), else None."""
     extension: object
     entries: tuple
     folder: Path
+    tables: dict | None = None
+
+
+def tables_note(ext_id, exc) -> str:
+    """The sentence a person reads when the tables of ``ext_id`` are refused or could not be made, written from the kind
+    of the failure (``exc``: the ``DomainError``, or the ``OSError`` of a copy that could not be written) and never from
+    its text: a refusal of the declaration it cannot name more exactly blames the declaration, and any other failure
+    gets a sentence that claims no cause."""
+    from qorqut.bootstrap.agentic_migration import COPY_STEP
+    from qorqut.composition import extension_tables as tables
+    details = getattr(exc, "details", None) or {}
+    if isinstance(exc, OSError) or details.get("step") == COPY_STEP:
+        return TABLES_NOT_COPIED
+    reason, kind, name = (details.get(key) for key in ("reason", "kind", "name"))
+    if reason == tables.CHANGES_MADE:
+        return TABLES_CHANGED
+    if reason == tables.TAKEN and kind in ("table", "index", "trigger") and isinstance(name, str):
+        return TABLE_TAKEN.format({"table": "a table", "index": "an index", "trigger": "a trigger"}[kind], name)
+    if reason == tables.NOT_NAMED and kind in ("table", "index", "trigger") and isinstance(name, str):
+        return NOT_NAMED.format(kind, name, ext_id)
+    return {DECLARATION: TABLES_NOT_MADE, "tables_do_not_fit_rows": TABLES_NOT_FIT_ROWS,
+            "tables_statement_failed": TABLES_STATEMENT_FAILED}.get(getattr(exc, "code", None), TABLES_NOT_MADE_NOW)
+
+
+def tables_refused(ext_id, exc, *, logger=LOGGER, event="extension_tables_refused") -> str:
+    """``tables_note``, after the log line for the developer: the code of the failure, its type and, for a refusal, its
+    own text (which statement, which rule); for an ``OSError`` its type only."""
+    logger.warning("%s extension=%s code=%s error=%s detail=%s", event, ext_id,
+                   getattr(exc, "code", None) or "os_error", type(exc).__name__,
+                   exc.message if isinstance(exc, DomainError) else "")
+    return tables_note(ext_id, exc)
+
+
+def declared_tables(item, extension, recorded):
+    """``(row or None, finding or None)``: the extension's ``tables()`` judged against the store's record
+    (``extension_tables.judge``). ``row`` is set when the declaration adds tables."""
+    from qorqut.composition.extension_tables import ADDS, judge
+    try:
+        declared = tuple(extension.tables())
+    except Exception as fault:  # noqa: BLE001 - only the kind of fault is said
+        return None, NOT_LOADED.format(type(fault).__name__)
+    try:
+        verdict, row = judge(item.id, item.manifest.version, declared, recorded)
+    except DomainError as refusal:
+        return None, tables_refused(item.id, refusal)
+    return (row if verdict == ADDS else None), None
 
 
 def _import_folders(code):
@@ -210,10 +272,30 @@ def _unused_parts(made):
                   and _own(made, name, member))
 
 
-def _load(item):
-    """The ``Loaded`` code part of a fine folder, with its ``code/`` folder on the import path, or the finding to refuse
-    the folder with. Only the factory and ``catalog()`` run. A refused folder leaves the import path and the imported
-    modules as they were; a finding names the kind of fault, never what an exception says."""
+# Why a code part is not loaded, as a kind and its detail (``_loaded``): the sentence is written from them here, at a
+# start and for the process that loads a staged folder alike. A detail is a type name, an id, a module name from the
+# manifest, or the names of ``Extension`` parts, never the text of an exception.
+LOAD_FAULTS = ("other_module", "not_the_extension", "storage", "parts", "tool_prefix", "tool_twice", "fault")
+
+
+def load_finding(kind, ext_id, detail=None) -> str:
+    """The sentence of one way a code part is not loaded (``LOAD_FAULTS``)."""
+    if kind == "storage":
+        return NO_TABLES
+    if kind == "parts":
+        return NOT_YET.format(", ".join(detail))
+    return NOT_LOADED.format({
+        "other_module": f"the module {detail!r} is not the one in its code folder",
+        "not_the_extension": f"its factory does not make the extension {ext_id!r}",
+        "tool_prefix": f"its tool names must start with {ext_id + '_'!r}",
+        "tool_twice": "it declares a tool twice",
+        "fault": detail}[kind])
+
+
+def _loaded(item):
+    """``(Loaded, None)`` for a fine folder, with its ``code/`` folder on the import path, or ``(None, (kind, detail))``
+    to refuse the folder with (``LOAD_FAULTS``). Only the factory and ``catalog()`` run. A refused folder leaves the
+    import path and the imported modules as they were."""
     from qorqut.extensions import Extension
     code = item.folder / CODE_FOLDER
     module_name, _, attribute = item.manifest.factory.partition(":")
@@ -229,32 +311,42 @@ def _load(item):
         origin = Path(getattr(module, "__file__", None) or "").resolve()
         if not origin.is_relative_to(code):
             _forget(code)
-            return None, NOT_LOADED.format(f"the module {module_name!r} is not the one in its code folder")
+            return None, ("other_module", module_name)
         made = getattr(module, attribute)()
         if not isinstance(made, Extension) or made.id != item.id:
-            problem = NOT_LOADED.format(f"its factory does not make the extension {item.id!r}")
+            problem = ("not_the_extension", None)
         elif _own(made, "storage", Extension.storage):
-            problem = NO_TABLES
+            problem = ("storage", None)
         elif _unused_parts(made):
-            problem = NOT_YET.format(", ".join(_unused_parts(made)))
+            problem = ("parts", _unused_parts(made))
         else:
             entries = tuple(entry for contribution in made.catalog() for entry in contribution.entries)
             names = [entry.name for entry in entries]
             wrong = [name for name in names if not (isinstance(name, str) and name.startswith(item.id + "_"))]
             if wrong:
-                problem = NOT_LOADED.format(f"its tool names must start with {item.id + '_'!r}")
+                problem = ("tool_prefix", None)
             elif len(set(names)) != len(names):
-                problem = NOT_LOADED.format("it declares a tool twice")
+                problem = ("tool_twice", None)
     except Exception as problem_raised:  # noqa: BLE001 - the folder is refused; only the kind of fault is said
-        problem = NOT_LOADED.format(type(problem_raised).__name__)
+        problem = ("fault", type(problem_raised).__name__)
     if problem is not None:
         _forget(code)
         return None, problem
     return Loaded(made, entries, code), None
 
 
-def load_code(found, selection):
+def _load(item):
+    """The ``Loaded`` code part of a fine folder, with its ``code/`` folder on the import path, or the finding to refuse
+    the folder with (``_loaded``, ``load_finding``)."""
+    made, problem = _loaded(item)
+    return (made, None) if made is not None else (None, load_finding(problem[0], item.id, problem[1]))
+
+
+def load_code(found, selection, *, recorded=()):
     """Add the code part of each fine found folder with ``code.factory`` to ``selection`` (today's ``ExtensionSet``).
+
+    ``recorded`` is what the store records of extension tables (``extension_tables.recorded``); each declaration of
+    ``tables()`` is judged against it, and one that is refused refuses the folder.
 
     Answers ``(found, selection, loaded)``: the folders with a refusal added to each one whose code could not be loaded,
     the selection with the loaded extensions added, and the ``Loaded`` code parts by id. A folder that is refused or
@@ -269,6 +361,13 @@ def load_code(found, selection):
             continue
         made, problem = _load(item)
         if made is not None:
+            row, problem = declared_tables(item, made.extension, recorded)
+            if problem is not None:
+                _forget(made.folder)
+                made = None
+            else:
+                made = replace(made, tables=row)
+        if made is not None:
             try:
                 chosen = ExtensionSet((*chosen.extensions, made.extension))
             except Exception as refusal:  # noqa: BLE001 - only the kind of fault is said
@@ -281,6 +380,20 @@ def load_code(found, selection):
             loaded[item.id] = made
         checked.append(item)
     return (tuple(checked), chosen if loaded else selection, loaded)
+
+
+def unload(found, selection, loaded, ext_id, finding):
+    """Take one loaded code part back out after ``load_code``, refused with ``finding``; answers the three again."""
+    from qorqut.extensions import ExtensionSet
+    made = loaded.get(ext_id)
+    if made is None:
+        return found, selection, loaded
+    _forget(made.folder)
+    LOGGER.warning("extension_not_loaded extension=%s", ext_id)
+    found = tuple(replace(item, findings=(*item.findings, finding)) if item.id == ext_id else item for item in found)
+    loaded = {key: value for key, value in loaded.items() if key != ext_id}
+    selection = ExtensionSet(tuple(extension for extension in selection.extensions if extension.id != ext_id))
+    return found, selection, loaded
 
 
 class _Collecting:

@@ -28,7 +28,7 @@ from uuid import UUID
 from qorqut_operations.contracts import DomainError, utc_now
 from qorqut.migration.snapshots import _fsync_directory, restore_snapshot, verify_snapshot
 from qorqut_context.integration.recovery import CAPTURE_DIRECTORY, ContextRecovery
-from qorqut.storage.recovery import BackupStore, require_target_projects
+from qorqut.storage.recovery import BackupStore, require_target_projects, snapshot_database
 
 
 RESTIC_VERSION = "0.19.1"
@@ -307,9 +307,10 @@ class FullRecoveryStore:
     working-tree bytes remain limited to BackupStore's registered authority inventory.
     """
 
-    def __init__(self, database, paths, *, repository, password_file, authority_staging, restic: ResticBinary,
+    def __init__(self, database, paths, *, extensions, repository, password_file, authority_staging, restic: ResticBinary,
                  initialize_repository: bool = False, command_timeout_seconds: int = 1800, clock=utc_now):
-        self.database = database
+        # ``extensions`` is the running selection; a restored generation is composed with it and its own record.
+        self.database, self.extensions = database, extensions
         self.paths = paths
         self.root = _absolute(paths.operations)
         if self.root.is_symlink() or self.root.exists() and not self.root.is_dir():
@@ -449,7 +450,8 @@ class FullRecoveryStore:
         try:
             with quiescence as barrier:
                 # The yielded value is the actual recovery barrier proof; the authority generation is captured under it.
-                authority_store = BackupStore(self.database, self.paths, destination=self.authority_staging, clock=self.clock)
+                authority_store = BackupStore(self.database, self.paths, destination=self.authority_staging,
+                                              extensions=self.extensions, clock=self.clock)
                 authority_store.create(generation_id, barrier=barrier)
                 paths = self._runtime_sources(authority)
                 if not self.restic.initialized():
@@ -556,8 +558,9 @@ class FullRecoveryStore:
                 raise ValueError
             require_target_projects(manifest, authority / "state.sqlite3", self.paths)
             restore_snapshot(authority / "authored", target)
-            restored = self.database.restore(authority / "state.sqlite3", target / self.database_relative,
-                                        expected_checksum=metadata["database"]["checksum"])
+            saved = snapshot_database(self.database, self.extensions, authority / "state.sqlite3")
+            restored = saved.restore(authority / "state.sqlite3", target / self.database_relative,
+                                     expected_checksum=metadata["database"]["checksum"])
             with restored.transaction() as uow:
                 repo, row = uow.repository("maintenance_state"), uow.repository("maintenance_state").get("service")
                 values = {"state": "closed", "message": "Full isolated restore; original root bindings retained. Do not activate here."}
@@ -565,7 +568,7 @@ class FullRecoveryStore:
                     repo.update("service", values, expected_revision=row["revision"])
                 else:
                     repo.insert({"id": "service", **values})
-            parity = self.database.validate_snapshot(restored.path)
+            parity = saved.validate_snapshot(restored.path)
             expected = dict(metadata["database"]["record_counts"])
             expected["maintenance_state"] = max(1, expected["maintenance_state"])
             if parity["record_counts"] != expected:

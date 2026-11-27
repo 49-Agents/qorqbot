@@ -373,6 +373,13 @@ class Extension:
         """Typed engine storage/transaction contributions (their DDL and table specs)."""
         return ()
 
+    def tables(self):
+        """The tables of a contract extension's own: ``StorageContribution`` values with only statements, table
+        specifications and immutable columns, every object named ``<id>_...``. Qorqbot makes them in the store at start
+        and keeps them in the store's record (``qorqut.composition.extension_tables``). ``ExtensionSet`` never calls it, so
+        the composition of today's extensions cannot see it."""
+        return ()
+
     def catalog(self):
         """``CatalogContribution`` values with the operation metadata (and history classifications)."""
         return ()

@@ -711,13 +711,15 @@ def main(argv=None) -> int:
     revocation.add_argument("--label", default=platform.node(), help="Machine label to revoke")
     args = parser.parse_args(argv)
     from qorqut.composition.assembly import host_assembly, open_database
+    from qorqut.composition.extension_tables import recorded
     from qorqut.service.changes import ChangeFeed
     from qorqut.service.instance_arguments import instance_paths_from_arguments
 
     # Preparation validates the existing instance database; it never
     # initializes or migrates storage and never starts the service.
     def database():
-        return open_database(instance_paths_from_arguments(args, required=()), host_assembly(ChangeFeed()))
+        paths = instance_paths_from_arguments(args, required=())
+        return open_database(paths, host_assembly(ChangeFeed(), tables=recorded(paths.database)))
 
     try:
         if args.command == "prepare":

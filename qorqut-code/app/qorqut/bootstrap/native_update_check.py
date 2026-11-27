@@ -6,6 +6,12 @@ admitted without changing the installed catalogs. Their previous provenance stil
 the per-file digests prove unchanged, and the next update compares against it again. Keeping admission read-only lets the
 native updater restore its previous runtime after a failure without leaving a separate managed update to recover. Any
 other managed change, a schema migration or a missing provisioned item is refused before the new runtime is admitted.
+
+A store that holds the record of extension tables is judged here, by the new runtime, because only its code can read the
+record: the updater passes ``--recorded-store`` when it found the record table, and the store is then opened read-only,
+as the service opens it, with the instance's extension selection and what the store records. A record row that is not
+exactly what this version writes, or whose statements fail the statement check, refuses the update before the store is
+compared or anything composes or compiles that row. Without the option the store is not read here, as before.
 """
 import argparse
 import base64
@@ -14,9 +20,11 @@ from pathlib import Path
 import yaml
 
 from qorqut.agentic.upgrade import prepare_upgrade
+from qorqut_operations.contracts import DomainError
 from qorqut.bootstrap.initialize import load_prepared
 from qorqut.instance_paths import InstancePaths
 
+STORE_REFUSAL = 'This update cannot open the existing database with its recorded extension tables: {}. The previous runtime will be restored.'
 REFUSAL = ('This update requires managed-instruction adoption or conflict resolution; a qualified managed update is '
            'required. The previous runtime will be restored.')
 # Keys of one packaged source in a catalog's ``source.sources`` list that describe where the bytes came from, not what
@@ -60,9 +68,25 @@ def admissible(plan):
             and not any(item['state'] == 'missing' for item in plan.get('provisioning', {}).get('items', ())))
 
 
-def check(prepared, instance):
+def check_store(paths):
+    """Open the store read-only in this runtime's composition: the instance's selection and the store's own record."""
+    from qorqut.composition.assembly import host_assembly, open_database
+    from qorqut.composition.extension_tables import recorded
+    from qorqut.extensions import installed_selection
+    from qorqut.installation import extensions_configuration
+    from qorqut.service.changes import ChangeFeed
+    try:
+        selection = installed_selection(extensions_configuration(paths.instance_root / 'config/extensions.json'))
+        open_database(paths, host_assembly(ChangeFeed(), selection, tables=recorded(paths.database)))
+    except DomainError as exc:
+        raise RuntimeError(STORE_REFUSAL.format(exc.message)) from exc
+
+
+def check(prepared, instance, *, recorded_store=False):
     _, _, components = load_prepared(prepared)
     paths = InstancePaths(instance, components)
+    if recorded_store:
+        check_store(paths)
     plan = prepare_upgrade(paths, prepared / 'src')
     if not admissible(plan):
         raise RuntimeError(REFUSAL)
@@ -74,12 +98,18 @@ def check(prepared, instance):
     return {'applied': False, 'retained_provenance': [change['path'] for change in changes]}
 
 
-if __name__ == '__main__':
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     parser.add_argument('--prepared-root', required=True, type=Path)
     parser.add_argument('--instance-root', required=True, type=Path)
-    args = parser.parse_args()
-    result = check(args.prepared_root, args.instance_root)
+    parser.add_argument('--recorded-store', action='store_true',
+                        help='the store holds the record of extension tables; open it with that record')
+    args = parser.parse_args(argv)
+    result = check(args.prepared_root, args.instance_root, recorded_store=args.recorded_store)
     if result.get('retained_provenance'):
         print('Kept the previous source provenance in ' + str(len(result['retained_provenance']))
               + ' catalog files; their contents are unchanged.')
+
+
+if __name__ == '__main__':
+    main()
