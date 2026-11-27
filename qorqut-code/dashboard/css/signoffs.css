@@ -465,6 +465,16 @@
 .sg-attachment-title { font-size:13px; font-weight:600; }
 .sg-attachment-kind, .sg-attachment-sub { font-size:11px; color:var(--fg-2); }
 .sg-attachment-open { flex:none; }
+.sg-attachment-head .sg-attachment-full-toggle { flex:none; display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px; min-height:30px; padding:0; margin-left:auto; border:0; border-radius:6px; background:none; color:var(--fg-2); }
+.sg-attachment-head .sg-attachment-full-toggle:hover { background:var(--hover); color:var(--fg); }
+/* View in full (js/signoff-attachments.js): the attachment covers its pane; only the body and the minimize button remain. */
+.sg-attachment.sg-attachment-full { position:fixed; z-index:60; display:flex; flex-direction:column; box-sizing:border-box; margin:0; border:0; border-radius:0; background:var(--bg); box-shadow:none; }
+.sg-attachment.sg-attachment-full > .sg-attachment-head { position:absolute; top:8px; right:12px; z-index:1; padding:0; border:0; }
+.sg-attachment.sg-attachment-full > .sg-attachment-head > :not(.sg-attachment-full-toggle) { display:none; }
+.sg-attachment.sg-attachment-full .sg-attachment-full-toggle { background:color-mix(in srgb, var(--fg) 9%, var(--bg)); }
+.sg-attachment.sg-attachment-full > .sg-attachment-body { flex:1; min-height:0; max-height:none; padding:16px 52px 16px 20px; }
+.sg-attachment.sg-attachment-full > .sg-attachment-body-pdf { padding:0; }
+.sg-attachment.sg-attachment-full .sg-attachment-pdf { height:100%; min-height:0; }
 .sg-attachment-body { max-height:480px; overflow:auto; padding:10px 12px; }
 .sg-attachment-body > .sg-notice { margin:0 0 6px; }
 .sg-attachment-body > :last-child { margin-bottom:0; }
