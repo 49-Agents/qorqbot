@@ -39,6 +39,20 @@ MOVED = ('<qorqut-account-notice>\nThis is a new conversation: the earlier one s
          'Carry on with your work from your tasks and records. This notice needs no other reply.\n</qorqut-account-notice>')
 
 
+def restart_session(chat, profile, text, key, after) -> bool:
+    """Close the agent's session and open it again (``SessionOpener.restart``), sending ``text`` when given; whether it came
+    back. A failure is logged as a session not restarted ``after`` what happened, and stops nothing else."""
+    try:
+        chat.opener.restart(profile, text, key)
+    except DomainError:
+        LOG.info("The session of %s was not restarted after %s", profile["agent_id"], after, exc_info=True)
+        return False
+    except Exception:  # noqa: BLE001 - one session never stops the others
+        LOG.warning("The session of %s was not restarted after %s", profile["agent_id"], after, exc_info=True)
+        return False
+    return True
+
+
 class AccountSwitch:
     def __init__(self, chat):
         self.chat = chat
@@ -92,13 +106,7 @@ class AccountSwitch:
         def one(item):
             profile, kind = item
             text = CARRY_ON if kind in PROBLEM_KINDS else None
-            try:
-                self.chat.opener.restart(profile, text, f"account:{provider}:{key}")
-            except DomainError:
-                LOG.info("The session of %s was not restarted after the sign-in", profile["agent_id"], exc_info=True)
-                return "failed"
-            except Exception:  # noqa: BLE001 - one session never stops the others
-                LOG.warning("The session of %s was not restarted after the sign-in", profile["agent_id"], exc_info=True)
+            if not restart_session(self.chat, profile, text, f"account:{provider}:{key}", "the sign-in"):
                 return "failed"
             return "continued" if text is not None else "restarted"
 

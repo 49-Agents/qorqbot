@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from qorqut.composition.assembly import host_assembly
 from qorqut.extensions import Extension, ExtensionSet
-from qorqut.migration import action_digest, context_step_aside, project_hierarchy, rule_checks, upgrade
+from qorqut.migration import action_digest, context_step_aside, installed_extensions, project_hierarchy, rule_checks, upgrade
 from qorqut.service.changes import ChangeFeed
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.storage.assembly import StorageContribution
@@ -20,7 +20,7 @@ from qorqut_operations.storage.inventory import IDENTITY_TABLE, read_objects
 from qorqut_operations.storage.specs import TableSpec
 from qorqut_operations.storage.sqlfunctions import install_sql_functions
 
-BASE, RULE_CHECKS, PROJECT_HIERARCHY, STEP_ASIDE, ACTION_DIGEST = upgrade.STATES
+BASE, RULE_CHECKS, PROJECT_HIERARCHY, STEP_ASIDE, ACTION_DIGEST, EXTENSIONS = upgrade.STATES
 # The composition, with no extension selected, of the last build before the first transform of the chain (dev at 24 November
 # 2026).
 RELEASED_BASE_DIGEST = '6b63091fac1eb65975ae566b61abc66a90145cce931317fcda1262972d602988'
@@ -49,7 +49,8 @@ class ChainTests(unittest.TestCase):
                 self.assertEqual(set(new) - set(old), set(transform.OBJECTS))
                 self.assertEqual({key for key in old if new.get(key) != old[key]}, set(getattr(transform, 'CHANGED', ())))
             self.assertEqual(len({assembly.target.digest for assembly, _ in states}), len(upgrade.STATES))
-        self.assertEqual(upgrade.STATES, ('base', 'rule_checks', 'project_hierarchy', 'context_step_aside', 'action_digest'))
+        self.assertEqual(upgrade.STATES, ('base', 'rule_checks', 'project_hierarchy', 'context_step_aside', 'action_digest',
+                                          'installed_extensions'))
         self.assertEqual(upgrade.chain(ExtensionSet(()))[0][0].target.digest, RELEASED_BASE_DIGEST)
 
 
@@ -105,17 +106,17 @@ class UpgradeTests(unittest.TestCase):
     def test_a_store_at_the_base_gets_the_rule_check_columns_and_keeps_every_row(self):
         objects = read_objects(self.connection)
         self.assertEqual(upgrade.inspect(self.connection, self.extensions), {
-            'store': BASE, 'applied': [], 'pending': [RULE_CHECKS, PROJECT_HIERARCHY, STEP_ASIDE, ACTION_DIGEST], 'held_rows': {},
+            'store': BASE, 'applied': [], 'pending': [RULE_CHECKS, PROJECT_HIERARCHY, STEP_ASIDE, ACTION_DIGEST, EXTENSIONS], 'held_rows': {},
             'digest': self.states[0][0].target.digest, 'target_digest': self.states[-1][0].target.digest})
         result = upgrade.apply(self.connection, self.extensions)
         self.assertEqual((result['from'], result['added'], result['store'], result['held_rows']),
-                         (BASE, [RULE_CHECKS, PROJECT_HIERARCHY, STEP_ASIDE, ACTION_DIGEST], ACTION_DIGEST,
-                          {RULE_CHECKS: 0, PROJECT_HIERARCHY: 0, STEP_ASIDE: 0, ACTION_DIGEST: 0}))
+                         (BASE, [RULE_CHECKS, PROJECT_HIERARCHY, STEP_ASIDE, ACTION_DIGEST, EXTENSIONS], EXTENSIONS,
+                          {RULE_CHECKS: 0, PROJECT_HIERARCHY: 0, STEP_ASIDE: 0, ACTION_DIGEST: 0, EXTENSIONS: 0}))
         after = read_objects(self.connection)
         # Only the observations and projects tables changed and the queue's open-input index was replaced, each exactly
         # as the compiled target defines it.
         self.assertEqual({key for key in objects if after.get(key) != objects[key]}, {OBSERVATIONS, PROJECTS, OPEN_HEAD})
-        self.assertEqual(set(after) - set(objects), {SINGLE_PROCESSING, *action_digest.OBJECTS})
+        self.assertEqual(set(after) - set(objects), {SINGLE_PROCESSING, *action_digest.OBJECTS, *installed_extensions.OBJECTS})
         self.assertEqual(after, dict(self.states[-1][1]) | {key: value for key, value in after.items() if key[1] == 'synthetic_records'})
         self.assertEqual(self.observation(), {'id': 'rule', 'run_id': None, 'cluster_id': 'filed-by-agents', 'kind': 'owner_complaint',
             'subject': 'all agents', 'text': 'Never send mail unasked.', 'evidence_json': '[]', 'occurred_at': None, 'created_by': 'agent',
@@ -136,7 +137,7 @@ class UpgradeTests(unittest.TestCase):
                       "VALUES('p2','beta','/w/alpha/subprojects/beta','Beta','now','now','p1','alpha/subprojects/beta')")
         again = upgrade.apply(self.connection, self.extensions)
         self.assertEqual((again['from'], again['added'], again['held_rows']),
-                         (ACTION_DIGEST, [], {RULE_CHECKS: 1, PROJECT_HIERARCHY: 1, STEP_ASIDE: 0, ACTION_DIGEST: 0}))
+                         (EXTENSIONS, [], {RULE_CHECKS: 1, PROJECT_HIERARCHY: 1, STEP_ASIDE: 0, ACTION_DIGEST: 0, EXTENSIONS: 0}))
         # A store opened by this build's database at its own target.
         database = Database(self.path, assembly=self.states[-1][0])
         database.close()
@@ -152,8 +153,8 @@ class UpgradeTests(unittest.TestCase):
         self.assertEqual(read_objects(self.connection), target)
         result = upgrade.revert(self.connection, self.extensions, to=BASE, discard_rows=True)
         self.assertEqual((result['from'], result['removed'], result['dropped_rows'], result['store']),
-                         (ACTION_DIGEST, [RULE_CHECKS, PROJECT_HIERARCHY, STEP_ASIDE, ACTION_DIGEST],
-                          {ACTION_DIGEST: 0, STEP_ASIDE: 0, PROJECT_HIERARCHY: 0, RULE_CHECKS: 1}, BASE))
+                         (EXTENSIONS, [RULE_CHECKS, PROJECT_HIERARCHY, STEP_ASIDE, ACTION_DIGEST, EXTENSIONS],
+                          {EXTENSIONS: 0, ACTION_DIGEST: 0, STEP_ASIDE: 0, PROJECT_HIERARCHY: 0, RULE_CHECKS: 1}, BASE))
         self.assertEqual(read_objects(self.connection), objects)
         # The rule itself stays; only the mark went with its columns. Forward again, it has none.
         self.assertEqual(self.observation()['text'], 'Never send mail unasked.')
@@ -175,11 +176,12 @@ class UpgradeTests(unittest.TestCase):
         self.assertEqual(refusal.exception.to_dict()['details'], {'held_rows': {PROJECT_HIERARCHY: 1}})
         result = upgrade.revert(self.connection, self.extensions, to=RULE_CHECKS, discard_rows=True)
         self.assertEqual((result['from'], result['removed'], result['dropped_rows'], result['store']),
-                         (ACTION_DIGEST, [PROJECT_HIERARCHY, STEP_ASIDE, ACTION_DIGEST], {ACTION_DIGEST: 0, STEP_ASIDE: 0, PROJECT_HIERARCHY: 1}, RULE_CHECKS))
+                         (EXTENSIONS, [PROJECT_HIERARCHY, STEP_ASIDE, ACTION_DIGEST, EXTENSIONS],
+                          {EXTENSIONS: 0, ACTION_DIGEST: 0, STEP_ASIDE: 0, PROJECT_HIERARCHY: 1}, RULE_CHECKS))
         self.assertNotIn('parent_id', self.project())
         # Both projects remain, now as an earlier build sees them.
         self.assertEqual(self.connection.execute('SELECT count(*) FROM projects').fetchone()[0], 2)
-        self.assertEqual(upgrade.inspect(self.connection, self.extensions)['pending'], [PROJECT_HIERARCHY, STEP_ASIDE, ACTION_DIGEST])
+        self.assertEqual(upgrade.inspect(self.connection, self.extensions)['pending'], [PROJECT_HIERARCHY, STEP_ASIDE, ACTION_DIGEST, EXTENSIONS])
         upgrade.apply(self.connection, self.extensions)
         self.assertIsNone(self.project()['parent_id'])
 
@@ -200,11 +202,26 @@ class UpgradeTests(unittest.TestCase):
         self.assertEqual(refusal.exception.to_dict()['details'], {'held_rows': {ACTION_DIGEST: 1}})
         result = upgrade.revert(self.connection, self.extensions, to=STEP_ASIDE, discard_rows=True)
         self.assertEqual((result['removed'], result['dropped_rows'], result['store']),
-                         ([ACTION_DIGEST], {ACTION_DIGEST: 1}, STEP_ASIDE))
+                         ([ACTION_DIGEST, EXTENSIONS], {EXTENSIONS: 0, ACTION_DIGEST: 1}, STEP_ASIDE))
         self.assertNotIn(('table', 'context_action_backlog'), read_objects(self.connection))
         self.assertNotIn(('trigger', 'context_action_digest_inputs'), read_objects(self.connection))
         upgrade.apply(self.connection, self.extensions)
         self.assertEqual(action_digest.held_rows(self.connection), 0)
+
+    def test_the_extensions_table_starts_empty_and_revert_keeps_its_rows_unless_told_to_drop_them(self):
+        upgrade.apply(self.connection, self.extensions)
+        self.assertEqual(self.connection.execute('SELECT count(*) FROM extensions').fetchone()[0], 0)
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.connection.execute("INSERT INTO extensions(id,status,switches_json,in_effect_json) VALUES('network','on','{}','[]')")
+        self.connection.execute("INSERT INTO extensions(id,status,switches_json,in_effect_json) VALUES('network','ready','{\"a1\": true}','[]')")
+        with self.assertRaises(DomainError) as refusal:
+            upgrade.revert(self.connection, self.extensions, to=ACTION_DIGEST)
+        self.assertEqual(refusal.exception.to_dict()['details'], {'held_rows': {EXTENSIONS: 1}})
+        result = upgrade.revert(self.connection, self.extensions, to=ACTION_DIGEST, discard_rows=True)
+        self.assertEqual((result['removed'], result['dropped_rows'], result['store']), ([EXTENSIONS], {EXTENSIONS: 1}, ACTION_DIGEST))
+        self.assertNotIn(('table', 'extensions'), read_objects(self.connection))
+        upgrade.apply(self.connection, self.extensions)
+        self.assertEqual(installed_extensions.held_rows(self.connection), 0)
 
     def test_a_store_at_the_target_is_recognised_and_left_as_it_is(self):
         connection = self.at_target()
@@ -212,16 +229,17 @@ class UpgradeTests(unittest.TestCase):
         objects = read_objects(connection)
         digest = self.states[-1][0].target.digest
         self.assertEqual(upgrade.inspect(connection, self.extensions), {
-            'store': ACTION_DIGEST, 'applied': [RULE_CHECKS, PROJECT_HIERARCHY, STEP_ASIDE, ACTION_DIGEST], 'pending': [],
-            'held_rows': {RULE_CHECKS: 0, PROJECT_HIERARCHY: 0, STEP_ASIDE: 0, ACTION_DIGEST: 0}, 'digest': digest, 'target_digest': digest})
+            'store': EXTENSIONS, 'applied': [RULE_CHECKS, PROJECT_HIERARCHY, STEP_ASIDE, ACTION_DIGEST, EXTENSIONS], 'pending': [],
+            'held_rows': {RULE_CHECKS: 0, PROJECT_HIERARCHY: 0, STEP_ASIDE: 0, ACTION_DIGEST: 0, EXTENSIONS: 0}, 'digest': digest,
+            'target_digest': digest})
         result = upgrade.apply(connection, self.extensions)
-        self.assertEqual((result['from'], result['added'], result['store']), (ACTION_DIGEST, [], ACTION_DIGEST))
+        self.assertEqual((result['from'], result['added'], result['store']), (EXTENSIONS, [], EXTENSIONS))
         self.assertEqual(read_objects(connection), objects)
         # Walked back, the base it reaches is exactly the one an earlier build creates.
         result = upgrade.revert(connection, self.extensions, to=BASE)
         self.assertEqual((result['from'], result['removed'], result['dropped_rows']),
-                         (ACTION_DIGEST, [RULE_CHECKS, PROJECT_HIERARCHY, STEP_ASIDE, ACTION_DIGEST],
-                          {ACTION_DIGEST: 0, STEP_ASIDE: 0, PROJECT_HIERARCHY: 0, RULE_CHECKS: 0}))
+                         (EXTENSIONS, [RULE_CHECKS, PROJECT_HIERARCHY, STEP_ASIDE, ACTION_DIGEST, EXTENSIONS],
+                          {EXTENSIONS: 0, ACTION_DIGEST: 0, STEP_ASIDE: 0, PROJECT_HIERARCHY: 0, RULE_CHECKS: 0}))
         self.assertEqual(read_objects(connection), read_objects(self.connection))
         self.assertEqual(connection.execute('SELECT value FROM synthetic_records').fetchall(), [('kept',)])
 
@@ -286,12 +304,12 @@ class UpgradeTests(unittest.TestCase):
         objects = read_objects(self.connection)
         status, response, owner = self.command('inspect')
         self.assertEqual((status, response['ok'], response['result']['store'], response['result']['pending']),
-                         (0, True, BASE, [RULE_CHECKS, PROJECT_HIERARCHY, STEP_ASIDE, ACTION_DIGEST]))
+                         (0, True, BASE, [RULE_CHECKS, PROJECT_HIERARCHY, STEP_ASIDE, ACTION_DIGEST, EXTENSIONS]))
         owner.assert_not_called()
         self.assertEqual(read_objects(self.connection), objects)
 
     def test_cli_apply_and_revert_hold_exclusive_ownership_and_release_it(self):
-        for arguments, store in ((('apply',), ACTION_DIGEST), (('revert', '--to', BASE), BASE)):
+        for arguments, store in ((('apply',), EXTENSIONS), (('revert', '--to', BASE), BASE)):
             status, response, owner = self.command(*arguments)
             self.assertEqual((status, response['ok'], response['result']['store']), (0, True, store))
             owner.return_value.acquire.assert_called_once_with()

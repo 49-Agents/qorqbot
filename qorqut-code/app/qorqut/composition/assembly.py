@@ -39,6 +39,7 @@ from qorqut.storage import history
 from .agent_work import storage_contribution as agent_work_storage
 from .timeline_deliveries import storage_contribution as timeline_deliveries_storage
 from .compactions import storage_contribution as compactions_storage
+from .installed_extensions import storage_contribution as installed_extensions_storage
 from qorqut.experience.schema import storage_contribution as experience_storage
 from qorqut_operations.storage.record_moves import storage_contribution as record_moves_storage
 from .attention import storage_contribution as attention_storage
@@ -86,7 +87,7 @@ def host_contributions(change_feed, extensions=NO_EXTENSIONS):
     ``inbox_deliveries``. A worker's one current assignment (``agent_current_work``) is its own host table beside the
     generated ``agent_activity`` observations. Optional connector storage is contributed only by selected extensions."""
     return (signoff_sources_storage(), signoff_reports_storage(), timeline_storage(), *storage_contributions(), signoff_storage(), project_links_storage(), background_storage(), native_chat_storage(),
-            inbox_nudges_storage(), agent_work_storage(), timeline_deliveries_storage(), record_moves_storage(), compactions_storage(), experience_storage(), attention_storage(), reminders_storage(), browser_cleanup_storage(), agentic_inbox_storage(), overseer_storage(),
+            inbox_nudges_storage(), agent_work_storage(), timeline_deliveries_storage(), record_moves_storage(), compactions_storage(), experience_storage(), attention_storage(), reminders_storage(), browser_cleanup_storage(), agentic_inbox_storage(), overseer_storage(), installed_extensions_storage(),
             FileEffectContribution("documents", {DOCUMENTS: DocumentLifecycle()}, history.RECEIPTS),
             RecordEffectContribution("records", HostRecordEffects()),
             TransactionContribution("inbox", finalizers=inbox_finalizers(extensions.sources)),

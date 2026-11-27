@@ -458,6 +458,7 @@ def catalog(extensions=()):
         )),
         HistoryContribution('host.technical_excluded', classifications=(
             TableClassification('agentic_inbox_cursor', TECHNICAL_EXCLUDED, 'Receiver transport cursor and module binding; not an authored operational record.'),
+            TableClassification('extensions', TECHNICAL_EXCLUDED, 'Which installed extensions are set up and which agents each is switched on for; installation state, not an authored operational record.'),
             TableClassification('change_sequences', TECHNICAL_EXCLUDED, 'Transient mutation, claim, scheduling and observer machinery; authoritative record state is exported separately.'),
             *context_registration.TECHNICAL_CLASSIFICATIONS,
             INBOX['inbox_changes'],

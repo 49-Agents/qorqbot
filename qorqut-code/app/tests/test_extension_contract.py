@@ -1,18 +1,24 @@
 """The extension checker finds every way a folder breaks the extension contract (docs/EXTENSION-CONTRACT.md)."""
 import contextlib
 import io
+import os
 from pathlib import Path
+import random
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 import yaml
 
 from qorqut import extension_contract as contract
+from qorqut_agentic.files import split_path
 
 EXAMPLE = Path(__file__).resolve().parent / "fixtures" / "extension-contract" / "network"
+REPOSITORY = Path(__file__).resolve().parents[3]
+PACKAGE_MAP = REPOSITORY / "qorqut-code" / "app" / "package-sources.json"
 WORKFLOW = {"schema_version": 1, "id": "first-use", "description": "Set up the first Connections.",
             "steps": [{"id": "start", "instructions": "Ask the owner who matters most."},
                       {"id": "add", "instructions": "Add them.", "depends_on": ["start"]}]}
@@ -218,9 +224,16 @@ class ManifestTest(Case):
         self.manifest(lambda d: d["agents"].update(on_after_setup=["learning-applier"]))
         self.assertFinding("'learning-applier'", "not in `agents.allowed`")
 
-    def test_role_names_may_use_hyphens_as_extensions_does(self):
-        self.manifest(lambda d: d["agents"].update(allowed=["learning-applier"]))
+    def test_role_names_are_the_role_ids_qorqbot_has(self):
+        self.manifest(lambda d: d["agents"].update(allowed=["ordubashy", "learning-applier", "global-worker"]))
         self.assertEqual(self.findings(), [])
+        for role in ("learning_applier", "coordinator", "Ordubashy"):
+            self.manifest(lambda d: d["agents"].update(allowed=[role]))
+            self.assertFinding("`agents.allowed` names", repr(role), "not a role Qorqbot has")
+
+    def test_on_after_setup_names_role_ids_qorqbot_has(self):
+        self.manifest(lambda d: d["agents"].update(allowed=["ordubashy"], on_after_setup=["owner"]))
+        self.assertFinding("`agents.on_after_setup` names 'owner'", "not a role Qorqbot has")
 
 
 class FolderTest(Case):
@@ -324,17 +337,75 @@ class SkillTest(Case):
 
     def test_read_for_is_one_line_of_1_to_160_characters(self):
         self.edit("Keeping the owner's personal network of people, where you met and when to follow up", "x" * 161)
-        self.assertFinding("read_for as one line of 1 to 160")
+        self.assertFinding("read_for must be one line of 1 to 160")
         self.edit("x" * 161, "x" * 160)
         self.assertEqual(self.findings(), [])
         self.edit("x" * 160, "|\n  two\n  lines")
-        self.assertFinding("read_for as one line of 1 to 160")
+        self.assertFinding("read_for must be one line of 1 to 160")
         self.edit("|\n  two\n  lines", "''")
-        self.assertFinding("read_for as one line of 1 to 160")
+        self.assertFinding("read_for must be one line of 1 to 160")
+
+    def test_description_within_the_managed_skill_bound(self):
+        self.edit("description: How to keep the owner's personal network as Connection records.",
+                  "description: " + "x" * 601)
+        self.assertFinding("refused as a managed skill", "bounded description")
 
     def test_description_is_not_empty(self):
         self.edit("description: How to keep the owner's personal network as Connection records.", "description: ''")
         self.assertFinding("empty description")
+
+    def test_skill_may_hold_files_of_the_managed_skill_types(self):
+        self.write("plugin/skills/network/examples/people.csv", "name\nAda\n")
+        self.write("plugin/skills/network/notes.md", "More notes.\n")
+        self.assertEqual(self.findings(), [])
+
+    def test_skill_file_of_another_type(self):
+        self.write("plugin/skills/network/run.sh", "echo hi\n")
+        self.assertFinding("skills/network/run.sh", "unsupported skill file")
+
+    def test_executable_skill_file(self):
+        (self.folder / self.skill).chmod(0o755)
+        self.assertFinding("skills/network/SKILL.md is executable")
+
+    def test_command_substitution_in_skill_text(self):
+        self.write("plugin/skills/network/notes.txt", "Run !`date` first.\n")
+        self.assertFinding("skills/network/notes.txt", "substitutions are not supported")
+
+    def test_skill_file_over_the_managed_skill_size_bound(self):
+        self.write("plugin/skills/network/big.md", "x" * 2_000_000)
+        self.assertFinding("skills/network/big.md is refused", "size limit")
+
+    def test_skill_name_of_a_package_that_ships_with_qorqbot(self):
+        folder = self.copy("email")
+        self.manifest(lambda d: d.update(id="email"), folder)
+        text = (folder / self.skill).read_text().replace("qorqut-plugin-network", "qorqut-plugin-email-management")
+        shutil.rmtree(folder / "plugin/skills/network")
+        self.write("plugin/skills/email-management/SKILL.md", text, folder)
+        # The names of this repository's own package map, as the service gives them from its installation's map.
+        shipped = contract.skill_names_of(contract.load_sources(REPOSITORY, config_path=PACKAGE_MAP))
+        self.assertFinding("'qorqut-plugin-email-management'", "ships with Qorqbot",
+                           found=contract.check_folder(folder, shipped=shipped))
+        self.assertEqual(contract.check_folder(folder, shipped=frozenset()), [])
+        self.assertFinding("'qorqut-plugin-network'", "ships with Qorqbot",
+                           found=contract.check_folders([self.folder], shipped=frozenset({"qorqut-plugin-network"}))[
+                               self.folder.name])
+
+    def test_no_source_map_beside_the_module_reads_nothing(self):
+        # As an installed package the module has no package map beside it: the check must not fail on that.
+        contract.shipped_skill_names.cache_clear()
+        self.addCleanup(contract.shipped_skill_names.cache_clear)
+        with mock.patch.object(contract, "APP", self.folder):
+            self.assertEqual(contract.shipped_skill_names(), frozenset())
+            self.assertEqual(contract.check_folder(self.folder), [])
+
+    def test_skill_names_of_a_source_map(self):
+        package = self.folder.parent / "package"
+        package.mkdir()
+        (package / "plugin.yaml").write_text("skills:\n  - id: letters\n")
+        self.assertEqual(contract.skill_names_of({"one": ("plugin", package, "plugin.yaml")}),
+                         frozenset({"qorqut-plugin-letters"}))
+        with self.assertRaisesRegex(contract.DomainError, "Cannot read package manifest"):
+            contract.skill_names_of({"one": ("plugin", package, "missing.yaml")})
 
 
 class HooksTest(Case):
@@ -385,10 +456,30 @@ class HooksTest(Case):
         self.hooks(lambda d: d[0].update(text="instructions/../../outside.md"))
         self.assertFinding("leaves the plugin directory")
 
-    def test_text_may_be_anywhere_inside_plugin_and_any_size(self):
-        self.write("plugin/other/long.md", "word " * 20000)
-        self.hooks(lambda d: d[0].update(text="other/long.md"))
+    def test_text_may_be_anywhere_inside_instructions_and_any_size(self):
+        self.write("plugin/instructions/more/long.md", "word " * 20000)
+        self.hooks(lambda d: d[0].update(text="instructions/more/long.md"))
         self.assertEqual(self.findings(), [])
+
+    def test_text_must_be_in_instructions(self):
+        for text in ("skills/network/SKILL.md", "hooks.yaml", "instructions/../records.yaml", "instructions", "."):
+            self.hooks(lambda d: d[0].update(text=text))
+            self.assertFinding("'note-people-mentioned'", f"{text!r}", "not in instructions/")
+
+    def test_text_path_with_a_nul_is_a_finding(self):
+        self.hooks(lambda d: d[0].update(text="instructions/a\0.md"))
+        self.assertFinding("'note-people-mentioned'", "cannot be read")
+
+    def test_every_that_cannot_be_a_length_of_time(self):
+        for count in ("9" * 5000, "9" * 400):
+            self.hooks(lambda d: d[3].update(every=count + "d"))
+            self.assertFinding("'weekly-review'", "too long to be a length of time")
+
+    def test_tool_names_follow_the_operation_name_rule(self):
+        self.hooks(lambda d: d[1].update(tools=["crm_" + "x" * 100], if_used=["tasks_create"]))
+        self.assertEqual(self.findings(), [])
+        self.hooks(lambda d: d[1].update(tools=["crmEntries"]))
+        self.assertFinding("`tools` as a non-empty list of tool names")
 
     def test_tools_required_for_after_tool_only(self):
         self.hooks(lambda d: d[1].pop("tools"))
@@ -415,6 +506,38 @@ class HooksTest(Case):
             self.hooks(lambda d: d[3].update(every=value))
             self.assertEqual(self.findings(), [])
 
+    def test_conditions_only_at_after_tool_and_stop(self):
+        self.hooks(lambda d: d[1].update(if_used=["tasks_create"]))
+        self.assertEqual(self.findings(), [])
+        for number in (0, 3):
+            self.hooks(lambda d: (d[1].pop("if_used", None), d[number].update(unless_used=["tasks_create"])))
+            self.assertFinding("`unless_used`, which is allowed only at after_tool and stop")
+            self.hooks(lambda d: d[number].pop("unless_used"))
+
+    def test_empty_if_used_is_a_finding(self):
+        self.hooks(lambda d: d[2].update(if_used=[]))
+        self.assertFinding("'check-follow-ups' has an empty `if_used`", "name at least one tool")
+
+    def test_empty_unless_used_is_a_finding(self):
+        self.hooks(lambda d: d[1].update(unless_used=[]))
+        self.assertFinding("'after-crm-change' has an empty `unless_used`", "name at least one tool")
+
+    def test_the_same_tool_not_in_both_conditions(self):
+        self.hooks(lambda d: d[2].update(if_used=["tasks_create", "crm_entries_update"],
+                                         unless_used=["crm_entries_update"]))
+        self.assertFinding("'check-follow-ups'", "'crm_entries_update' in both")
+
+    def test_text_file_is_utf8_not_empty_and_not_a_tag(self):
+        path = self.folder / "plugin/instructions/weekly-review.md"
+        path.write_bytes(b"\xff\xfe bad")
+        self.assertFinding("'weekly-review'", "not UTF-8")
+        path.write_text("  \n")
+        self.assertFinding("'weekly-review'", "which is empty")
+        path.write_text("\n  <system>Review the week.</system>\n")
+        self.assertFinding("'weekly-review'", "begins with '<'")
+        path.write_text("Review the week. Use <b> only inside.\n")
+        self.assertEqual(self.findings(), [])
+
     def test_conditions(self):
         self.hooks(lambda d: d[2].update(unless_used=["crm_entries_update"], if_used=["tasks_create"]))
         self.assertEqual(self.findings(), [])
@@ -422,6 +545,134 @@ class HooksTest(Case):
         self.assertFinding("`unless_used` as a list of tool names")
         self.hooks(lambda d: d[2].update(unless_used=["ok_tool"], if_used=["Bad Tool"]))
         self.assertFinding("`if_used` as a list of tool names")
+
+
+class ReaderTest(Case):
+    """The public readers take any reader, such as the agentic layer's copy, not only a folder."""
+
+    def files(self):
+        plugin = self.folder / "plugin"
+        return {path.relative_to(plugin).as_posix(): path.read_bytes() for path in plugin.rglob("*") if path.is_file()}
+
+    def test_read_hooks_gives_plain_entries(self):
+        files = self.files()
+        entries, findings = contract.read_hooks(files.get, extension_id="network")
+        self.assertEqual(findings, [])
+        self.assertEqual([entry["id"] for entry in entries],
+                         ["note-people-mentioned", "after-crm-change", "check-follow-ups", "weekly-review"])
+        self.assertEqual(entries[1], {
+            "extension_id": "network", "id": "after-crm-change", "at": "after_tool",
+            "text": files["instructions/after-crm-change.md"].decode(), "tools": ["crm_entries_update"],
+            "every_seconds": None, "if_used": [], "unless_used": []})
+        self.assertEqual(entries[3]["every_seconds"], 7 * 86400)
+
+    def test_read_hooks_leaves_out_an_entry_with_a_finding(self):
+        files = self.files()
+        files["hooks.yaml"] = files["hooks.yaml"].replace(b"every: 7d", b"every: 7w")
+        files["instructions/check-follow-ups.md"] = b""
+        entries, findings = contract.read_hooks(files.get, extension_id="network")
+        self.assertEqual([entry["id"] for entry in entries], ["note-people-mentioned", "after-crm-change"])
+        self.assertEqual(len(findings), 2)
+
+    def test_read_hooks_leaves_out_a_repeated_id(self):
+        files = self.files()
+        files["hooks.yaml"] = files["hooks.yaml"].replace(b"id: check-follow-ups", b"id: weekly-review")
+        entries, findings = contract.read_hooks(files.get, extension_id="network")
+        self.assertEqual([entry["id"] for entry in entries], ["note-people-mentioned", "after-crm-change"])
+        self.assertEqual(findings, ["hooks.yaml repeats the id 'weekly-review'."])
+
+    def test_absent_files_give_nothing(self):
+        self.assertEqual(contract.read_hooks({}.get, extension_id="network"), ([], []))
+        self.assertEqual(contract.read_record_types({}.get, extension_id="network"), ([], []))
+
+    def test_read_record_types_gives_plain_types(self):
+        types, findings = contract.read_record_types(self.files().get, extension_id="network")
+        self.assertEqual(findings, [])
+        self.assertEqual(types, [{
+            "extension_id": "network", "id": "connection", "based_on": "customer", "label": "Connection",
+            "plural": "Connections", "fields": [
+                {"id": "met_at", "label": "Where we met", "type": "string", "values": None},
+                {"id": "closeness", "label": "Closeness", "type": "enum", "values": ["close", "friendly", "distant"]},
+                {"id": "last_contact", "label": "Last contact", "type": "date", "values": None}]}])
+
+    def test_read_record_types_leaves_out_a_type_with_a_finding(self):
+        files = self.files()
+        files["records.yaml"] += b"- {id: meeting, based_on: email, label: Meeting, plural: Meetings}\n"
+        types, findings = contract.read_record_types(files.get, extension_id="network")
+        self.assertEqual([item["id"] for item in types], ["connection"])
+        self.assertEqual(len(findings), 1)
+
+
+class HostileInputTest(Case):
+    """The public readers run on a copy that can be edited: whatever the bytes and whatever ``read`` does, they return
+    two lists and never raise."""
+
+    def files(self):
+        plugin = self.folder / "plugin"
+        return {path.relative_to(plugin).as_posix(): path.read_bytes() for path in plugin.rglob("*") if path.is_file()}
+
+    def test_a_raising_reader_gives_a_finding_for_the_file_or_entry(self):
+        files = self.files()
+
+        def layer(path):  # Like the agentic layer's reader: it refuses some paths by raising.
+            split_path(path)
+            if path == "instructions/weekly-review.md":
+                raise RuntimeError("too large")
+            return files.get(path)
+        entries, findings = contract.read_hooks(layer, extension_id="network")
+        self.assertEqual(len(entries), 3)
+        self.assertEqual(findings, ["hooks.yaml entry 'weekly-review' names the text file "
+                                    "'instructions/weekly-review.md', which cannot be read: RuntimeError."])
+
+        def broken(path):
+            raise PermissionError(path)
+        for reader in (contract.read_hooks, contract.read_record_types):
+            self.assertEqual(reader(broken, extension_id="network")[0], [])
+            self.assertFinding("cannot be read: PermissionError", found=reader(broken, extension_id="network")[1])
+
+    def test_deeply_nested_yaml_is_a_finding(self):
+        deep = b"[" * 5000 + b"]" * 5000
+        for name, reader in (("hooks.yaml", contract.read_hooks), ("records.yaml", contract.read_record_types)):
+            self.assertEqual(reader({name: deep}.get, extension_id="network"),
+                             ([], [f"{name} cannot be read as a list: it is nested too deeply."]))
+        (self.folder / "plugin/hooks.yaml").write_bytes(deep)
+        self.assertFinding("hooks.yaml cannot be read as a list")
+
+    def test_a_linked_plugin_folder_is_not_read(self):
+        elsewhere = self.root / "elsewhere"
+        shutil.move(self.folder / "plugin", elsewhere)
+        (elsewhere / "hooks.yaml").write_text("not: a list\n")
+        os.symlink(elsewhere, self.folder / "plugin")
+        self.assertEqual(self.findings(), ["plugin is a symbolic link, which an extension folder may not hold."])
+
+    def test_random_and_hostile_inputs_never_raise(self):
+        rng = random.Random(7)
+        atoms = ["null", "1", "[]", "{}", "'x'", "[a]", "{a: 1}", "start", "timed", "after_tool", "stop", "7d", "'0d'",
+                 "'%sd'" % ("9" * 5000), "instructions/a.md", "'.'", "'instructions/a\\0.md'", "'C:/x'", "[crm_x]",
+                 "true", "2024-01-01", "1.5", "enum", "customer", "[[a]]", "[{a: 1}]", "'" + "[" * 3000 + "'"]
+        hook_keys = ["id", "at", "text", "tools", "every", "if_used", "unless_used", "x"]
+        record_keys = ["id", "based_on", "label", "plural", "fields"]
+        texts = [b"hello", b"", b"\xff\xfe", b"<tag>", b"  \n"]
+        for _ in range(400):
+            entry = lambda keys: "{" + ", ".join(f"{key}: {rng.choice(atoms)}" for key in rng.sample(keys, rng.randint(0, len(keys)))) + "}"
+            files = {
+                "hooks.yaml": rng.choice([("[" + ", ".join(entry(hook_keys) for _ in range(3)) + "]").encode(),
+                                          b"[" * 4000, b"\xff", b"5", b"", b"a: 1"]),
+                "records.yaml": rng.choice([("[" + entry(record_keys) + "]").encode(), b"]" * 10, b"\x00"]),
+                "instructions/a.md": rng.choice(texts)}
+
+            def read(path):
+                choice = rng.random()
+                if choice < 0.15:
+                    raise rng.choice([OSError, ValueError, RuntimeError, KeyError, RecursionError])(path)
+                if choice < 0.25:
+                    split_path(path)
+                return files.get(path)
+            for reader in (contract.read_hooks, contract.read_record_types):
+                result = reader(read, extension_id="network")
+                self.assertIsInstance(result, tuple)
+                self.assertEqual(len(result), 2)
+                self.assertTrue(all(isinstance(part, list) for part in result))
 
 
 class RecordsTest(Case):
@@ -523,6 +774,58 @@ class WorkflowTest(Case):
         self.write("plugin/workflows/first-use.md", "text")
         self.assertFinding("first-use.md", "must end in .yaml")
 
+    def test_id_equals_the_file_name(self):
+        self.write("plugin/workflows/first-use.yaml", yaml.safe_dump({**WORKFLOW, "id": "start-here"}))
+        self.assertFinding("first-use.yaml has the id 'start-here'", "'first-use'")
+
+    def step(self, **fields):
+        return {**WORKFLOW, "steps": [{"id": "start", **fields}]}
+
+    def test_steps_may_refer_to_the_extensions_own_skills_and_workflows(self):
+        self.write("plugin/workflows/first-use.yaml", yaml.safe_dump(self.step(instruction_ref="network/network")))
+        self.write("plugin/workflows/again.yaml",
+                   yaml.safe_dump({**self.step(instruction_ref="network/network"), "id": "again"}))
+        self.assertEqual(self.findings(), [])
+
+    def test_references_outside_the_generated_package(self):
+        for ref in ("network/nowhere", "other/network", "network/weekly-review"):
+            self.write("plugin/workflows/first-use.yaml", yaml.safe_dump(self.step(instruction_ref=ref)))
+            self.assertFinding("step 'start'", f"`instruction_ref` {ref!r}")
+        self.write("plugin/workflows/first-use.yaml", yaml.safe_dump(self.step(instructions="x", verifier="crm/check")))
+        self.assertFinding("step 'start'", "`verifier` 'crm/check'")
+
+
+class PackageTest(Case):
+    def test_example_loads_in_the_agentic_layer(self):
+        self.write("plugin/workflows/first-use.yaml", yaml.safe_dump(WORKFLOW))
+        self.assertEqual(contract._package_findings(self.folder), [])
+        self.assertEqual(self.findings(), [])
+
+    def test_what_only_the_layer_refuses_is_reported(self):
+        # The layer takes a verifier only from a tool entry, and a generated package has none.
+        broken = {**WORKFLOW, "steps": [{"id": "start", "instructions": "x", "verifier": "network/network"}]}
+        self.write("plugin/workflows/first-use.yaml", yaml.safe_dump(broken))
+        self.assertFinding("does not load in the agentic layer", "verifier must be a tool entry")
+
+    def test_plugin_part_may_not_hold_its_own_package_manifest(self):
+        self.write("plugin/agentic.yaml", "id: network\n")
+        self.assertFinding("holds its own agentic.yaml")
+
+    def test_layer_is_not_asked_while_other_rules_fail(self):
+        self.write("plugin/agentic.yaml", "id: network\n")
+        (self.folder / "README.md").unlink()
+        self.assertEqual(self.findings(), ["README.md is missing at the top of the folder."])
+
+
+class LinkTest(Case):
+    def test_no_symbolic_link_anywhere(self):
+        os.symlink(self.folder / "plugin/instructions/weekly-review.md", self.folder / "plugin/instructions/again.md")
+        os.symlink(self.root, self.folder / "plugin/skills/network/outside")
+        os.symlink(self.folder / "README.md", self.folder / "NOTES.md")
+        found = self.findings()
+        for name in ("plugin/instructions/again.md", "plugin/skills/network/outside", "NOTES.md"):
+            self.assertFinding(f"{name} is a symbolic link", found=found)
+
 
 class CrossFolderTest(Case):
     def test_clean_folders_have_no_findings(self):
@@ -572,6 +875,7 @@ class CommandLineTest(Case):
         self.assertEqual(len(lines), 1)
         self.assertIn("Not checked yet: rules 5, 8, 9, 10, 11, 12, 13 of section 12", lines[0])
         self.assertIn("checked: 1, 2, 3, 4, 6, 7", lines[0])
+        self.assertIn("that the plugin part loads in the agentic layer", lines[0])
 
     def test_findings_are_printed_with_the_folder_name_and_exit_1(self):
         (self.folder / "README.md").unlink()

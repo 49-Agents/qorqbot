@@ -9,6 +9,7 @@ guard against a same-user filesystem race.
 
 Layout under ``instance_root``::
 
+    extensions/{id}/                      downloaded extension folders (docs/EXTENSION-CONTRACT.md)
     operations/                           records and working material of this instance
       files/                              global authored working material
       context/                            the one published shared Context
@@ -196,6 +197,11 @@ class InstancePaths:
     @property
     def files(self) -> Path:
         return self._checked(self._operations / "files")
+
+    @property
+    def installed_extensions(self) -> Path:
+        """The folder of downloaded extensions, one ``<id>/`` folder each; resolving the path creates nothing."""
+        return self._checked(self._root / "extensions")
 
     def extension_home(self, name: str) -> Path:
         """The owner-editable instance directory of one instruction package (``operations/extensions/<name>``)."""

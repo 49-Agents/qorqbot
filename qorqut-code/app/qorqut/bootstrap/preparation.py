@@ -220,7 +220,8 @@ def skill_projection(resolver, data) -> tuple[dict, dict]:
     view = resolver.require_agentic_view()
 
     def read():
-        metadata, bodies = resolver.managed_skills(data, selection=data["agentic_selection"])
+        metadata, bodies = resolver.managed_skills(data, selection=data["agentic_selection"], in_effect=tuple(
+            tuple(item) for item in data.get("extensions_in_effect", ())))
         files = {directory + name + "/" + relative_path(path): body
                  for name, resources in bodies.items() for path, body in resources.items()
                  for directory in (".claude/skills/", ".agents/skills/")}

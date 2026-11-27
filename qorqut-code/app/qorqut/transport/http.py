@@ -755,7 +755,9 @@ class HTTPAPI:
                     # clusters of observations, and the agentic layer delta proposals. Reads, and one queueing write; a
                     # proposal is approved or rejected through its Signoff, never here.
                     "experience_run_get", "experience_run_request", "experience_clusters_list", "experience_cluster_get",
-                    "agentic_delta_proposals_list", "agentic_delta_proposal_get"} and request.method == "POST":
+                    "agentic_delta_proposals_list", "agentic_delta_proposal_get",
+                    # The installed extensions: the owner's list, and switching one on or off for an agent.
+                    "extensions_list", "extensions_switch"} and request.method == "POST":
                 context, _ = self.context(actor)
                 # workspace_get is the one owner cross-scope read that names its
                 # target project as a domain field, not a scope selector. An
