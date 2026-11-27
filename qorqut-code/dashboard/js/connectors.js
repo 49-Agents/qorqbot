@@ -187,7 +187,13 @@ const connectorsPanel = (() => {
       </section>`;
     container.appendChild(root);
     let view = null, browserView = null, browserTimer = 0, browserChecks = 0;
-    let accountsView = null, accountsTimer = 0, waTimer = 0, waVersion = 0, restartTimer = 0;
+    let accountsView = null, accountsTimer = 0, waTimer = 0, waVersion = 0, restartTimer = 0, loadTimer = 0;
+    // Each read of a list is numbered: only the answer to the newest one is painted, so an older answer that comes later
+    // (a read started by focus beside the timer's) never paints over a newer one.
+    let listRead = 0, accountsRead = 0;
+    // A request that got no answer from Qorqbot at all, as opposed to one it answered with a refusal.
+    const unreached = failure => !failure?.code || failure.code === 'network_unavailable' || failure.code === 'invalid_response'
+      || failure.httpStatus >= 500;
     const SIGN_IN_STATUS = {true: ['Session saved', 'ok'], false: ['No session', 'warn'], null: ['Status unavailable while the browser is off', '']};
     function paintAccounts() {
       const section = root.querySelector('[data-cx-accounts]'), rows = accountsView?.sites;
@@ -208,13 +214,18 @@ const connectorsPanel = (() => {
     }
     const accountsError = text => { const el = root.querySelector('[data-cx-accounts-error]'); el.textContent = text || ''; el.hidden = !text; };
     async function loadAccounts(change) {
+      const mine = ++accountsRead;
       try {
         const next = coreData(change ? await post('/root/browser-accounts', change) : await api('/root/browser-accounts'));
-        if (!live()) return true;
+        if (!live() || mine !== accountsRead) return true;   // a newer read was asked for meanwhile: its answer counts
         accountsView = next; accountsError(''); paintAccounts();
         return true;
       } catch (failure) {
-        if (live()) accountsError(failure.message || 'Website sign-ins could not be loaded.');
+        if (live() && mine === accountsRead) {
+          accountsError(failure.message || 'Website sign-ins could not be loaded.');
+          // While Qorqbot gives no answer the list keeps being read, so the sentence goes once it answers again.
+          if (!change && unreached(failure)) { clearTimeout(accountsTimer); accountsTimer = setTimeout(loadAccounts, 5000); }
+        }
         return false;
       }
     }
@@ -293,18 +304,21 @@ const connectorsPanel = (() => {
       if (!view?.connectors.some(item => item.kind === 'contract' && (item.restarting || item.unreached)) || !live()) return;
       restartTimer = setTimeout(async () => {
         if (!live()) return;
-        try { view = coreData(await api('/root/connectors')); if (live()) { error(''); paint(); } }
-        catch { watchRestart(); }
+        const mine = ++listRead;
+        try {
+          const next = coreData(await api('/root/connectors'));
+          if (live() && mine === listRead) { view = next; error(''); paint(); }
+        } catch { if (mine === listRead) watchRestart(); }
       }, 3000);
     }
     // A request of a contract card that failed: its sentence on that card. With no answer at all (Qorqbot stopping or
     // restarting) the card says so and the list is read again until Qorqbot answers.
     function cardFailure(id, failure, fallback) {
       if (!live() || !view) return;
-      const unreached = !failure?.code || failure.code === 'network_unavailable' || failure.code === 'invalid_response' || failure.httpStatus >= 500;
-      const text = unreached ? extensionCards.UNREACHED : failure.message || fallback;
+      const none = unreached(failure);
+      const text = none ? extensionCards.UNREACHED : failure.message || fallback;
       view.connectors = view.connectors.map(item => item.kind === 'contract' && item.id === id
-        ? {...item, result: text, failed: true, unreached} : item);
+        ? {...item, result: text, failed: true, unreached: none} : item);
       paint();
     }
     // WhatsApp's own setup state replaces the card's entry: {state, note, qr, send_ready} from its route.
@@ -337,11 +351,17 @@ const connectorsPanel = (() => {
     }
     async function load() {
       if (!live()) return;
+      const mine = ++listRead;
       try {
-        view = coreData(await api('/root/connectors'));
-        if (!live()) return;
-        error(''); paint();
-      } catch (failure) { if (live()) error(failure.message || 'Extensions could not be loaded.'); }
+        const next = coreData(await api('/root/connectors'));
+        if (!live() || mine !== listRead) return;
+        view = next; error(''); paint();
+      } catch (failure) {
+        if (!live() || mine !== listRead) return;
+        error(failure.message || 'Extensions could not be loaded.');
+        // No answer at all (Qorqbot stopping or restarting): read again until it answers, which clears the line.
+        if (unreached(failure)) { clearTimeout(loadTimer); loadTimer = setTimeout(load, 3000); }
+      }
     }
     // A contract extension's action: one POST to its connection route, answered with its entry as it is then.
     async function connection(id, body) {
@@ -454,7 +474,7 @@ const connectorsPanel = (() => {
     document.addEventListener('visibilitychange', focus);
     const watch = new MutationObserver(() => {
       if (live()) return;
-      clearTimeout(browserTimer); clearTimeout(accountsTimer); clearTimeout(waTimer); clearTimeout(restartTimer); watch.disconnect();
+      clearTimeout(browserTimer); clearTimeout(accountsTimer); clearTimeout(waTimer); clearTimeout(restartTimer); clearTimeout(loadTimer); watch.disconnect();
       window.removeEventListener('focus', focus); document.removeEventListener('visibilitychange', focus);
     });
     watch.observe(container.ownerDocument.body, {childList: true, subtree: true});

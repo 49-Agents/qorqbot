@@ -211,11 +211,13 @@ class WheelTest(Case):
 
     def test_the_platform_follows_the_wheels(self):
         specific = make_wheel(self.wheels, name="plat", version="2.0", tag="cp312-cp312-manylinux_2_17_x86_64")
+        # The code needs demo, so every bundle of it carries the demo wheel.
+        demo = make_wheel(self.wheels)
         with self.assertRaisesRegex(ValueError, "built for one platform"):
-            self.build(wheels=[specific])
+            self.build(wheels=[specific, demo])
         with self.assertRaisesRegex(ValueError, "any platform"):
             self.build(platform="linux-x86_64", wheels=[make_wheel(self.wheels)])
-        result = self.build(platform="linux-x86_64", wheels=[specific])
+        result = self.build(platform="linux-x86_64", wheels=[specific, demo])
         self.assertEqual(self.header(result["path"])["platform"], "linux-x86_64")
         self.assertEqual(reading.check_bundle(result["path"]), [])
 

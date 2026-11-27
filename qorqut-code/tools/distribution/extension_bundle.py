@@ -159,6 +159,16 @@ def build_folder(folder, platform, output, wheels=()):
                 raise ValueError(f'The wheel {item["filename"]} is not pinned in code/constraints.txt.')
         for path in wheels:
             files[f'{manifest.id}/{reading.DEPS}/{path.name}'] = reading.checksum(path)
+    # The code's requirements and the wheels judged as an installation judges them, against the app this runs with, with
+    # the markers of the computers the bundle is for.
+    from qorqut.bootstrap import extension_deps
+    try:
+        problem = extension_deps.judge(wheels, extension_deps.code_requirements(folder), platform=platform,
+                                       platforms=manifest.platforms)
+    except extension_deps.DepsError as error:
+        problem = str(error)
+    if problem:
+        raise ValueError(problem)
     specific = any(reading.platform_specific(path.name) for path in wheels)
     if platform == 'any' and specific:
         raise ValueError('A wheel is built for one platform, so the bundle needs that platform, not any.')

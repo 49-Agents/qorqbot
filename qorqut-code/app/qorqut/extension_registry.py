@@ -36,6 +36,7 @@ from qorqut_operations.storage.repositories import decode_row
 from qorqut import extension_contract as contract
 from qorqut import extension_package
 from qorqut.agents.roles import profile_role
+from qorqut.bootstrap import extension_deps
 from qorqut.composition.installed_extensions import STATUSES, TABLE
 
 LOGGER = logging.getLogger(__name__)
@@ -59,9 +60,10 @@ def extension_roots(paths):
 
 
 def current_platform() -> str:
-    """This computer as the manifest's ``platforms`` names it. Windows runs Qorqbot inside WSL, so it is ``linux``."""
+    """This computer as the manifest's ``platforms`` names it: the system Qorqbot runs in there
+    (``extension_deps.RUNS_IN``). Windows runs Qorqbot inside WSL, so it is ``linux``."""
     from qorqut.connectors import host_platform
-    return "mac" if host_platform() == "darwin" else "linux"
+    return extension_deps.RUNS_IN[extension_deps.HOSTS[host_platform()]]
 
 
 def app_version(environ=None) -> str | None:
@@ -147,6 +149,8 @@ def discover(paths, *, selected=(), app_version, platform, shipped=None) -> tupl
                             f"is {manifest.delivery}.")
         if ext_id in selected:
             findings.append(f"The id {ext_id!r} is also selected in the installation's extension list.")
+        if extension_deps.missing_site(folder):
+            findings.append(extension_deps.missing_site(folder))
         found.append(Found(ext_id, folder.resolve(), delivery, manifest, tuple(findings)))
     return _with_unsupported(found, app_version, platform)
 
@@ -227,15 +231,24 @@ def declared_tables(item, extension, recorded):
     return (row if verdict == ADDS else None), None
 
 
+def _import_folders(code):
+    """The import path entries of a code folder: ``code/`` and, when its wheels are unpacked, ``deps/site/`` after it."""
+    site = extension_deps.site(Path(code).parent)
+    return [code, site] if site.is_dir() else [code]
+
+
 def _forget(code):
-    """Take a refused code folder off the import path (the entry its loading added) and out of the imported modules."""
-    entry = str(code)
-    if entry in sys.path:
-        del sys.path[len(sys.path) - 1 - sys.path[::-1].index(entry)]
+    """Take a refused code folder off the import path (the entries its loading added: ``code/`` and its ``deps/site/``)
+    and out of the imported modules."""
+    folders = [Path(code), extension_deps.site(Path(code).parent)]
+    for entry in map(str, folders):
+        if entry in sys.path:
+            del sys.path[len(sys.path) - 1 - sys.path[::-1].index(entry)]
     for name, module in list(sys.modules.items()):
         origin = getattr(getattr(module, "__spec__", None), "origin", None) or getattr(module, "__file__", None)
         locations = [origin, *(getattr(module, "__path__", None) or ())]
-        if any(place and Path(place).resolve().is_relative_to(code) for place in locations):
+        if any(place and any(Path(place).resolve().is_relative_to(folder.resolve()) for folder in folders)
+               for place in locations):
             del sys.modules[name]
     importlib.invalidate_caches()
 
@@ -281,13 +294,18 @@ def _loaded(item):
     from qorqut.extensions import Extension
     code = item.folder / CODE_FOLDER
     module_name, _, attribute = item.manifest.factory.partition(":")
-    sys.path.append(str(code))
+    # After the app's own packages, so the app's distributions always win; every extension's code/ before any deps/site,
+    # so no wheel takes the name of another extension's package.
+    folders = _import_folders(code)
+    sites = [index for index, entry in enumerate(sys.path) if extension_deps.is_site(entry)]
+    sys.path.insert(sites[0] if sites else len(sys.path), str(code))
+    sys.path.extend(map(str, folders[1:]))
     problem = None
     try:
         module = importlib.import_module(module_name)
         origin = Path(getattr(module, "__file__", None) or "").resolve()
         if not origin.is_relative_to(code):
-            del sys.path[len(sys.path) - 1 - sys.path[::-1].index(str(code))]
+            _forget(code)
             return None, ("other_module", module_name)
         made = getattr(module, attribute)()
         if not isinstance(made, Extension) or made.id != item.id:
@@ -456,7 +474,7 @@ def install_code(runtime, extensions, operations):
 
 
 def _with_unsupported(found, app_version, platform):
-    result = []
+    result, brought = [], {}
     for item in found:
         reason = None
         manifest = item.manifest
@@ -466,7 +484,14 @@ def _with_unsupported(found, app_version, platform):
             # A build without a version number (a source checkout) does not compare ``requires.qorqbot``.
             elif version_numbers(app_version) is not None and not admits(app_version, manifest.requires_qorqbot):
                 reason = f"It needs Qorqbot {manifest.requires_qorqbot}, and this is Qorqbot {app_version}."
+            # Unpacked at its install against the app of then: after an app update it may no longer fit. Judged with
+            # what the extensions before it bring; a judgement that fails is its sentence (``findings`` never raises).
+            elif extension_deps.site(item.folder).is_dir():
+                reason = extension_deps.findings(item.folder, installed=True, other=brought)
         result.append(replace(item, unsupported=reason))
+        if reason is None and not item.refused and extension_deps.site(item.folder).is_dir():
+            for name, holders in extension_deps.held([item.folder]).items():
+                brought.setdefault(name, []).extend(holders)
     # An extension that needs another is unsupported while that one is missing, refused or itself unsupported.
     changed = True
     while changed:

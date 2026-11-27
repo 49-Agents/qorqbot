@@ -24,7 +24,7 @@ import hashlib
 import io
 import json
 import os
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
 import stat
 import tarfile
@@ -71,8 +71,12 @@ def plain(path):
 
 
 def relative(name):
-    path = PurePosixPath(name)
-    if (not name or '\\' in name or path.is_absolute() or any(p in ('', '.', '..') for p in name.split('/'))
+    """``name`` as a relative path, or ``ValueError`` when it could leave the folder it is written into on any computer:
+    judged by the POSIX and the Windows rules (no root, no drive, no ``..``), with no colon, which Windows reads as a
+    drive or a data stream, and no part ending in a dot or a space, which Windows drops."""
+    path, windows = PurePosixPath(name), PureWindowsPath(name)
+    if (not name or '\\' in name or ':' in name or path.is_absolute() or windows.is_absolute() or windows.anchor
+            or any(p in ('', '.', '..') or p.endswith(('.', ' ')) for p in name.split('/'))
             or any(ord(c) < 32 for c in name) or len(name) > 4096):
         raise ValueError('Unsafe archive path')
     return path
@@ -93,10 +97,14 @@ def index_members(members, directories=()):
 def extract(tar, indexed, destination):
     """Write the regular files of ``indexed`` under ``destination``; each target must be new."""
     destination = plain(destination)
+    inside = destination.resolve()
     for name, member in indexed.items():
         if member.isdir():
             continue
-        target = destination / name
+        # Judged again where it is written, whatever judged the names before.
+        target = destination / relative(name)
+        if not target.resolve().is_relative_to(inside):
+            raise ValueError('Unsafe archive path')
         target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         with target.open('xb') as output, tar.extractfile(member) as source:
             while chunk := source.read(1024 * 1024):

@@ -4,14 +4,16 @@ An extension is installed when its folder is in ``<instance>/extensions/<id>/``;
 ``sync`` records it and copies its plugin part. So a change made while the service is stopped is only a folder move:
 
 - ``stage`` (the job behind an install or update): download the bundle of an index entry, check its checksum and the
-  bundle, unpack it into ``extensions/.staging/<sha256>/``, write ``config/extension-change.json`` and ask for the
+  bundle, unpack it into ``extensions/.staging/<sha256>/``, judge its dependency wheels against the running app and unpack
+  them into its ``deps/site/`` (``extension_deps``), write ``config/extension-change.json`` and ask for the
   restart. A failure is returned as one sentence and changes nothing.
 - ``stage_removal``: write the pending removal and ask for the restart. With ``delete_data`` the extension's private
   folder ``private/extensions/<id>/`` is deleted too; what its records created in the store belongs to the owner and stays.
-- ``apply_pending`` runs at start before the selection is read. It makes the tables the staged folder declares
-  (``extension_tables.make_staged``, a copy of the store first under ``extension-backups/<change id>/``), moves the
-  folder that is replaced or removed to ``extension-backups/<change id>/`` and moves the staged folder in, then writes
-  the result into the change file. Tables that cannot be made end the change as ``failed``. Each
+- ``apply_pending`` runs at start before the selection is read. It judges the staged wheels again against the app that
+  starts, makes the tables the staged folder declares (``extension_tables.make_staged``, a copy of the store first under
+  ``extension-backups/<change id>/``), moves the folder that is replaced or removed to ``extension-backups/<change id>/``
+  and moves the staged folder in, then writes the result into the change file. Wheels that do not fit or tables that
+  cannot be made end the change as ``failed``. Each
   step is a rename that the next step can see, so a start that was interrupted finishes the change at the next one.
 - ``finish`` runs after ``sync``: it reports the result to the one who asked (``report``, or the reporter the service
   gives) and deletes the change file.
@@ -42,7 +44,7 @@ import uuid
 
 from qorqut_operations.contracts import DomainError
 
-from qorqut.bootstrap import extension_bundle as bundles
+from qorqut.bootstrap import extension_bundle as bundles, extension_deps
 from qorqut.bootstrap.extension_install import _read, _save
 from qorqut.extensions import EXTENSION_ID
 from qorqut.private_files import require_private_directory
@@ -197,14 +199,24 @@ def _download(url, target, size):
         raise _Refused("not_downloaded", f"The bundle could not be downloaded or unpacked: {exc}") from exc
 
 
-def stage(paths, entry, bundle, *, requested_by=None, signoff_id=None, restart=None) -> Outcome:
+def stage(paths, entry, bundle, *, requested_by=None, signoff_id=None, restart=None, counted=None) -> Outcome:
     """Download, check and unpack the bundle of an index entry, write the pending install or update and ask for the
-    restart. Either all of it is done or nothing is left; the ``Outcome`` says which."""
+    restart. Either all of it is done or nothing is left; the ``Outcome`` says which. ``counted`` holds the ids of the
+    extensions whose dependency wheels its own are judged with (``extension_deps.others``): the running registry's
+    fine ones; without it, those a start would find fine now (``counted``)."""
     with _STAGING:
-        return _stage(paths, entry, bundle, requested_by, signoff_id, restart)
+        return _stage(paths, entry, bundle, requested_by, signoff_id, restart, counted)
 
 
-def _stage(paths, entry, bundle, requested_by, signoff_id, restart) -> Outcome:
+def counted(paths, ext_id) -> set[str]:
+    """The ids of the extensions other than ``ext_id`` whose ``deps/site/`` a start puts on the path, as the folders
+    are now: those it finds fine (not refused, not unsupported)."""
+    from qorqut import extension_registry as registry
+    found = registry.discover(paths, app_version=registry.app_version(), platform=registry.current_platform())
+    return {item.id for item in found if item.fine and item.id != ext_id}
+
+
+def _stage(paths, entry, bundle, requested_by, signoff_id, restart, counted_ids) -> Outcome:
     if pending(paths) is not None:
         return Outcome(False, WAITING, "waiting")
     if not EXTENSION_ID.fullmatch(entry.id) or not bundles.SHA256.fullmatch(bundle.sha256):
@@ -232,6 +244,16 @@ def _stage(paths, entry, bundle, requested_by, signoff_id, restart) -> Outcome:
         if header["platform"] != bundle.platform:
             raise _Refused("other_platform", f"The bundle is for {header['platform']}, not {bundle.platform}.")
         archive.unlink()
+        # The dependency wheels judged against the app that runs and made importable, before anything is written.
+        try:
+            other = extension_deps.others(paths.installed_extensions, entry.id,
+                                          counted(paths, entry.id) if counted_ids is None else counted_ids)
+        except Exception as error:  # noqa: BLE001 - a judgement that fails is the change's sentence
+            raise extension_deps.DepsError(extension_deps.not_judged(error, entry.id)) from None
+        extension_deps.prepare(unpacked / entry.id, other=other)
+    except extension_deps.DepsError as exc:
+        undo()
+        return Outcome(False, str(exc), "dependencies")
     except (OSError, ValueError, tarfile.TarError) as exc:
         undo()
         return Outcome(False, str(exc) if isinstance(exc, ValueError)
@@ -289,6 +311,19 @@ def _apply(paths, change, selection, owner):
         if findings:
             shutil.rmtree(staged.parent)
             return failed("The staged folder breaks the contract: " + findings[0])
+        # Judged again against the app that starts now, which may be another than the one that staged it.
+        try:
+            other = extension_deps.others(paths.installed_extensions, change["id"], counted(paths, change["id"]))
+            if extension_deps.missing_site(staged):
+                extension_deps.prepare(staged, other=other)
+            problem = extension_deps.findings(staged, installed=True, other=other)
+        except extension_deps.DepsError as error:
+            problem = str(error)
+        except Exception as error:  # noqa: BLE001 - recorded as the change's failure, so the start goes on
+            problem = extension_deps.not_judged(error, change["id"])
+        if problem:
+            shutil.rmtree(staged.parent)
+            return failed(problem)
         # Its tables are made before the folder is in; done again after an interruption, it finds them made.
         note = make_staged(paths, selection, change["change_id"], staged, change["id"], change["version"],
                            ownership=owner)

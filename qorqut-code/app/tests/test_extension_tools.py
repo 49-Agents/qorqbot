@@ -309,6 +309,10 @@ class InstallTest(ToolsCase):
         self.assertEqual(self.notes(row["id"])[-1], f"Network was not installed. {sentence}")
         self.assertIn("note_added", self.delivered(self.rt.coordinator.principal_id, row["id"]))
         self.assertEqual((change.pending(self.paths), self.restarts, self.installed().exists()), (None, [], False))
+        # The owner's card says it too, marked failed.
+        card = connections.current(NS(database=self.rt.database, application=self.rt.application, extension_setups=None,
+                                      extension_tools=self.tools, extension_registry=self.tools.extensions), "network")
+        self.assertEqual((card["result"], card["failed"]), (f"Network was not installed. {sentence}", True))
 
     def test_what_cannot_be_asked_for(self):
         self.assertEqual(plain(self.ask(tools.INSTALL_TOOL, extension="crm_extra").error)["code"], "not_found")
@@ -495,6 +499,31 @@ class OwnerCardTest(ToolsCase):
         self.assertFalse(private.exists())
         self.assertEqual(self.signoffs(), 0)
 
+    def test_a_change_that_fails_at_the_start_that_applies_it_is_marked_failed_on_the_card(self):
+        waiting = self.click(action="install", version="1.0.0")
+        self.assertEqual((waiting["result"], waiting["failed"]), (tools.RESTARTING, False))
+        # The staged folder is gone when the start comes: the change fails there, after the restart.
+        shutil.rmtree(change.staging(self.paths))
+        self.next_start()
+        after = self.card()
+        self.assertEqual((after["result"], after["failed"]),
+                         ("Network was not installed. The staged folder is gone, so nothing was changed.", True))
+        # Installed, but what the start found makes it unusable: a failure to the owner as well.
+        self.click(action="install", version="1.0.0")
+        self.next_start(shipped=lambda: frozenset({"qorqut-plugin-network"}))
+        after = self.card()
+        self.assertTrue(after["result"].startswith("Installed Network 1.0.0. Qorqbot restarted. It cannot be used yet:"))
+        self.assertTrue(after["failed"])
+        self.click(action="remove", delete_data=False)
+        self.next_start()
+        self.assertEqual((self.card()["result"], self.card()["failed"]), ("Removed Network. Qorqbot restarted.", False))
+
+    def test_staging_judges_with_the_extensions_whose_code_is_on_the_path_now(self):
+        self.tools.extensions.code = {"other": NS(folder=self.root / "other")}
+        with mock.patch.object(change, "stage", wraps=change.stage) as staged:
+            self.click(action="install", version="1.0.0")
+        self.assertEqual(staged.call_args.kwargs["counted"], {"other"})
+
     def test_remove_keeps_the_data_unless_chosen(self):
         self.place()
         self.registry()
@@ -523,6 +552,10 @@ class OwnerCardTest(ToolsCase):
                          "Network was not installed. The downloaded bundle does not have the checksum the index gives.")
         self.assertEqual((change.pending(self.paths), self.restarts, self.card()["offers"]),
                          (None, [], [{"action": "install", "version": "1.0.0"}]))
+        # The card read afterwards keeps the sentence, marked failed.
+        self.assertEqual((self.card()["result"], self.card()["failed"]),
+                         ("Network was not installed. The downloaded bundle does not have the checksum the index gives.",
+                          True))
 
     def test_two_changes_at_once_stage_one_and_the_second_touches_nothing(self):
         import threading
@@ -571,6 +604,8 @@ class OwnerCardTest(ToolsCase):
                          {"action": "remove", "delete_data": True})
         self.click(action="install", version="1.0.0")
         self.assertEqual(self.refused("waiting", action="install", version="1.0.0"), change.WAITING)
+        # The card keeps showing the change that waits.
+        self.assertEqual((self.card()["result"], self.card()["failed"]), (tools.RESTARTING, False))
 
     def test_an_address_that_does_not_answer_and_a_bundle_of_another_version_are_said(self):
         from dataclasses import replace as replaced

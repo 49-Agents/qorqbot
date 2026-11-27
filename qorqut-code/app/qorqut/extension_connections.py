@@ -61,7 +61,7 @@ def agents(connection) -> list[dict]:
 
 def item(entry, existing, downloads=None) -> dict:
     """The card entry of one ``InstalledExtension``; ``existing`` is ``agents(connection)`` of the same read and
-    ``downloads`` the ``offers``, ``result`` and ``restarting`` of the entry."""
+    ``downloads`` the ``offers``, ``result``, ``failed`` and ``restarting`` of the entry."""
     manifest = entry.manifest
     setup = None
     rows = []
@@ -73,7 +73,7 @@ def item(entry, existing, downloads=None) -> dict:
             if agent["role"] in manifest.agents_allowed:
                 on = agent["agent_id"] in entry.agents
                 rows.append({**agent, "on": on, "in_effect": on and entry.status == "ready"})
-    downloads = downloads or {"offers": [], "result": None, "restarting": False}
+    downloads = downloads or {"offers": [], "result": None, "failed": False, "restarting": False}
     return {"id": entry.id, "kind": KIND, "name": entry.name or entry.id,
             "summary": entry.summary or "", "version": entry.version, "delivery": entry.delivery,
             "status": entry.status, "note": entry.note, "can_set_up": can_set_up(entry), "setup": setup, "agents": rows,
@@ -81,7 +81,7 @@ def item(entry, existing, downloads=None) -> dict:
 
 
 def downloads(runtime, ext_id, connection, index=None):
-    """The ``offers``, ``result`` and ``restarting`` of one extension; none in a composition without the download tools."""
+    """The ``offers``, ``result``, ``failed`` and ``restarting`` of one extension; none in a composition without the download tools."""
     tools = getattr(runtime, "extension_tools", None)
     if tools is None:
         return None
@@ -89,6 +89,8 @@ def downloads(runtime, ext_id, connection, index=None):
     from qorqut.domains.extension_tools import RESTARTING
     waiting = pending(tools.paths)
     return {"offers": tools.offers(ext_id, connection, index), "result": tools.results.get(ext_id),
+            # Whether that result says the change failed, before the restart or at the start that applied it.
+            "failed": tools.failures.get(ext_id, False),
             # Not while Qorqbot could not be asked to restart: the result then says it is applied at the next start.
             "restarting": waiting is not None and waiting["id"] == ext_id
                           and tools.results.get(ext_id, RESTARTING) == RESTARTING}

@@ -84,6 +84,7 @@ class ExtensionTools:
         self.machine, self.restart = machine, restart
         # The last change staged or applied for each extension in this process, in one sentence, for the owner's card.
         self.results = {}
+        self.failures = {}  # by id: whether the result in ``results`` says the change failed or cannot be used yet
 
     # -- registration --------------------------------------------------------------------------------------------------
 
@@ -321,14 +322,34 @@ class ExtensionTools:
                                            restart=self.restart)
         else:
             outcome = change.stage(self.paths, SimpleNamespace(id=ext_id, version=version), bundle,
-                                   requested_by=ctx.principal_id, restart=self.restart)
+                                   requested_by=ctx.principal_id, restart=self.restart, counted=self.counted())
         if not outcome.staged:
-            raise _kind(DomainError("operation_failed", f"{name} was not {DONE_WORDS[action]}. {outcome.note}"),
-                        outcome.kind)
-        self.results[ext_id] = outcome.note or RESTARTING
+            sentence = f"{name} was not {DONE_WORDS[action]}. {outcome.note}"
+            self.not_staged(ext_id, sentence, outcome)
+            raise _kind(DomainError("operation_failed", sentence), outcome.kind)
+        self.results[ext_id], self.failures[ext_id] = outcome.note or RESTARTING, False
         return self.results[ext_id]
 
     # -- results -------------------------------------------------------------------------------------------------------
+
+    def counted(self):
+        """The extensions a new one's dependency wheels are judged with: those whose code, and so whose ``deps/site/``,
+        is on the import path now."""
+        return set(self.extensions.code)
+
+    def name_of(self, ext_id):
+        """The name the owner knows ``ext_id`` by: its installed folder's, else its index entry's, else the id."""
+        try:
+            found = self.extensions.get(ext_id)
+        except DomainError:
+            found = next((item for item in self.extensions.offered if item.id == ext_id), None)
+        return (found.name if found is not None else None) or ext_id
+
+    def not_staged(self, ext_id, sentence, outcome):
+        """A change that could not be staged leaves its sentence as the card's result, failed. Not when another change
+        waits: the card shows that one's state."""
+        if outcome.kind != "waiting":
+            self.results[ext_id], self.failures[ext_id] = sentence, True
 
     def tell(self, signoff_id, author_id, sentence):
         """Write ``sentence(name)`` on the Signoff as a note by ``author_id`` (the program's worker); the note is the inbox
@@ -371,6 +392,7 @@ class ExtensionTools:
             extra = f" It cannot be used yet: {found.note}"
         name = (found.name if found is not None else None) or applied["id"]
         self.results[applied["id"]] = result_sentence(name, applied) + extra
+        self.failures[applied["id"]] = applied["result"]["state"] == change.FAILED or bool(extra)
         if not applied.get("signoff_id"):
             return
         with self.app.database.read() as uow:
@@ -423,13 +445,17 @@ class ChangeProgram:
         else:
             bound = extension_index.Bundle(args["platform"], args["url"], args["sha256"], args["size"])
             outcome = change.stage(paths, SimpleNamespace(id=args["extension"], version=args["version"]), bound,
-                                   requested_by=asked, signoff_id=signoff_id, restart=self.tools.restart)
+                                   requested_by=asked, signoff_id=signoff_id, restart=self.tools.restart,
+                                   counted=self.tools.counted())
         if not outcome.staged:
             change.not_done(args["action"], args["extension"], asked, outcome.kind, args.get("delete_data", False))
+            self.tools.not_staged(args["extension"], f"{self.tools.name_of(args['extension'])} was not "
+                                                     f"{DONE_WORDS[args['action']]}. {outcome.note}", outcome)
             self.tools.tell(signoff_id, job["principal_id"],
                             lambda name: f"{name} was not {DONE_WORDS[args['action']]}. {outcome.note}")
             raise DomainError("operation_failed", outcome.note)
         self.tools.results[args["extension"]] = outcome.note or RESTARTING
+        self.tools.failures[args["extension"]] = False
         if outcome.note:
             self.tools.tell(signoff_id, job["principal_id"], lambda name: outcome.note)
         return ProgramResult(data={"operation": operation, "staged": True})
