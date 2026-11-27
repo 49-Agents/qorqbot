@@ -162,6 +162,14 @@ class BuildTest(Case):
                     self.build(f"{ext_id}.tar.gz", folder=folder)
                 self.assertFalse((self.root / f"{ext_id}.tar.gz").exists())
 
+    def test_an_id_that_is_a_shipped_id_followed_by_more_is_refused(self):
+        from test_extension_tables_runtime import rename
+        folder = rename(self.root / "variants", "telegram_bot", "telegram_bot_items")
+        with self.assertRaisesRegex(ValueError, "breaks the contract: The extension id telegram_bot is the id telegram "
+                                                "followed by _ and more."):
+            self.build("telegram_bot.tar.gz", folder=folder)
+        self.assertFalse((self.root / "telegram_bot.tar.gz").exists())
+
     def test_a_link_in_the_folder_is_refused(self):
         os.symlink(self.folder / "README.md", self.folder / "plugin" / "linked.md")
         with self.assertRaisesRegex(ValueError, "is a symbolic link"):

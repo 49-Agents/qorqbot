@@ -91,6 +91,7 @@ class ExtensionNamesTest(unittest.TestCase):
         self.assertEqual(self.tool.clashes([], ["telegram_bot"], self.core),
                          ["The id rule: the extension id telegram_bot is the id telegram followed by _ and more."])
         self.assertEqual(self.tool.id_clashes(["telegram_bot"]), [("telegram", "telegram_bot")])
+        self.assertEqual(self.tool.id_clashes(["google"]), [("google", "google_calendar")])
 
     def test_the_command_reads_the_index_files_and_says_each_clash(self):
         released, new = self.index("ab", "network"), self.index("network", "ab_c", "agent")

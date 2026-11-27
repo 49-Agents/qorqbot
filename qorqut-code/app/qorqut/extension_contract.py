@@ -792,16 +792,16 @@ def check_folders(folders: Iterable[Path], *, shipped: frozenset[str] | None = N
 
 
 LOADED = ("with --load also 5 (the tool names), 8 and 10, by loading the code part in a process of its own, and the "
-          "release's rule (b) of the names where the checkout has it")
+          "release's rule (b) of the names and its id rule against the ids Qorqbot ships, where the checkout has them")
 NOT_CHECKED_LOADED = "5 (that a skill's read_for covers each tool), 9, 11, 12, 13"
-NAMES_NOT_CHECKED = ("The extension id was not checked against the names of Qorqbot's tables: this Qorqbot is installed, "
-                     "without the release tools that know them.")
+NAMES_NOT_CHECKED = ("The extension id was not checked against the names of Qorqbot's tables or the ids of the "
+                     "extensions it ships: this Qorqbot is installed, without the release tools that know them.")
 
 
 @cache
 def _names_tool():
     """The release's name rules (``tools/distribution/extension_names.py``) of the checkout this app is in, or None in
-    an installed app, which has no checkout: rule (b) is then not checked."""
+    an installed app, which has no checkout: rule (b) and the id rule are then not checked."""
     path = APP.parent / "tools" / "distribution" / "extension_names.py"
     if not path.is_file():
         return None
@@ -833,6 +833,10 @@ def load_findings(folder: Path, names=None, sites=()) -> list[str]:
         taken = names.taken_prefix(manifest.id)
         if taken is not None:
             sentence = names.taken_sentence(manifest.id, taken)
+            return [sentence[0].upper() + sentence[1:]]
+        # The id rule against the ids of the extensions Qorqbot ships, in either order; the index builder has the rest.
+        for short, long in names.id_clashes([manifest.id]):
+            sentence = names.id_sentence(short, long)
             return [sentence[0].upper() + sentence[1:]]
     if manifest.factory is None:
         return []

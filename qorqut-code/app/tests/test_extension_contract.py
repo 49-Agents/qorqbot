@@ -944,6 +944,18 @@ class CommandLineTest(Case):
             status, lines = self.run_main("--load", folder)
         self.assertEqual((status, lines[0]), (0, contract.NAMES_NOT_CHECKED))
 
+    def test_with_load_an_id_that_is_a_shipped_id_followed_by_more_is_refused(self):
+        from test_extension_tables_runtime import rename
+        folder = rename(self.root / "variants", "telegram_bot", "telegram_bot_items")
+        spec = importlib.util.spec_from_file_location(
+            "contract_test_names", REPOSITORY / "qorqut-code" / "tools" / "distribution" / "extension_names.py")
+        names = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(names)
+        with mock.patch.object(contract, "_names_tool", lambda: names):
+            status, lines = self.run_main("--load", folder)
+        self.assertEqual((status, lines[0]), (1, "telegram_bot: The extension id telegram_bot is the id telegram "
+                                                 "followed by _ and more."))
+
     def test_runs_as_a_module(self):
         done = subprocess.run([sys.executable, "-B", "-m", "qorqut.extension_contract", str(EXAMPLE)],
                               capture_output=True, text=True, timeout=30)
