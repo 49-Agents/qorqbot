@@ -196,14 +196,24 @@ def _download(url, target, size):
         raise _Refused("not_downloaded", f"The bundle could not be downloaded or unpacked: {exc}") from exc
 
 
-def stage(paths, entry, bundle, *, requested_by=None, signoff_id=None, restart=None) -> Outcome:
+def stage(paths, entry, bundle, *, requested_by=None, signoff_id=None, restart=None, counted=None) -> Outcome:
     """Download, check and unpack the bundle of an index entry, write the pending install or update and ask for the
-    restart. Either all of it is done or nothing is left; the ``Outcome`` says which."""
+    restart. Either all of it is done or nothing is left; the ``Outcome`` says which. ``counted`` holds the ids of the
+    extensions whose dependency wheels its own are judged with (``extension_deps.others``): the running registry's
+    fine ones; without it, those a start would find fine now (``counted``)."""
     with _STAGING:
-        return _stage(paths, entry, bundle, requested_by, signoff_id, restart)
+        return _stage(paths, entry, bundle, requested_by, signoff_id, restart, counted)
 
 
-def _stage(paths, entry, bundle, requested_by, signoff_id, restart) -> Outcome:
+def counted(paths, ext_id) -> set[str]:
+    """The ids of the extensions other than ``ext_id`` whose ``deps/site/`` a start puts on the path, as the folders
+    are now: those it finds fine (not refused, not unsupported)."""
+    from qorqut import extension_registry as registry
+    found = registry.discover(paths, app_version=registry.app_version(), platform=registry.current_platform())
+    return {item.id for item in found if item.fine and item.id != ext_id}
+
+
+def _stage(paths, entry, bundle, requested_by, signoff_id, restart, counted_ids) -> Outcome:
     if pending(paths) is not None:
         return Outcome(False, WAITING, "waiting")
     if not EXTENSION_ID.fullmatch(entry.id) or not bundles.SHA256.fullmatch(bundle.sha256):
@@ -232,7 +242,12 @@ def _stage(paths, entry, bundle, requested_by, signoff_id, restart) -> Outcome:
             raise _Refused("other_platform", f"The bundle is for {header['platform']}, not {bundle.platform}.")
         archive.unlink()
         # The dependency wheels judged against the app that runs and made importable, before anything is written.
-        extension_deps.prepare(unpacked / entry.id, other=extension_deps.others(paths.installed_extensions, entry.id))
+        try:
+            other = extension_deps.others(paths.installed_extensions, entry.id,
+                                          counted(paths, entry.id) if counted_ids is None else counted_ids)
+        except Exception as error:  # noqa: BLE001 - a judgement that fails is the change's sentence
+            raise extension_deps.DepsError(extension_deps.not_judged(error, entry.id)) from None
+        extension_deps.prepare(unpacked / entry.id, other=other)
     except extension_deps.DepsError as exc:
         undo()
         return Outcome(False, str(exc), "dependencies")
@@ -293,15 +308,15 @@ def _apply(paths, change):
             shutil.rmtree(staged.parent)
             return failed("The staged folder breaks the contract: " + findings[0])
         # Judged again against the app that starts now, which may be another than the one that staged it.
-        other = extension_deps.others(paths.installed_extensions, change["id"])
         try:
+            other = extension_deps.others(paths.installed_extensions, change["id"], counted(paths, change["id"]))
             if extension_deps.missing_site(staged):
                 extension_deps.prepare(staged, other=other)
             problem = extension_deps.findings(staged, installed=True, other=other)
         except extension_deps.DepsError as error:
             problem = str(error)
         except Exception as error:  # noqa: BLE001 - recorded as the change's failure, so the start goes on
-            problem = extension_deps.NOT_JUDGED.format(error.__class__.__name__)
+            problem = extension_deps.not_judged(error, change["id"])
         if problem:
             shutil.rmtree(staged.parent)
             return failed(problem)

@@ -322,7 +322,7 @@ class ExtensionTools:
                                            restart=self.restart)
         else:
             outcome = change.stage(self.paths, SimpleNamespace(id=ext_id, version=version), bundle,
-                                   requested_by=ctx.principal_id, restart=self.restart)
+                                   requested_by=ctx.principal_id, restart=self.restart, counted=self.counted())
         if not outcome.staged:
             sentence = f"{name} was not {DONE_WORDS[action]}. {outcome.note}"
             self.not_staged(ext_id, sentence, outcome)
@@ -331,6 +331,11 @@ class ExtensionTools:
         return self.results[ext_id]
 
     # -- results -------------------------------------------------------------------------------------------------------
+
+    def counted(self):
+        """The extensions a new one's dependency wheels are judged with: those whose code, and so whose ``deps/site/``,
+        is on the import path now."""
+        return set(self.extensions.code)
 
     def name_of(self, ext_id):
         """The name the owner knows ``ext_id`` by: its installed folder's, else its index entry's, else the id."""
@@ -443,7 +448,8 @@ class ChangeProgram:
         else:
             bound = extension_index.Bundle(args["platform"], args["url"], args["sha256"], args["size"])
             outcome = change.stage(paths, SimpleNamespace(id=args["extension"], version=args["version"]), bound,
-                                   requested_by=asked, signoff_id=signoff_id, restart=self.tools.restart)
+                                   requested_by=asked, signoff_id=signoff_id, restart=self.tools.restart,
+                                   counted=self.tools.counted())
         if not outcome.staged:
             change.not_done(args["action"], args["extension"], asked, outcome.kind, args.get("delete_data", False))
             self.tools.not_staged(args["extension"], f"{self.tools.name_of(args['extension'])} was not "

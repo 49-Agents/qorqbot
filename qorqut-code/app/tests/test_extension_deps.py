@@ -239,13 +239,89 @@ class InstallTest(DepsCase):
     def test_a_judgement_that_fails_at_the_start_fails_the_change_and_the_start_goes_on(self):
         self.assertStaged(self.stage_tiny(self.publish_tiny()))
         with mock.patch.object(deps, "_first_problem", side_effect=TypeError("broken")):
-            change.apply_pending(self.paths)
+            with self.assertLogs(deps.LOGGER, "WARNING") as written:
+                change.apply_pending(self.paths)
         self.assertEqual(change.pending(self.paths)["result"], {
             "state": change.FAILED, "note": "Its dependency wheels cannot be judged: TypeError."})
+        self.assertIsNotNone(written.records[0].exc_info)
         self.assertFalse((self.downloaded / "tinyuse").exists())
 
 
 class OtherExtensionsTest(DepsCase):
+    def swap(self, ext_id, version):
+        """Give the installed ``ext_id`` the tiny wheel of ``version``, as no staging would leave it."""
+        folder = self.downloaded / ext_id
+        shutil.rmtree(folder / "deps")
+        (folder / "deps").mkdir()
+        made = self.root / f"{ext_id}-{version}"
+        made.mkdir()
+        wheel = make_wheel(made, version=version)
+        shutil.copy(wheel, folder / "deps")
+        deps.unpack([wheel], deps.site(folder))
+        (folder / "code" / "constraints.txt").write_text(f"qorqbot-tiny-dep=={version}\n")
+
+    def unsupported(self, ext_id):
+        """Make the installed ``ext_id`` unsupported at a start: its code needs what nothing gives."""
+        (self.downloaded / ext_id / "code" / "pyproject.toml").write_text(
+            f'[project]\nname = "qorqut-{ext_id}"\nversion = "1.0.0"\ndependencies = ["qorqbot-missing-dist"]\n')
+
+    def three(self):
+        """a and c bring the tiny distribution 1.0.0, b brings 2.0.0."""
+        for ext_id in "abc":
+            self.installed(ext_id, requires=("qorqbot-tiny-dep",))
+        self.swap("b", "2.0.0")
+
+    def conflict(self, ext_id, version, other, other_version):
+        return (f"{UNFIT}it brings qorqbot-tiny-dep {version}, and the extension {other} brings qorqbot-tiny-dep "
+                f"{other_version}; one Qorqbot can hold only one version of it.")
+
+    def test_every_distribution_of_every_extension_on_the_path_is_compared(self):
+        self.three()
+        found, loaded = self.start()
+        # a is on the path: b, with another version, is not; c, with a's, is.
+        self.assertEqual((found["b"].unsupported, sorted(loaded)), (self.conflict("b", "2.0.0", "a", "1.0.0"), ["a", "c"]))
+        for made in loaded.values():
+            registry._forget(made.folder)
+        # a cannot run: b is on the path, and c, with another version than b's, is not.
+        self.unsupported("a")
+        found, loaded = self.start()
+        self.assertEqual((found["c"].unsupported, sorted(loaded)), (self.conflict("c", "1.0.0", "b", "2.0.0"), ["b"]))
+
+    def test_a_refused_or_unsupported_extension_does_not_block(self):
+        self.three()
+        (self.downloaded / "a" / "README.md").unlink()
+        found, loaded = self.start()
+        self.assertTrue(found["a"].refused)
+        self.assertEqual((found["c"].unsupported, sorted(loaded)), (self.conflict("c", "1.0.0", "b", "2.0.0"), ["b"]))
+
+    def test_the_start_that_applies_a_change_compares_only_with_the_extensions_it_puts_on_the_path(self):
+        self.installed("a", requires=("qorqbot-tiny-dep",))
+        self.swap("a", "2.0.0")
+        self.unsupported("a")
+        self.assertStaged(self.stage_tiny(self.publish_tiny(ext_id="b", requires=("qorqbot-tiny-dep",)), "b"))
+        # a cannot run, so its deps/site/ is not put on the path: its other version does not refuse b.
+        change.apply_pending(self.paths)
+        self.assertEqual(change.pending(self.paths)["result"], {"state": change.DONE, "note": None})
+
+    def test_staging_compares_with_the_extensions_on_the_path(self):
+        self.three()
+        self.unsupported("a")
+        # As a start finds them now: b is on the path, a and c are not.
+        self.assertEqual(change.counted(self.paths, "d"), {"b"})
+        self.assertEqual(self.refused_at_staging(self.publish_tiny(ext_id="d", requires=("qorqbot-tiny-dep",)), "d"),
+                         self.conflict("d", "1.0.0", "b", "2.0.0"))
+        # As the running registry says: with a and b on the path, b's version is compared though a's comes first.
+        index = self.publish_tiny(ext_id="e", requires=("qorqbot-tiny-dep",))
+        entry, bundle = index.entry_for("e", "linux-x86_64")
+        refused = change.stage(self.paths, entry, bundle, restart=self.restart, counted={"a", "b"})
+        self.assertEqual((refused.staged, refused.note), (False, self.conflict("e", "1.0.0", "b", "2.0.0")))
+        # Only a on the path: the same version passes.
+        self.assertStaged(change.stage(self.paths, entry, bundle, restart=self.restart, counted={"a"}))
+        # The start that applies it compares with those it finds on the path: b.
+        change.apply_pending(self.paths)
+        self.assertEqual(change.pending(self.paths)["result"],
+                         {"state": change.FAILED, "note": self.conflict("e", "1.0.0", "b", "2.0.0")})
+
     def test_another_version_of_a_distribution_another_extension_brings_is_refused(self):
         self.installed()
         newer = self.publish_tiny(ext_id="other", pins=("qorqbot-tiny-dep==2.0.0",), requires=("qorqbot-tiny-dep",),
@@ -268,12 +344,7 @@ class OtherExtensionsTest(DepsCase):
         registry._forget(loaded["same"].folder)
         registry._forget(loaded["tinyuse"].folder)
         # A deps/site of another version, as no staging would leave it: the later folder cannot run.
-        shutil.rmtree(self.downloaded / "same" / "deps")
-        wheel = make_wheel(self.root, version="2.0.0")
-        (self.downloaded / "same" / "deps").mkdir()
-        shutil.copy(wheel, self.downloaded / "same" / "deps")
-        deps.unpack([wheel], deps.site(self.downloaded / "same"))
-        (self.downloaded / "same" / "code" / "constraints.txt").write_text("qorqbot-tiny-dep==2.0.0\n")
+        self.swap("same", "2.0.0")
         found, loaded = self.start()
         self.assertEqual(found["tinyuse"].unsupported, f"{UNFIT}it brings qorqbot-tiny-dep 1.0.0, and the extension same "
                                                        "brings qorqbot-tiny-dep 2.0.0; one Qorqbot can hold only one "
@@ -305,9 +376,21 @@ class StartTest(DepsCase):
 
     def test_a_judgement_that_fails_makes_it_unsupported_and_the_start_goes_on(self):
         self.installed()
-        with mock.patch.object(deps, "_first_problem", side_effect=ValueError("broken")):
+        with mock.patch.object(deps, "_first_problem", side_effect=NameError("broken")), \
+                self.assertLogs(deps.LOGGER, "WARNING") as written:
             found, loaded = self.start()
-        self.assertEqual((found["tinyuse"].unsupported, loaded), ("Its dependency wheels cannot be judged: ValueError.", {}))
+        self.assertEqual((found["tinyuse"].unsupported, loaded), ("Its dependency wheels cannot be judged: NameError.", {}))
+        # The fault is in the service log with its traceback, so it can be found.
+        self.assertEqual(written.output[0].split("\n")[0], "WARNING:qorqut.bootstrap.extension_deps:"
+                                                            "extension_dependencies_not_judged of=tinyuse error=NameError")
+        self.assertIsNotNone(written.records[0].exc_info)
+
+    def test_a_wheel_that_cannot_be_read_is_said_without_a_traceback(self):
+        folder = self.installed()
+        (next(deps.site(folder).glob("*.dist-info")) / "WHEEL").unlink()
+        with self.assertNoLogs(deps.LOGGER, "WARNING"):
+            found, _loaded = self.start()
+        self.assertEqual(found["tinyuse"].unsupported, "Its dependency wheels cannot be read: FileNotFoundError.")
 
     def test_a_folder_with_wheels_put_in_place_by_hand_is_refused(self):
         folder = self.installed()
@@ -326,21 +409,31 @@ class JudgementTest(DepsCase):
         self.assertIsNone(deps.judge([make_wheel(self.wheels, version="2.0rc1")], ["qorqbot-tiny-dep>=1"]))
 
     def test_markers_are_judged_for_the_computers_the_bundle_is_for(self):
-        windows = ["qorqbot-missing-dist; sys_platform == 'win32'"]
-        self.assertIsNone(deps.judge([], windows, platform="linux-x86_64"))
-        self.assertIsNone(deps.judge([], windows, platform="any", platforms=("linux", "mac")))
-        self.assertIn("it needs qorqbot-missing-dist", deps.judge([], windows, platform="any",
-                                                                  platforms=("linux", "windows")))
-        posix = ["qorqbot-missing-dist; sys_platform != 'win32'"]
-        self.assertIsNone(deps.judge([], posix, platform="any", platforms=("windows",)))
-        self.assertIn("it needs qorqbot-missing-dist", deps.judge([], posix, platform="mac-arm64"))
+        mac = ["qorqbot-missing-dist; sys_platform == 'darwin'"]
+        self.assertIsNone(deps.judge([], mac, platform="linux-x86_64"))
+        self.assertIsNone(deps.judge([], mac, platform="any", platforms=("linux", "windows")))
+        self.assertIn("it needs qorqbot-missing-dist", deps.judge([], mac, platform="any", platforms=("linux", "mac")))
+        self.assertIn("it needs qorqbot-missing-dist", deps.judge([], mac, platform="mac-arm64"))
+        # On Windows Qorqbot runs inside WSL, a Linux: what only a Windows Python needs never applies there.
+        win32 = ["qorqbot-missing-dist; sys_platform == 'win32'"]
+        self.assertIsNone(deps.judge([], win32, platform="any", platforms=("windows",)))
+        linux = ["qorqbot-missing-dist; sys_platform == 'linux'"]
+        self.assertIn("it needs qorqbot-missing-dist", deps.judge([], linux, platform="any", platforms=("windows",)))
         arm = ["qorqbot-missing-dist; platform_machine == 'aarch64'"]
         self.assertIsNone(deps.judge([], arm, platform="linux-x86_64"))
         self.assertIn("it needs", deps.judge([], arm, platform="linux-arm64"))
 
+    def test_the_markers_of_a_platform_word_are_those_of_the_system_qorqbot_runs_in_there(self):
+        from qorqut import connectors
+        for host, word in (("darwin", "mac"), ("linux", "linux"), ("wsl", "linux")):
+            with mock.patch.object(connectors, "host_platform", lambda: host):
+                self.assertEqual(registry.current_platform(), word, host)
+            manifest_word = deps.HOSTS[host]
+            self.assertEqual(deps.environments("any", (manifest_word,)), [deps.MARKERS[word]], host)
+
     def test_the_builder_judges_the_markers_of_the_bundle_not_of_this_computer(self):
-        folder = self.folder(requires=("qorqbot-tiny-dep==1.0.0", "qorqbot-missing-dist; sys_platform == 'win32'"))
-        with self.assertRaisesRegex(ValueError, "it needs qorqbot-missing-dist; sys_platform == 'win32'"):
+        folder = self.folder(requires=("qorqbot-tiny-dep==1.0.0", "qorqbot-missing-dist; sys_platform == 'darwin'"))
+        with self.assertRaisesRegex(ValueError, "it needs qorqbot-missing-dist; sys_platform == 'darwin'"):
             builder.build_folder(folder, "any", self.root / "tinyuse.tar.gz", [make_wheel(self.wheels)])
 
     def test_the_builder_refuses_wheels_whose_requirements_nothing_gives(self):
@@ -355,19 +448,26 @@ class JudgementTest(DepsCase):
                                  [make_wheel(self.wheels)])
 
 
-HOSTILE = ("C:/Windows/evil.py", "D:evil.py", "mod.py:stream", "//server/share/evil.py")
+LEAVING = ("C:/Windows/evil.py", "D:evil.py", "mod.py:stream", "//server/share/evil.py")
+# Windows drops a trailing dot or space, so each of these meets another name.
+DROPPED = ("mod.py.", "pkg./mod.py", "mod.py ", "pkg /mod.py")
+HOSTILE = LEAVING + DROPPED
 
 
 class NamesTest(DepsCase):
     def test_names_that_leave_the_folder_on_windows_are_refused(self):
         place = PureWindowsPath("C:/inst/deps/site")
-        for name in HOSTILE:
+        for name in LEAVING:
             joined = place / name
             # Read by the Windows rules, each of these names leaves the folder or names a data stream.
             self.assertTrue(not str(joined).startswith(str(place) + "\\") or ":" in joined.name, name)
             with self.assertRaises(ValueError, msg=name):
                 bundles.relative(name)
+        for name in DROPPED:
+            with self.assertRaises(ValueError, msg=name):
+                bundles.relative(name)
         self.assertEqual(str(bundles.relative("pkg/mod.py")), "pkg/mod.py")
+        self.assertEqual(str(bundles.relative(".hidden/mod.py")), ".hidden/mod.py")
 
     def test_a_wheel_with_such_a_name_is_refused_by_its_check_and_by_the_writer(self):
         for number, name in enumerate(HOSTILE):

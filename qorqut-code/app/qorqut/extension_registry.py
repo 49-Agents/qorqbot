@@ -60,9 +60,10 @@ def extension_roots(paths):
 
 
 def current_platform() -> str:
-    """This computer as the manifest's ``platforms`` names it. Windows runs Qorqbot inside WSL, so it is ``linux``."""
+    """This computer as the manifest's ``platforms`` names it: the system Qorqbot runs in there
+    (``extension_deps.RUNS_IN``). Windows runs Qorqbot inside WSL, so it is ``linux``."""
     from qorqut.connectors import host_platform
-    return "mac" if host_platform() == "darwin" else "linux"
+    return extension_deps.RUNS_IN[extension_deps.HOSTS[host_platform()]]
 
 
 def app_version(environ=None) -> str | None:
@@ -364,11 +365,6 @@ def install_code(runtime, extensions, operations):
             operations.register(descriptor)
 
 
-def _brought(folder):
-    """``extension_deps.others`` of one folder: what its ``deps/site/`` holds, by distribution."""
-    return {name: value for name, value in extension_deps.others(folder.parent, None).items() if value[1] == folder.name}
-
-
 def _with_unsupported(found, app_version, platform):
     result, brought = [], {}
     for item in found:
@@ -386,7 +382,8 @@ def _with_unsupported(found, app_version, platform):
                 reason = extension_deps.findings(item.folder, installed=True, other=brought)
         result.append(replace(item, unsupported=reason))
         if reason is None and not item.refused and extension_deps.site(item.folder).is_dir():
-            brought = {**_brought(item.folder), **brought}
+            for name, holders in extension_deps.held([item.folder]).items():
+                brought.setdefault(name, []).extend(holders)
     # An extension that needs another is unsupported while that one is missing, refused or itself unsupported.
     changed = True
     while changed:

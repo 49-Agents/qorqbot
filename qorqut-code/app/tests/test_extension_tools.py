@@ -518,6 +518,12 @@ class OwnerCardTest(ToolsCase):
         self.next_start()
         self.assertEqual((self.card()["result"], self.card()["failed"]), ("Removed Network. Qorqbot restarted.", False))
 
+    def test_staging_judges_with_the_extensions_whose_code_is_on_the_path_now(self):
+        self.tools.extensions.code = {"other": NS(folder=self.root / "other")}
+        with mock.patch.object(change, "stage", wraps=change.stage) as staged:
+            self.click(action="install", version="1.0.0")
+        self.assertEqual(staged.call_args.kwargs["counted"], {"other"})
+
     def test_remove_keeps_the_data_unless_chosen(self):
         self.place()
         self.registry()

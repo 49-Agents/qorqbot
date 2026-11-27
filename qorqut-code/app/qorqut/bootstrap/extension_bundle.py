@@ -72,11 +72,12 @@ def plain(path):
 
 def relative(name):
     """``name`` as a relative path, or ``ValueError`` when it could leave the folder it is written into on any computer:
-    judged by the POSIX and the Windows rules (no root, no drive, no ``..``), and with no colon, which Windows reads as a
-    drive or a data stream."""
+    judged by the POSIX and the Windows rules (no root, no drive, no ``..``), with no colon, which Windows reads as a
+    drive or a data stream, and no part ending in a dot or a space, which Windows drops."""
     path, windows = PurePosixPath(name), PureWindowsPath(name)
     if (not name or '\\' in name or ':' in name or path.is_absolute() or windows.is_absolute() or windows.anchor
-            or any(p in ('', '.', '..') for p in name.split('/')) or any(ord(c) < 32 for c in name) or len(name) > 4096):
+            or any(p in ('', '.', '..') or p.endswith(('.', ' ')) for p in name.split('/'))
+            or any(ord(c) < 32 for c in name) or len(name) > 4096):
         raise ValueError('Unsafe archive path')
     return path
 

@@ -10,14 +10,14 @@ The judgement is the one the format 1 installer makes (``tools/distribution/nati
 
 - every wheel is for this Python and this computer (its tags) and admits this Python version (``Requires-Python``);
 - no wheel is a distribution the app already has, so nothing of the app is shadowed or replaced;
-- no wheel is another version of a distribution that another installed extension brings: one Python process holds one
-  version of a distribution;
+- no wheel is another version of a distribution that another extension brings, of those whose ``deps/site/`` a start
+  puts on the path (not refused, not unsupported): one Python process holds one version of a distribution;
 - every requirement of the wheels and of the code (``code/pyproject.toml`` ``project.dependencies``) is met by the app or
   by the wheels, with what its extras need, for each computer its markers are judged for. A version that is there
   counts, a pre-release too.
 
 Nothing that goes wrong while judging leaves these functions as an exception: it is a sentence, so a start goes on and a
-change fails with it. Wheels are unpacked here with ``zipfile``, not with pip; every name is judged again where it is
+change fails with it. A fault that is not an unreadable wheel or requirement is also logged with its traceback. Wheels are unpacked here with ``zipfile``, not with pip; every name is judged again where it is
 written (``extension_bundle.relative``) and the place must be inside the folder. The version and requirement rules
 come from ``packaging``, or the copy pip carries, as for the format 1 installer.
 """
@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from email.parser import BytesParser
 import importlib.metadata
+import logging
 import os
 from pathlib import Path
 import shutil
@@ -35,14 +36,19 @@ import zipfile
 
 from qorqut.bootstrap.extension_bundle import DEPS, canonical_name, inspect_wheel, relative
 
+LOGGER = logging.getLogger(__name__)
 SITE = "site"
 _NEW_SITE = ".site-new"
 NOT_JUDGED = "Its dependency wheels cannot be judged: {}."
-# The markers of each computer a bundle can be for, as Python reports them there.
+# The manifest's platform word of each computer, from ``connectors.host_platform``, and the word of the system Qorqbot
+# runs in there: on Windows it runs inside WSL, a Linux. ``extension_registry.current_platform`` and the markers below
+# both read these, so they cannot drift. This changes when a native Windows app exists.
+HOSTS = {"darwin": "mac", "wsl": "windows", "linux": "linux"}
+RUNS_IN = {"linux": "linux", "mac": "mac", "windows": "linux"}
+# The markers of the system Qorqbot runs in, as Python reports them there.
 MARKERS = {"linux": {"sys_platform": "linux", "platform_system": "Linux", "os_name": "posix"},
-           "mac": {"sys_platform": "darwin", "platform_system": "Darwin", "os_name": "posix"},
-           "windows": {"sys_platform": "win32", "platform_system": "Windows", "os_name": "nt"}}
-MACHINES = {("linux", "arm64"): "aarch64", ("windows", "x86_64"): "AMD64", ("windows", "arm64"): "ARM64"}
+           "mac": {"sys_platform": "darwin", "platform_system": "Darwin", "os_name": "posix"}}
+MACHINES = {("linux", "arm64"): "aarch64"}
 
 
 class DepsError(ValueError):
@@ -79,10 +85,11 @@ def is_site(entry) -> bool:
 
 
 def environments(platform, platforms=()) -> list[dict]:
-    """The marker values of the computers a bundle for ``platform`` installs on: one for ``linux-x86_64`` or
-    ``mac-arm64``, and one for each of ``platforms`` (the manifest's) for ``any``."""
+    """The marker values of the systems a bundle for ``platform`` runs in: one for ``linux-x86_64`` or ``mac-arm64``,
+    and for ``any`` one for each of ``platforms`` (the manifest's), each as Qorqbot runs there (``RUNS_IN``)."""
     if platform == "any":
-        return [dict(MARKERS[word]) for word in (platforms or tuple(MARKERS)) if word in MARKERS]
+        words = [RUNS_IN[word] for word in (platforms or tuple(RUNS_IN)) if word in RUNS_IN]
+        return [dict(MARKERS[word]) for word in dict.fromkeys(words)]
     word, _, machine = platform.partition("-")
     return [{**MARKERS[word], "platform_machine": MACHINES.get((word, machine), machine)}]
 
@@ -148,21 +155,29 @@ def _app_requires(name) -> list[str]:
     return []
 
 
-def others(root, ext_id) -> dict[str, tuple[str, str]]:
-    """``{distribution: (version, extension id)}`` unpacked in the ``deps/site/`` of the installed extensions under
-    ``root`` other than ``ext_id``, in folder order. One that cannot be read is left out: it is judged at its own turn."""
+def held(folders) -> dict[str, list[tuple[str, str]]]:
+    """``{distribution: [(version, extension id), ...]}`` unpacked in the ``deps/site/`` of ``folders``, in the order
+    given; the folder's name is the extension's id. A metadata folder that cannot be read is left out: its extension is
+    judged at its own turn."""
     found = {}
-    folders = sorted(Path(root).iterdir()) if Path(root).is_dir() else []
     for folder in folders:
-        if folder.name == ext_id or folder.name.startswith(".") or not site(folder).is_dir():
+        folder = Path(folder)
+        if not site(folder).is_dir():
             continue
         for info in sorted(site(folder).glob("*.dist-info")):
             try:
                 metadata = _metadata(info)
-                found.setdefault(canonical_name(metadata["Name"]), (metadata["Version"], folder.name))
+                found.setdefault(canonical_name(metadata["Name"]), []).append((metadata["Version"], folder.name))
             except (OSError, TypeError, AttributeError):
                 continue
     return found
+
+
+def others(root, ext_id, counted) -> dict[str, list[tuple[str, str]]]:
+    """``held`` of the installed extensions under ``root`` whose ids are in ``counted``, other than ``ext_id``, in id
+    order. ``counted`` holds those whose ``deps/site/`` a start puts on the path: not refused, not unsupported."""
+    folders = sorted(Path(root).iterdir()) if Path(root).is_dir() else []
+    return held(folder for folder in folders if folder.name != ext_id and folder.name in set(counted))
 
 
 def _first_problem(described, requirements, app, rules, *, here=True, envs=({},), other=None) -> str | None:
@@ -174,10 +189,10 @@ def _first_problem(described, requirements, app, rules, *, here=True, envs=({},)
             return f"the wheel {wheel['label']} would replace {wheel['name']}, which comes with Qorqbot"
         if wheel["name"] in given:
             return f"two wheels are of {wheel['name']}"
-        held = (other or {}).get(wheel["name"])
-        if held and held[0] != wheel["version"]:
-            return (f"it brings {wheel['name']} {wheel['version']}, and the extension {held[1]} brings {wheel['name']} "
-                    f"{held[0]}; one Qorqbot can hold only one version of it")
+        for version, ext_id in (other or {}).get(wheel["name"], ()):
+            if version != wheel["version"]:
+                return (f"it brings {wheel['name']} {wheel['version']}, and the extension {ext_id} brings "
+                        f"{wheel['name']} {version}; one Qorqbot can hold only one version of it")
         if here and not wheel["tags"] & tags:
             return f"the wheel {wheel['label']} is for another Python or another computer"
         if here and wheel["requires_python"] and not rules.SpecifierSet(wheel["requires_python"]).contains(
@@ -213,8 +228,16 @@ def _first_problem(described, requirements, app, rules, *, here=True, envs=({},)
     return None
 
 
-def _judged(requirements, describe, present, **judging) -> str | None:
-    """The sentence of the judgement; whatever goes wrong while judging is a sentence too, never an exception."""
+def not_judged(error, what) -> str:
+    """The sentence of a fault while judging, which is not an unreadable wheel or requirement: logged with its
+    traceback, so that it can be found."""
+    LOGGER.warning("extension_dependencies_not_judged of=%s error=%s", what, error.__class__.__name__, exc_info=error)
+    return NOT_JUDGED.format(error.__class__.__name__)
+
+
+def _judged(requirements, describe, present, what, **judging) -> str | None:
+    """The sentence of the judgement of ``what`` (an extension id, or the builder's folder); whatever goes wrong while
+    judging is a sentence too, never an exception."""
     if not (requirements or present):
         return None
     try:
@@ -227,7 +250,7 @@ def _judged(requirements, describe, present, **judging) -> str | None:
             return f"Its dependency wheels cannot be read: {error.__class__.__name__}."
         problem = _first_problem(described, requirements, app_distributions(), rules, **judging)
     except Exception as error:  # noqa: BLE001 - a judgement that fails is a sentence, so a start goes on
-        return NOT_JUDGED.format(error.__class__.__name__)
+        return not_judged(error, what)
     return None if problem is None else f"Its dependency wheels do not fit this Qorqbot: {problem}."
 
 
@@ -240,11 +263,13 @@ def findings(folder, *, installed=False, other=None) -> str | None:
     except DepsError as error:
         return str(error)
     except Exception as error:  # noqa: BLE001
-        return NOT_JUDGED.format(error.__class__.__name__)
+        return not_judged(error, Path(folder).name)
+    what = Path(folder).name
     if installed:
-        return _judged(requirements, lambda rules: _of_site(folder, rules), site(folder).is_dir(), other=other)
+        return _judged(requirements, lambda rules: _of_site(folder, rules), site(folder).is_dir(), what, other=other)
     paths = wheels(folder)
-    return _judged(requirements, lambda rules: [_of_wheel(path, rules) for path in paths], bool(paths), other=other)
+    return _judged(requirements, lambda rules: [_of_wheel(path, rules) for path in paths], bool(paths), what,
+                   other=other)
 
 
 def judge(paths, requirements, *, platform="any", platforms=()) -> str | None:
@@ -252,8 +277,8 @@ def judge(paths, requirements, *, platform="any", platforms=()) -> str | None:
     computer a bundle for ``platform`` installs on (``environments``); else one sentence. The bundle builder asks this:
     tags and Python are judged where the bundle installs, the markers for those computers."""
     paths = [Path(path) for path in paths]
-    return _judged(requirements, lambda rules: [_of_wheel(path, rules) for path in paths], bool(paths), here=False,
-                   envs=environments(platform, platforms))
+    return _judged(requirements, lambda rules: [_of_wheel(path, rules) for path in paths], bool(paths), "build",
+                   here=False, envs=environments(platform, platforms))
 
 
 def prepare(folder, *, other=None) -> None:
@@ -277,6 +302,8 @@ def prepare(folder, *, other=None) -> None:
         raise
     except Exception as error:  # noqa: BLE001
         shutil.rmtree(building, ignore_errors=True)
+        LOGGER.warning("extension_dependencies_not_unpacked of=%s error=%s", Path(folder).name,
+                       error.__class__.__name__, exc_info=error)
         raise DepsError(f"Its dependency wheels could not be unpacked: {error.__class__.__name__}.") from None
     problem = findings(folder, installed=True, other=other)
     if problem:
