@@ -249,6 +249,63 @@ class Engine {
       && semver.gt(this.bundledVersion, current));
   }
 
+  /** PAYLOAD.json inside the bundled archive, read without unpacking the rest. Null when unreadable. */
+  async bundledPayload() {
+    if (this.bundledPayloadCache !== undefined) return this.bundledPayloadCache;
+    const output = await new Promise((resolve) => {
+      let text = '';
+      const tar = spawn('/usr/bin/tar', ['-xzOf', this.archive, 'qorqbot/runtime/PAYLOAD.json'], { stdio: ['ignore', 'pipe', 'ignore'] });
+      tar.stdout.on('data', (chunk) => { text += chunk; });
+      tar.on('error', () => resolve(null));
+      tar.on('close', (code) => resolve(code === 0 ? text : null));
+    });
+    try {
+      this.bundledPayloadCache = output ? JSON.parse(output) : null;
+    } catch {
+      this.bundledPayloadCache = null;
+    }
+    return this.bundledPayloadCache;
+  }
+
+  /**
+   * Whether the folder's own updater can apply the bundled version: it refuses a different database schema or
+   * platform (native_update.py). Checked before offering an update so the app never offers one that is certain
+   * to be refused. Resolves to { compatible, reason }.
+   */
+  async updateCompatibility() {
+    let installed;
+    try {
+      installed = JSON.parse(fs.readFileSync(path.join(this.root, 'runtime', 'PAYLOAD.json'), 'utf8'));
+    } catch {
+      return { compatible: false, reason: 'unreadable' };
+    }
+    const bundled = await this.bundledPayload();
+    if (!bundled) return { compatible: false, reason: 'unreadable' };
+    const platform = (payload) => payload.platform || 'ubuntu24-x86_64';
+    if (platform(bundled) !== platform(installed)) return { compatible: false, reason: 'platform' };
+    if (!bundled.schema_target || JSON.stringify(bundled.schema_target) !== JSON.stringify(installed.schema_target)) {
+      return { compatible: false, reason: 'schema' };
+    }
+    return { compatible: true, reason: '' };
+  }
+
+  /**
+   * Move the installed folder aside, unchanged, so the bundled version can be set up fresh at the fixed path.
+   * The moved folder keeps every record but cannot run from its new name; renaming it back restores it.
+   * Resolves to the new folder path.
+   */
+  async setAside() {
+    if (!this.isInstalled()) throw new EngineError('command', 'Qorqbot is not installed yet.');
+    if (await this.status()) await this.stop();
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
+    const version = (this.installedVersion() || 'unknown').replace(/[^0-9A-Za-z.+-]/g, '_');
+    const target = path.join(this.installParent, `qorqbot-${version}-${stamp}`);
+    if (fs.existsSync(target)) throw new EngineError('command', `${target} already exists. Nothing was moved.`);
+    await fsp.rename(this.root, target);
+    this.log(`moved ${this.root} aside to ${target}`);
+    return target;
+  }
+
   async install({ onLine = () => {} } = {}) {
     this.ensureParent();
     if (fs.existsSync(this.root)) {
