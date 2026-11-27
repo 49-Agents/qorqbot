@@ -220,9 +220,11 @@ def judge(ext_id, version, declared, tables):
 
     Answers ``(SAME, None)`` when there is nothing to make, or ``(ADDS, row)`` with the canonical row to make and record.
     The declaration goes through ``row_of`` and ``contribution_of``, so it is checked as a recorded row is. An update may
-    only add: its statements begin with the recorded ones and each recorded table keeps its specification and immutable
-    columns. A declaration whose statements are the start of the recorded ones (an older version, or none) leaves the
-    record as it is. Anything else raises ``DomainError("invalid_installation")`` with the note."""
+    only add: its statements begin with the recorded ones, and each table the recorded statements create keeps its
+    specification and immutable columns exactly, a table without either included. A declaration whose statements are
+    the start of the recorded ones (an older version, or none) leaves the record as it is; each table its own statements
+    create must have the recorded specification and immutable columns too. Anything else raises
+    ``DomainError("invalid_installation")`` with the note."""
     declared = tuple(declared)
     new = contribution_of(row := row_of(ext_id, version, declared)) if declared else None
     old = next((item for item in tables if getattr(item, "owner", None) == owner_of(ext_id)), None)
@@ -232,18 +234,26 @@ def judge(ext_id, version, declared, tables):
         return ADDS, row
     now, before = tuple(new.schema), tuple(old.schema)
     if now[:len(before)] == before:
-        if any(new.tables.get(name) != spec for name, spec in old.tables.items()) or any(
-                new.immutable_fields.get(name, frozenset()) != fields for name, fields in old.immutable_fields.items()):
-            raise _refused(ext_id, "it changes the specification of a table it made before")
-        if len(now) == len(before):
-            if dict(new.tables) != dict(old.tables) or dict(new.immutable_fields) != dict(old.immutable_fields):
-                raise _refused(ext_id, "it changes the specification of a table it made before")
-            return SAME, None
-        return ADDS, row
+        _require_kept(ext_id, new, old, before)
+        return (SAME, None) if len(now) == len(before) else (ADDS, row)
     if before[:len(now)] == now:
+        _require_kept(ext_id, new, old, now)
         return SAME, None
     raise _refused(ext_id, "its statements are not the ones it made its tables with, followed by new ones; an update "
                            "can only add tables, indexes and triggers")
+
+
+def _require_kept(ext_id, new, old, statements):
+    """Each table ``statements`` create has the same specification and immutable columns in ``new`` as in ``old``,
+    where having none is one of the values compared."""
+    def specified(contribution):
+        return ({_fold(name): spec for name, spec in contribution.tables.items()},
+                {_fold(name): frozenset(fields) for name, fields in contribution.immutable_fields.items()})
+    (new_specs, new_fixed), (old_specs, old_fixed) = specified(new), specified(old)
+    created = {_fold(name) for kind, name in check_statements(ext_id, statements) if kind == "table"}
+    if any(new_specs.get(name) != old_specs.get(name) or new_fixed.get(name, frozenset()) != old_fixed.get(name, frozenset())
+           for name in created):
+        raise _refused(ext_id, "it changes the specification of a table it made before")
 
 
 def owner_of(ext_id):

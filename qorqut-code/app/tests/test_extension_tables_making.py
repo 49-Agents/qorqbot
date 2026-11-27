@@ -65,6 +65,41 @@ class JudgeTest(unittest.TestCase):
             self.assertIn(note, raised.exception.message)
 
 
+class JudgeKeepsEverySpecificationTest(unittest.TestCase):
+    """Each table the record created keeps its specification and immutable columns exactly, a table without either
+    included, whether the declaration adds statements, has the same ones, or is an older version's."""
+    ITEMS = "CREATE TABLE tablenote_items (id TEXT PRIMARY KEY, label TEXT)"
+    TAGS = "CREATE TABLE tablenote_tags (id TEXT PRIMARY KEY, label TEXT)"
+    INDEX = "CREATE INDEX tablenote_items_label ON tablenote_items(label)"
+    NEW = "CREATE TABLE tablenote_more (id TEXT PRIMARY KEY)"
+
+    def declare(self, statements, specs=None, immutable=None):
+        return (StorageContribution("tablenote", specs if specs is not None else {"tablenote_items": TableSpec(("id",))},
+                                    immutable or {}, schema=statements),)
+
+    def test_a_changed_or_new_specification_of_a_recorded_table_is_refused(self):
+        record = (record_contribution(), contribution_of(row_of("tablenote", "1", self.declare((self.ITEMS, self.TAGS)))))
+        items, tags = TableSpec(("id",)), TableSpec(("label",), mutable=True)
+        for name, declared in (
+                ("the same statements, a specification for the table that had none",
+                 self.declare((self.ITEMS, self.TAGS), {"tablenote_items": items, "tablenote_tags": tags})),
+                ("an added index, a specification for the table that had none",
+                 self.declare((self.ITEMS, self.TAGS, self.INDEX), {"tablenote_items": items, "tablenote_tags": tags})),
+                ("an added index, immutable columns for a table that had none",
+                 self.declare((self.ITEMS, self.TAGS, self.INDEX), immutable={"tablenote_items": frozenset({"label"})})),
+                ("an added index, the specification of a table taken away",
+                 self.declare((self.ITEMS, self.TAGS, self.INDEX), {})),
+                ("an older version with another specification",
+                 self.declare((self.ITEMS,), {"tablenote_items": TableSpec(("label",))}))):
+            with self.subTest(name), self.assertRaises(DomainError) as raised:
+                judge("tablenote", "2", declared, record)
+            self.assertIn("it changes the specification of a table it made before", raised.exception.message)
+        # A new table may come with its specification; an older version with the recorded ones leaves the record.
+        added = self.declare((self.ITEMS, self.TAGS, self.NEW), {"tablenote_items": items, "tablenote_more": tags})
+        self.assertEqual(judge("tablenote", "2", added, record), (ADDS, row_of("tablenote", "2", added)))
+        self.assertEqual(judge("tablenote", "0", self.declare((self.ITEMS,)), record), (SAME, None))
+
+
 class TransitionTest(unittest.TestCase):
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
