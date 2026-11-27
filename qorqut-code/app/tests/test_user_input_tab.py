@@ -13,7 +13,7 @@ from qorqut_operations.items import UNAVAILABLE
 
 from qorqut.browser import live
 from qorqut.native_chat import projection, reader, references as refs
-from qorqut.native_chat.user_input import MAX_TAB_LABEL, UserInput
+from qorqut.native_chat.user_input import MAX_TAB_LABEL, NEXT, UserInput
 
 AGENT, WORKER, STRANGER = ("4f6c1a2e-8d35-4b97-a1c0-2e9d7f3b5a64", "8fdca155-2f3b-4735-800f-41624c6d26cc",
                            "0a6f3c52-9d1e-4b7a-8c35-2f4e6d8b1a90")
@@ -217,7 +217,8 @@ class ToolTest(Case):
     def test_a_tab_that_is_open_is_accepted_and_returned_as_the_identity_only_presentation(self):
         self.assertEqual(self.read([{"type": "tab", "id": f"{AGENT}:{TAB}"}]),
                          {"user_input": {"version": 1, "message": "Please look at this.", "references": [tab(AGENT)]},
-                          "tabs": [{"id": f"{AGENT}:{TAB}", "title": "Checkout", "url": "https://shop.example/pay?session=secret"}]})
+                          "tabs": [{"id": f"{AGENT}:{TAB}", "title": "Checkout", "url": "https://shop.example/pay?session=secret"}],
+                          "next": NEXT})
 
     def test_the_agent_is_told_the_title_and_address_of_each_tab_it_showed_and_chat_is_not(self):
         result = self.read([{"type": "tab", "id": f"{AGENT}:{TAB}"}, {"type": "tab", "id": f"{AGENT}:{SECOND}"}])
@@ -266,6 +267,47 @@ class ProjectionTest(unittest.TestCase):
         shown = refs.normalize("Solve this captcha.", [tab(AGENT)])
         shown["references"][0]["id"] = f"{AGENT}:{TAB.lower()}"
         self.assertIsNone(projection._user_input(json.dumps({"status": "ok", "data": {"user_input": shown}})))
+
+
+class NextTest(Case):
+    """The guidance beside ``user_input`` is the agent's alone: Chat projects the same presentation from a Claude or a Codex
+    result with or without it, and never shows or keeps its text."""
+
+    def read(self, references, message="Please look at this."):
+        with mock.patch.object(UserInput, "caller", return_value="ctx"):
+            return self.input.read("ctx", {"message": message, "references": references}, {}, "uow")
+
+    @staticmethod
+    def claude(data):
+        return [{"type": "tool_result", "tool_use_id": "toolu_1",
+                 "content": [{"type": "text", "text": json.dumps({"status": "ok", "data": data})}]}]
+
+    @staticmethod
+    def codex(data):
+        return {"type": "McpToolCall", "server": "qorqut", "tool": "request_user_input", "status": "completed", "error": None,
+                "result": {"content": [{"type": "text", "text": json.dumps({"status": "ok", "data": data})}]}}
+
+    def test_every_successful_call_tells_the_agent_to_end_its_turn_beside_the_presentation(self):
+        for references in ([], [{"type": "tab", "id": f"{AGENT}:{TAB}"}]):
+            result = self.read(references)
+            self.assertEqual(result["next"], NEXT)
+            self.assertEqual(set(result["user_input"]), {"version", "message", "references"})   # not inside the presentation
+        self.assertIn("end your turn", NEXT)
+
+    def test_claude_and_codex_results_with_or_without_next_project_the_same_presentation_and_never_its_text(self):
+        result = self.read([{"type": "tab", "id": f"{AGENT}:{TAB}"}])
+        shown = result["user_input"]
+        archived = {"user_input": shown, "tabs": result["tabs"]}       # a result written before ``next`` existed
+        for data in (result, archived, {"user_input": shown}, {"user_input": shown, "next": NEXT}):
+            for found in (projection._claude_inputs(self.claude(data)), projection._codex_inputs(self.codex(data))):
+                self.assertEqual(found, (shown,))
+                self.assertNotIn(NEXT, json.dumps(found))
+
+    def test_any_other_key_beside_user_input_is_still_no_presentation(self):
+        shown = self.read([])["user_input"]
+        for data in ({"user_input": shown, "next": NEXT, "label": "x"}, {"user_input": shown, "reply": "x"}):
+            self.assertEqual(projection._claude_inputs(self.claude(data)), ())
+            self.assertEqual(projection._codex_inputs(self.codex(data)), ())
 
 
 if __name__ == "__main__":

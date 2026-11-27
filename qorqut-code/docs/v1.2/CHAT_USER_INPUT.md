@@ -32,8 +32,12 @@ references to 8; a message must not be blank. Keep reference order; coalesce exa
 duplicates. No new discovery tool: existing Task/Signoff reads and the browser
 tool's list action provide IDs.
 
-Successful tool data is `{user_input: {version: 1, message, references}}`, with
-normalized identity-only references. It contains no viewer URL, CDP endpoint,
+Successful tool data is `{user_input: {version: 1, message, references}, next}`, with
+normalized identity-only references, plus `tabs` (each named tab's current title and
+address) when a tab is referenced. `next` tells the agent that the owner now sees the
+message and its cards and to end the turn without a closing reply that repeats it or
+says where the card is. `tabs` and `next` are for the agent only: Chat never shows or
+stores them. It contains no viewer URL, CDP endpoint,
 credential, approval or pretend owner answer. This successful tool result is the
 archived presentation source. Native Chat projects it as an ordinary agent message
 with the tool's message and `entry.references` below, never as a completed native
@@ -171,7 +175,8 @@ request_user_input(message="Please sign in below, then reply here.",
                                {"type": "signoff", "id": "<uuid>"},
                                {"type": "task", "id": "<task id>"}])
 -> {"status": "ok", "data": {"user_input": {"version": 1, "message": "...", "references": [
-     {"type": "browser", "id": "example-browser", "project_id": null}, ...]}}}
+     {"type": "browser", "id": "example-browser", "project_id": null}, ...]},
+     "next": "The owner now sees this message and its cards in Chat. ..."}}
 ```
 
 The contract lives once in `native_chat/references.py` (message 1-4000 characters after trimming, at most 8 references, strict
@@ -186,8 +191,8 @@ label, state, endpoint, credential, approval or answer, and the call writes noth
 The successful tool result in the agent's own transcript is the only source (`native_chat/projection.py`):
 
 - Claude: a `user` record's `tool_result` blocks that are not errors; Codex: a completed `McpToolCall` item of server `qorqut`,
-  tool `request_user_input`, with no error. The text must itself be the JSON success envelope (`status` ok, `data` exactly
-  `{user_input}`) and must re-validate to its own normalized form. Assistant prose, user text, quoted or embedded JSON, failed
+  tool `request_user_input`, with no error. The text must itself be the JSON success envelope (`status` ok, `data` holding
+  `user_input` and at most `tabs` and `next`, which never project; a result archived without `next` projects the same) and must re-validate to its own normalized form. Assistant prose, user text, quoted or embedded JSON, failed
   results, other tools and any other shape do not project.
 - Each presentation is an ordinary `agent` message (`partial: false`, `completion_sequence: null`) with `references` on the
   entry. It is not a completed reply, a user turn, unread work or an outgoing agent-message notice: reply, work and user

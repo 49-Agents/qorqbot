@@ -33,6 +33,10 @@ from . import store
 
 NAME = "request_user_input"
 MAX_TAB_LABEL = 200
+# Returned beside ``user_input`` at every successful call, for the agent only: the card is already in front of the owner, so a
+# closing message that repeats it or says where it is only adds noise. Chat never shows or stores it (``projection._user_input``).
+NEXT = ("The owner now sees this message and its cards in Chat. If nothing else is left to do, end your turn now without a "
+        "closing reply. Write one only to say something this message does not; never repeat it or say where the card is.")
 DESCRIPTION = (
     instruction_text('user-input-ordubashy-or-the-current-overseer-show-the'))
 SCHEMA = schema({
@@ -93,9 +97,11 @@ class UserInput:
                 raise DomainError("not_found", f"Reference {position} ({reference['type']}) is not available; read it first and "
                                   "use its exact id") from None
         # A reference is only an id: the page's title and address, as the tab has them now, let the agent check that the tab it
-        # named is the page it told the owner about. They are the agent's alone: Chat keeps ``user_input`` and nothing else
-        # (``projection._user_input``). A tab that is no longer open is already refused above, by its place in the list.
-        return {"user_input": shown, "tabs": named} if named else {"user_input": shown}
+        # named is the page it told the owner about. They and ``next`` are the agent's alone: Chat keeps ``user_input`` and
+        # nothing else (``projection._user_input``). A tab that is no longer open is already refused above, by its place in the list.
+        result = {"user_input": shown, "tabs": named} if named else {"user_input": shown}
+        result["next"] = NEXT
+        return result
 
     # ----- resolution ----------------------------------------------------------------------------------------------------
 
