@@ -2,6 +2,7 @@
 
 import json
 from dataclasses import replace
+from datetime import date
 import logging
 import queue
 import re
@@ -121,7 +122,7 @@ def checked_fields(body, allowed, required=()):
             **{name: "unknown field" for name in sorted(unknown)}, **{name: "required" for name in sorted(missing)}})
 
 
-def _etag_for(request, changes, kinds, scope):
+def _etag_for(request, changes, kinds, scope, extra=None):
     """Shared by `revalidated`/`revalidated_async` (handoff PR3, section 4.3).
 
     The ETag hashes the request's own path and query -- not just a
@@ -137,6 +138,8 @@ def _etag_for(request, changes, kinds, scope):
     change feed is attached (a bare `Runtime()`, e.g. in a test fixture that
     never wires one): there is nothing to revalidate against, so callers
     must treat that as an unconditional miss with no ETag issued, not guess.
+    `extra`, when given, is hashed in as well: what else the read depends on
+    that no kind versions (a database version, a file's state, the day).
     """
     if changes is None:
         return None, False
@@ -147,18 +150,21 @@ def _etag_for(request, changes, kinds, scope):
     # a browser's ETag cache does not, so without this a tag cached against a
     # previous process's version 0 could false-positive a 304 against this
     # process's own version 0, up until the next real write to that kind.
-    tag = 'W/"' + canonical_hash({"path": request.url.path, "query": sorted(request.query_params.items()),
+    tagged = {"path": request.url.path, "query": sorted(request.query_params.items()),
         "scope": "any" if scope is ANY_SCOPE else scope, "versions": sorted(versions.items()),
-        "nonce": changes.nonce}) + '"'
+        "nonce": changes.nonce}
+    if extra is not None:
+        tagged["extra"] = extra
+    tag = 'W/"' + canonical_hash(tagged) + '"'
     hit = request.headers.get("if-none-match") == tag
     request.scope["qorqut.etag"] = "hit" if hit else "miss"
     return tag, hit
 
 
-def revalidated(request, changes, kinds, scope, produce):
+def revalidated(request, changes, kinds, scope, produce, extra=None):
     """For a route whose own handler is a plain sync function (compatibility.py
     routes, offloaded to a worker thread in one piece by their caller)."""
-    tag, hit = _etag_for(request, changes, kinds, scope)
+    tag, hit = _etag_for(request, changes, kinds, scope, extra)
     if hit:
         return Response(status_code=304, headers={"ETag": tag, "Cache-Control": "no-store"})
     result = produce()
@@ -172,11 +178,11 @@ def revalidated(request, changes, kinds, scope, produce):
     return result
 
 
-async def revalidated_async(request, changes, kinds, scope, produce):
+async def revalidated_async(request, changes, kinds, scope, produce, extra=None):
     """For a route whose own handler is `async def` and awaits its own
     `anyio.to_thread.run_sync` calls (this module's routes), where `produce`
     is an async callable rather than a plain one."""
-    tag, hit = _etag_for(request, changes, kinds, scope)
+    tag, hit = _etag_for(request, changes, kinds, scope, extra)
     if hit:
         return Response(status_code=304, headers={"ETag": tag, "Cache-Control": "no-store"})
     result = await produce()
@@ -377,11 +383,24 @@ class HTTPAPI:
             if parts == ["root", "attention-queue"] and request.method in {"GET", "POST"}:
                 if request.headers.get("authorization") is not None:
                     raise DomainError("forbidden", "Attention queue is for the owner's dashboard")
-                from qorqut.attention_queue import queue
+                from qorqut.attention_queue import preferences_state, queue
                 context, _ = self.context(actor)
                 body = await read_json(request, limit=131072) if request.method == "POST" else None
-                data = await anyio.to_thread.run_sync(partial(queue, self.runtime, context, body))
-                result = response(OperationResult.ok(data, request_id=request_id))
+                async def produce():
+                    data = await anyio.to_thread.run_sync(partial(queue, self.runtime, context, body))
+                    return response(OperationResult.ok(data, request_id=request_id))
+                if request.method == "POST":
+                    result = await produce()
+                else:
+                    # The queue reads tables no kind versions, the owner's viewed and discarded files, and today's date
+                    # (the discard retention window); due reminders are stored state that the reminder pass writes. Each is
+                    # in the tag, read before the build, so a 304 never answers for a queue that may have changed.
+                    changes = getattr(self.runtime, "changes", None)
+                    extra = None if changes is None else {"database": list(changes.database_version()),
+                        "owner": context.principal_id, "today": date.today().isoformat(),
+                        "preferences": await anyio.to_thread.run_sync(
+                            partial(preferences_state, self.runtime.paths.runtime, context.principal_id))}
+                    result = await revalidated_async(request, changes, (), None, produce, extra)
                 result.headers["Cache-Control"] = "private, no-store"
                 return result
             if parts == ["root", "reply-notifications"] and request.method == "GET":
@@ -394,8 +413,13 @@ class HTTPAPI:
                     if not after.isdigit():
                         raise DomainError("validation_error", "communications_after must be a non-negative integer")
                     after = int(after)
-                data = await anyio.to_thread.run_sync(partial(replies, self.runtime, context, True, after))
-                result = response(OperationResult.ok(data, request_id=request_id))
+                async def produce():
+                    data = await anyio.to_thread.run_sync(partial(replies, self.runtime, context, True, after))
+                    return response(OperationResult.ok(data, request_id=request_id))
+                # Every source, the agent message cursor included, is a table in this database; the cursor is in the query.
+                changes = getattr(self.runtime, "changes", None)
+                extra = None if changes is None else {"database": list(changes.database_version()), "owner": context.principal_id}
+                result = await revalidated_async(request, changes, (), None, produce, extra)
                 result.headers["Cache-Control"] = "private, no-store"
                 return result
             if parts == ["root", "onboarding"] and request.method in {"GET", "POST"}:
