@@ -890,6 +890,36 @@ class CommandLineTest(Case):
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(contract.main([]), 2)
 
+    def test_with_load_the_code_part_is_loaded_in_a_process_of_its_own(self):
+        tablenote = EXAMPLE.parent / "tablenote"
+        status, lines = self.run_main("--load", EXAMPLE, tablenote)
+        self.assertEqual((status, len(lines)), (0, 1), lines)
+        self.assertIn("with --load also 5 (the tool names), 8 and 10", lines[0])
+        self.assertIn("Not checked yet: rules 5 (that a skill's read_for covers each tool), 9, 11, 12, 13", lines[0])
+        # Nothing of its code was imported here.
+        self.assertEqual([name for name in sys.modules if name.startswith("qorqut_tablenote")], [])
+        self.assertNotIn(str(tablenote / "code"), sys.path)
+        # Nor was anything written into the folder it checked.
+        self.assertEqual(list(tablenote.rglob("__pycache__")), [])
+        code = self.root / "tablenote"
+        shutil.copytree(tablenote, code)
+        source = code / "code" / "qorqut_tablenote" / "extension.py"
+        original = source.read_text()
+        for changed, said in (
+                (original.replace('return TableNote()', 'raise ZeroDivisionError()'),
+                 "Its code could not be loaded: ZeroDivisionError."),
+                (original + '\nSTATEMENTS = ("CREATE TABLE notes (id TEXT PRIMARY KEY)",)\n',
+                 "Its tables could not be made: "),
+                (original + '\nTableNote.tables = lambda self: (_ for _ in ()).throw(KeyError())\n',
+                 "Its code could not be loaded: KeyError.")):
+            with self.subTest(said):
+                source.write_text(changed)
+                status, lines = self.run_main("--load", code)
+                self.assertEqual(status, 1)
+                self.assertTrue(lines[0].startswith("tablenote: " + said), lines)
+        # Without --load the code is not loaded.
+        self.assertEqual(self.run_main(code)[0], 0)
+
     def test_runs_as_a_module(self):
         done = subprocess.run([sys.executable, "-B", "-m", "qorqut.extension_contract", str(EXAMPLE)],
                               capture_output=True, text=True, timeout=30)

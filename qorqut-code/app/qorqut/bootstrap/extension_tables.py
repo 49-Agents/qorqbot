@@ -116,7 +116,7 @@ def declared(folder) -> tuple[dict | None, str | None]:
     could not be loaded."""
     from qorqut.extension_registry import NOT_LOADED
     try:
-        result = subprocess.run([sys.executable, "-I", "-c", _CHILD, json.dumps(sys.path), str(folder)],
+        result = subprocess.run([sys.executable, "-I", "-B", "-c", _CHILD, json.dumps(sys.path), str(folder)],
                                 capture_output=True, text=True, check=False)
         answer = json.loads(result.stdout.splitlines()[-1]) if result.returncode == 0 and result.stdout.strip() else None
     except (OSError, ValueError):

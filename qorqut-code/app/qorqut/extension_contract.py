@@ -8,7 +8,8 @@ loaded by the layer's own catalog loader, in memory.
 
 ``load_manifest`` stops at the first problem with one ``ContractError``; ``check_folder`` returns every finding as one
 plain sentence; ``check_folders`` adds the findings that need more than one folder. Run as
-``python -m qorqut.extension_contract <folder> [<folder> ...]``.
+``python -m qorqut.extension_contract [--load] <folder> [<folder> ...]``; with ``--load`` the code part of each folder
+that passes is also loaded, in a process of its own (``load_findings``).
 """
 
 from __future__ import annotations
@@ -790,16 +791,49 @@ def check_folders(folders: Iterable[Path], *, shipped: frozenset[str] | None = N
     return result
 
 
+LOADED = "with --load also 5 (the tool names), 8 and 10, by loading the code part in a process of its own"
+NOT_CHECKED_LOADED = "5 (that a skill's read_for covers each tool), 9, 11, 12, 13"
+
+
+def load_findings(folder: Path) -> list[str]:
+    """The findings of loading the code part of a folder that passes the file rules, as a start loads it, in a process
+    of its own (``qorqut.bootstrap.extension_tables.declared``): its factory, the parts it uses, its tool names and the
+    tables it declares (``tables()``, whose statements are checked as a recorded row is). A folder without
+    ``code.factory`` has none. Nothing of its code is imported into this process."""
+    from qorqut_operations.contracts import DomainError
+    from qorqut.bootstrap.extension_tables import declared
+    from qorqut.composition.extension_tables import contribution_of
+    from qorqut.extension_registry import TABLES_REFUSED
+    if load_manifest(folder).factory is None:
+        return []
+    row, finding = declared(folder)
+    if finding is not None:
+        return [finding]
+    if row is not None:
+        try:
+            contribution_of(row)
+        except DomainError as exc:
+            return [TABLES_REFUSED.format(exc.message)]
+    return []
+
+
 def main(argv: list[str] | None = None) -> int:
-    folders = [Path(item) for item in (sys.argv[1:] if argv is None else argv)]
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    load = "--load" in arguments
+    folders = [Path(item) for item in arguments if item != "--load"]
     if not folders:
-        print("Usage: python -m qorqut.extension_contract <folder> [<folder> ...]", file=sys.stderr)
+        print("Usage: python -m qorqut.extension_contract [--load] <folder> [<folder> ...]", file=sys.stderr)
         return 2
     findings = check_folders(folders)
+    if load:
+        for folder, name in zip(folders, findings):
+            if not findings[name]:
+                findings[name] = load_findings(folder)
     for name, items in findings.items():
         for item in items:
             print(f"{name}: {item}")
-    print(f"Contract rules checked: {CHECKED}. Not checked yet: rules {NOT_CHECKED} of section 12.")
+    print(f"Contract rules checked: {CHECKED}{'; ' + LOADED if load else ''}. "
+          f"Not checked yet: rules {NOT_CHECKED_LOADED if load else NOT_CHECKED} of section 12.")
     return 1 if any(findings.values()) else 0
 
 

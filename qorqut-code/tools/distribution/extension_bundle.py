@@ -119,14 +119,17 @@ def build_folder(folder, platform, output, wheels=()):
 
     A file executable in the folder is stored as 0o755, every other file as 0o644, with no time or owner.
 
-    The folder must pass the checker. Its ``tests`` parts are left out. ``wheels`` are the code's third-party dependency
-    wheels, each pinned in ``code/constraints.txt``; they go to ``<id>/deps/``.
+    The folder must pass the checker, with its code part loaded (``--load``). Its ``tests`` parts are left out.
+    ``wheels`` are the code's third-party dependency wheels, each pinned in ``code/constraints.txt``; they go to
+    ``<id>/deps/``.
     """
     from qorqut.bootstrap import extension_bundle as reading
-    from qorqut.extension_contract import check_folder, load_manifest
+    from qorqut.extension_contract import check_folder, load_findings, load_manifest
 
     folder = Path(folder).absolute()
     found = check_folder(folder)
+    # Its code part is loaded as a start loads it, in a process of its own (``extension_contract --load``).
+    found = found or load_findings(folder)
     if found:
         raise ValueError('The extension folder breaks the contract: ' + ' '.join(found))
     manifest = load_manifest(folder)
