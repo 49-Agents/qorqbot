@@ -1,0 +1,20 @@
+contract: 1
+id: keyed
+name: Keyed
+summary: A test extension that is set up with a token and then tells its agents whether the token is saved.
+version: 1.0.0
+delivery: downloadable
+platforms: [linux, mac, windows]
+requires:
+  qorqbot: ">=1.7.0"
+code:
+  factory: qorqut_keyed.extension:create
+setup:
+  kind: key
+  fields:
+    - id: token
+      label: Token
+      secret: true
+agents:
+  allowed: [ordubashy, global-worker]
+  on_after_setup: [ordubashy]

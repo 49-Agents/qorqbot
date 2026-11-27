@@ -976,11 +976,19 @@ class OperationsTest(Case):
                          "not_found")
         self.assertEqual(self.refused("extensions_switch", {"extension": "network", "agent_id": "nobody", "on": False})["code"],
                          "not_found")
-        # Only the owner, never an agent.
+        # The owner and Ordubashy in person, never another agent (the handler's own check; the policy is the stub's).
+        from qorqut_operations.contracts import InvocationOptions, new_id
+        listed = self.runtime.application.invoke(self.runtime.coordinator, "extensions_list", {"scope": "global"},
+                                                 InvocationOptions(idempotency_key=new_id()))
+        self.assertEqual(listed.status, "ok")
         for operation, args in (("extensions_list", {}),
+                                ("extensions_setup", {"extension": "network", "action": "status"}),
                                 ("extensions_switch", {"extension": "network", "agent_id": worker, "on": False})):
-            self.assertEqual(self.refused(operation, args, ctx=self.runtime.coordinator),
-                             {"code": "forbidden", "message": "Operation is not exposed to this caller", "retryable": False})
+            self.assertEqual(self.refused(operation, args, ctx=self.runtime.worker),
+                             {"code": "forbidden", "message": "Extensions are managed by the owner and Ordubashy.",
+                              "retryable": False})
+        # Setting up is Ordubashy's tool; the owner sets up on the card.
+        self.assertEqual(self.refused("extensions_setup", {"extension": "network", "action": "start"})["code"], "forbidden")
 
 
     def test_another_person_is_refused_by_the_engine(self):

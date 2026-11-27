@@ -1,7 +1,8 @@
 // Connections: the agent browser, the websites agents use as the owner, and Qorqbot's extensions (OpenRouter, treg, WhatsApp).
 // `connectorsModel` is pure (unit tested with `node --test dashboard/tests/*.test.js`); `connectorsPanel` renders the
 // panel shown in Settings. Extension status comes from /root/connectors (qorqut.connectors); WhatsApp is linked through its
-// own owner route, /root/extensions/whatsapp/setup, and shows its code from /root/extensions/whatsapp/qr.
+// own owner route, /root/extensions/whatsapp/setup, and shows its code from /root/extensions/whatsapp/qr. An extension that
+// follows the contract (`kind` `contract`) is drawn and set up by js/extension-cards.js.
 const connectorsModel = (() => {
   const icon = path => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
   const ICONS = {
@@ -264,9 +265,21 @@ const connectorsPanel = (() => {
       // A repaint must not close a key field the owner is typing in.
       const open = root.querySelector('[data-cx-key]:not([hidden])');
       const typed = open && {id: open.dataset.cxKey, value: open.elements.key.value, focused: document.activeElement === open.elements.key};
-      root.querySelector('[data-cx-list]').innerHTML = view.connectors.map(item => (options.rows ? row : card)(item, waVersion)).join('');
+      // The same for the fields form of a contract extension.
+      const openFields = root.querySelector('[data-ext-form]:not([hidden])');
+      const fields = openFields && {id: openFields.dataset.extForm, focused: document.activeElement?.name,
+        values: [...openFields.querySelectorAll('input')].map(input => [input.name, input.value])};
+      root.querySelector('[data-cx-list]').innerHTML = view.connectors.map(item => item.kind === 'contract'
+        ? (typeof extensionCards === 'undefined' ? '' : extensionCards.render(item, {rows: options.rows, esc}))
+        : (options.rows ? row : card)(item, waVersion)).join('');
       const again = typed && root.querySelector(`[data-cx-key="${typed.id}"]`);
       if (again) { again.hidden = false; again.elements.key.value = typed.value; if (typed.focused) again.elements.key.focus(); }
+      const fieldsAgain = fields && root.querySelector(`[data-ext-form="${CSS.escape(fields.id)}"]`);
+      if (fieldsAgain) {
+        fieldsAgain.hidden = false;
+        for (const [name, value] of fields.values) { const input = fieldsAgain.elements[name]; if (input) input.value = value; }
+        if (fields.focused && fieldsAgain.elements[fields.focused]) fieldsAgain.elements[fields.focused].focus();
+      }
       options.onChange?.(view);
       root.dispatchEvent(new CustomEvent('connectors-painted', {bubbles: true}));
       watchWhatsApp();
@@ -307,7 +320,30 @@ const connectorsPanel = (() => {
         error(''); paint();
       } catch (failure) { if (live()) error(failure.message || 'Extensions could not be loaded.'); }
     }
+    // A contract extension's action: one POST to its connection route, answered with its entry as it is then.
+    async function connection(id, body) {
+      const next = coreData(await post(extensionCards.path(id), body));
+      if (!live() || !view) return;
+      view.connectors = view.connectors.map(item => item.kind === 'contract' && item.id === id ? next : item);
+      error(''); paint();
+    }
     root.addEventListener('click', async event => {
+      const fieldsForm = event.target.closest('[data-ext-form]');
+      if (fieldsForm && event.target.closest('[data-ext-form-cancel]')) { fieldsForm.reset(); fieldsForm.hidden = true; return; }
+      const extAction = event.target.closest('[data-ext-action]');
+      if (extAction) {
+        const id = extAction.dataset.cxId;
+        if (extAction.dataset.extAction === 'key') {
+          const form = root.querySelector(`[data-ext-form="${CSS.escape(id)}"]`);
+          form.hidden = !form.hidden;
+          if (!form.hidden) form.querySelector('input')?.focus();
+          return;
+        }
+        extAction.disabled = true;
+        try { await connection(id, extensionCards.request[extAction.dataset.extAction]()); }
+        catch (failure) { if (live()) { error(failure.message || 'The extension could not be changed.'); extAction.disabled = false; } }
+        return;
+      }
       const siteAction = event.target.closest('[data-cx-site-action]');
       if (siteAction) {
         siteAction.disabled = true;
@@ -351,7 +387,30 @@ const connectorsPanel = (() => {
         buttons.forEach(button => { button.disabled = false; });
       }
     }
+    root.addEventListener('change', async event => {
+      const toggle = event.target.closest('[data-ext-switch]');
+      if (!toggle) return;
+      toggle.disabled = true;
+      try { await connection(toggle.dataset.cxId, extensionCards.request.switch(toggle.dataset.agentId, toggle.checked)); }
+      catch (failure) { if (live()) { error(failure.message || 'The extension could not be switched.'); toggle.checked = !toggle.checked; toggle.disabled = false; } }
+    });
     root.addEventListener('submit', async event => {
+      const fieldsForm = event.target.closest('[data-ext-form]');
+      if (fieldsForm) {
+        event.preventDefault();
+        const problem = fieldsForm.querySelector('[data-ext-error]'), buttons = fieldsForm.querySelectorAll('button');
+        const values = Object.fromEntries([...fieldsForm.querySelectorAll('input')].map(input => [input.name, input.value.trim()]));
+        problem.hidden = true;
+        buttons.forEach(button => { button.disabled = true; });
+        try { fieldsForm.reset(); fieldsForm.hidden = true; await connection(fieldsForm.dataset.extForm, extensionCards.request.accept(values)); }
+        catch (failure) {
+          if (!live()) return;
+          fieldsForm.hidden = false;
+          problem.textContent = failure.message || 'The values could not be saved.'; problem.hidden = false;
+          buttons.forEach(button => { button.disabled = false; });
+        }
+        return;
+      }
       const form = event.target.closest('[data-cx-key]');
       if (!form) return;
       event.preventDefault();

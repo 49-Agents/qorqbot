@@ -258,7 +258,7 @@ def seed_instance(paths: InstancePaths, workspace: Path, selection, owner_name: 
             uow.repository("principals").insert({"id": owner, "kind": "human", "display_name": owner_name})
             uow.repository("installation").insert({"id": "service", "installation_id": installation, "owner_principal_id": owner,
                                                    "created_at": now, "updated_at": now})
-        runtime = build_runtime(workspace, paths=paths, database=database, extensions=selection)
+        runtime = build_runtime(workspace, paths=paths, database=database, extensions=selection, extension_code=False)
         context, created = owner_context(owner), {}
         with runtime.owned_preparation():
             register_context_sources(database, paths)

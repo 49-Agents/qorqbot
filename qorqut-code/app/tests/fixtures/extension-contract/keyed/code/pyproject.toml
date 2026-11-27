@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qorqut-keyed"
+version = "1.0.0"
+description = "Keyed, a test extension for set-up kind key"
+requires-python = ">=3.12"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["qorqut_keyed*"]

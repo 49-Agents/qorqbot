@@ -73,7 +73,9 @@ WORKSPACE_OPERATIONS = frozenset({"workspace_types", "workspace_get", "workspace
 # Nor is timeline_file_answer: it declares allow (the owner's own answer to a question Signoff) and admits only the coordinator.
 # settings_get and settings_set, the owner's Settings page as tools: the handler admits only the configured coordinator in
 # person and changes a setting through the function behind the owner's own route, so that function's checks still apply.
-CORE_DEFAULT_ALLOWED = frozenset({"environment_list", "operations_batch", "operations_describe", "agent_runtime_get",
+# extensions_list, extensions_setup and extensions_switch, the installed extensions: Ordubashy's, and the list also the
+# Learning Applier's; ``_ordubashy_reads`` refuses every other role and each handler proves the caller in person.
+CORE_DEFAULT_ALLOWED = frozenset({"extensions_list", "extensions_setup", "extensions_switch", "environment_list", "operations_batch", "operations_describe", "agent_runtime_get",
                                   "agent_context_get",
                                   "agents_activity_list", "agent_work_update", "project_briefing", "files_link", "agentic_access",
                                   "records_health", "records_reconcile", "conversation_history_search",
@@ -84,6 +86,9 @@ CORE_DEFAULT_ALLOWED = frozenset({"environment_list", "operations_batch", "opera
 ORDUBASHY_READS = frozenset({"conversation_history_search", "conversation_history_get"})
 # The owner's Settings page as tools, Ordubashy's alone in the same way: no other role sees or calls them.
 ORDUBASHY_SETTINGS = frozenset({"settings_get", "settings_set"})
+# The installed extensions: setting one up and switching it are Ordubashy's alone; the list is also the Learning Applier's.
+EXTENSION_CHANGES = frozenset({"extensions_setup", "extensions_switch"})
+EXTENSION_READS = frozenset({"extensions_list"})
 # The experience extraction and the review and application (``qorqut.experience``): the tools of a run, and the reads.
 EXPERIENCE_WORK = frozenset({"experience_run_finish", "experience_conversations", "experience_message_get",
                              "experience_tool_problems", "experience_tool_patterns", "experience_observations_submit",
@@ -131,6 +136,10 @@ def _ordubashy_reads(name, defaults, overrides, registry, *, role_id, scope, res
         return PolicyDecision("deny", "conversation_history_ordubashy_only")
     if name in ORDUBASHY_SETTINGS and role_id != ORDUBASHY_ROLE:
         return PolicyDecision("deny", "owner_settings_ordubashy_only")
+    if name in EXTENSION_CHANGES and role_id != ORDUBASHY_ROLE:
+        return PolicyDecision("deny", "extension_changes_ordubashy_only")
+    if name in EXTENSION_READS and role_id not in (ORDUBASHY_ROLE, LEARNING_APPLIER_ROLE):
+        return PolicyDecision("deny", "extension_list_ordubashy_and_applier_only")
 
 
 # What any agent adds to the same queue itself: a point about how agents work, for the Learning Applier's review.

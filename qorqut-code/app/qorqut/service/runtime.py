@@ -18,6 +18,7 @@ from qorqut.composition.delegation import (HOST_DELEGATED_CREATION_GROUPS, HOST_
 from qorqut.composition.files import FileTargetResolver, lock_paths
 from qorqut.composition.policy import HOST_POLICY_RULES
 from qorqut.composition.transactions import require_change_feed
+from qorqut.extension_private import PrivateFolder
 from qorqut.extensions import NO_EXTENSIONS, ExtensionSet, arrange, installed_selection
 from qorqut.instance_paths import InstancePaths
 from qorqut_operations.background.authority import BackgroundAuthority
@@ -75,6 +76,9 @@ class Runtime:
     agentic_view: object = None
     extension_registry: object = None  # the installed extensions (``qorqut.extension_registry``); recorded at start
     extension_restarts: object = None  # restarts the sessions whose extensions in effect changed
+    extension_setups: object = None  # runs the set-up of the installed extensions (``qorqut.extension_setup``)
+    # By extension id, the ``GatedService`` of each service of a loaded contract extension, in place of its own.
+    extension_gates: object = None
     agentic_inbox_bridge: object = None
     overseer_retention: object = None
     overseer: object = None
@@ -125,6 +129,12 @@ class Runtime:
         """Resolve the agent's invocation context (or, with ``diagnostic``, its runtime context) from the authenticated identity."""
         method = self.resolver.runtime_context if diagnostic else self.resolver.invocation_context
         return method(principal, **options)
+
+    def extension_private(self, extension_id):
+        """The private folder of one extension; nothing is created until its first write."""
+        if self.paths is None:
+            raise DomainError("invalid_configuration", "This runtime has no instance folder")
+        return PrivateFolder(self.paths.instance_root, extension_id)
 
     @contextmanager
     def recovery_quiescence(self, **kwargs):
@@ -182,9 +192,17 @@ class Runtime:
                 writers[name] = KnownZeroWriters(name, verify=lambda attribute=attribute: getattr(self, attribute, None) is None)
         return self.recovery_quiescer
 
+    def extension_services(self):
+        """The service declarations of the selected extensions, in id order. A loaded contract extension's services are
+        its gated ones (``extension_gates``), which run only while the extension is ready and in effect for an agent."""
+        gates = self.extension_gates or {}
+        return tuple(declaration for extension in self.selection.extensions
+                     for declaration in ((gate.declaration() for gate in gates[extension.id]) if extension.id in gates
+                                         else extension.services()))
+
     def extension_writers(self):
         """The lifecycle names of the selected extensions' services: required recovery writers of the barrier."""
-        return tuple(declaration.name for extension in self.selection.extensions for declaration in extension.services())
+        return tuple(declaration.name for declaration in self.extension_services())
 
     def register_recovery_writers(self, *, host_writers, browser_writers=None):
         """Install trusted controller ports; caller-provided booleans are rejected."""
@@ -315,8 +333,7 @@ class Runtime:
                       "previews", "sandbox", "background", "signoffs")
         # A selected extension's services join at the start-before and stop-before anchors they name. Each is a required
         # recovery writer: it drains and resumes through the same stop adapter and start the lifetime uses.
-        steps, stop_order = arrange(steps, stop_order, (declaration for extension in self.selection.extensions
-                                                        for declaration in extension.services()), extension_step)
+        steps, stop_order = arrange(steps, stop_order, self.extension_services(), extension_step)
         if self.lifetime_state is None:
             self.lifetime_state = LifetimeState(ownership=self.ownership, running=self.running)
         return ServiceLifetime(
@@ -361,9 +378,23 @@ class Runtime:
         return self.lifetime().stop()
 
 
+SERVICES_DO_NOT_FIT = ("Its background services could not be added: a name is already taken, or it names a step to run "
+                      "before that this Qorqbot does not have.")
+
+
+class _Declared:
+    """A service declaration standing in for its gate while the lifetime is arranged as a check."""
+
+    def __init__(self, declaration):
+        self._declaration = declaration
+
+    def declaration(self):
+        return self._declaration
+
+
 def build_runtime(workspace, *, paths, database=None, worker_profiles=None,
                   job_consequence_verifier=None, global_capabilities_provider=human_global_capabilities,
-                  job_programs=None, register_domains=None, context=None, extensions=None):
+                  job_programs=None, register_domains=None, context=None, extensions=None, extension_code=True):
     """Compose the retained host over the Operations engine for the instance named by ``paths``.
 
     The operational root is ``paths.operations`` and the database only ``paths.database``: an already initialised
@@ -401,8 +432,15 @@ def build_runtime(workspace, *, paths, database=None, worker_profiles=None,
         platform=extension_registry.current_platform(),
         # The names come from this installation's own package map, wherever the app's files are.
         shipped=lambda: extension_registry.contract.skill_names_of(load_sources(workspace, paths=paths)))
+    configured = selection
+    # The code part of each fine folder joins the selection; only its factory and its catalog run here. With no such
+    # folder the selection and the import path are as they were. A command that needs no extension code (``seed_instance``,
+    # the package adoption) passes ``extension_code=False`` and loads none.
+    loaded = {}
+    if extension_code:
+        found, selection, loaded = extension_registry.load_code(found, selection)
     from qorqut.agentic.installation import open_installation
-    agentic_layer, agentic_view = open_installation(paths, selection.ids)
+    agentic_layer, agentic_view = open_installation(paths, configured.ids)
     if database is None:
         from qorqut.service.changes import ChangeFeed
         database = open_database(paths, host_assembly(ChangeFeed(), selection))
@@ -411,9 +449,10 @@ def build_runtime(workspace, *, paths, database=None, worker_profiles=None,
             raise DomainError("invalid_configuration", "The database is not the selected instance database")
         database = database.open_existing()
         require_selected_storage(database.assembly, selection)
-    installed = extension_registry.ExtensionRegistry(found, changes=require_change_feed(database.assembly.change_publisher))
+    installed = extension_registry.ExtensionRegistry(found, changes=require_change_feed(database.assembly.change_publisher),
+                                                     code=loaded)
     return compose_runtime(workspace, paths=paths, database=database, selection=selection, agentic_layer=agentic_layer,
-                           agentic_view=agentic_view, registry=builtin_registry(selection), worker_profiles=worker_profiles,
+                           agentic_view=agentic_view, registry=builtin_registry(configured), worker_profiles=worker_profiles,
                            job_consequence_verifier=job_consequence_verifier,
                            global_capabilities_provider=global_capabilities_provider, job_programs=job_programs,
                            register_domains=register_domains, context=context, extension_registry=installed)
@@ -549,7 +588,7 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
         from qorqut.native_chat.extension_restart import ExtensionRestarts
         runtime.extension_restarts = ExtensionRestarts(runtime.native_chat, extension_registry, held=True)
         from qorqut.extension_operations import register as register_extension_operations
-        register_extension_operations(registry, extension_registry, runtime.extension_restarts)
+        register_extension_operations(registry, extension_registry, runtime.extension_restarts, runtime=runtime)
     # The terminal backend is installed later by service composition and read late (``runtime.terminal_control.backend``), so it
     # is not needed here. The switch reads everything late too; the service recovers an interrupted one once all of it exists.
     from qorqut.native_chat.runtime_switch import RuntimeSwitch
@@ -709,6 +748,51 @@ def compose_runtime(workspace, *, paths, database, selection, agentic_layer, age
     from qorqut.agents.diagnostics import AgentDiagnostics
     AgentDiagnostics(runtime).register()
     # The selected extensions are installed once, on the open registry, before any caller freezes it or serves traffic.
-    selection.install(runtime)
+    # Today's extensions fail the start as they always did; a contract extension's code part is installed apart
+    # (``install_code``): a fault in it leaves Qorqbot running and the extension needing attention, with nothing of it
+    # registered. Its tools are declared only then, so ``builtin_registry`` above has today's selection only.
+    contract = extension_registry.loaded if extension_registry is not None else frozenset()
+    for extension in selection.extensions:
+        if extension.id not in contract:
+            extension.install(runtime)
+    if extension_registry is not None:
+        from qorqut.extension_registry import NOT_LOADED, install_code
+        install_code(runtime, extension_registry, registry)
+        # Set-ups run through one place, for the owner's card and Ordubashy's tool alike. A loaded contract extension's
+        # services are gated by its status and the agents it is in effect for; nothing of it starts before that.
+        from qorqut.extension_setup import ExtensionSetups, GatedService
+        runtime.extension_setups = ExtensionSetups(extension_registry, extension_registry.setup_handler)
+        # Every loaded code part has an entry, empty for one refused, so its own services never run. Its services join
+        # only when the lifetime can still be arranged with them (their names and anchors fit the steps that will really
+        # run); otherwise the extension needs attention and Qorqbot starts without it.
+        from qorqut.extensions import ServiceDeclaration
+        runtime.extension_gates = dict.fromkeys(contract, ())
+        state = runtime.lifetime_state      # the check builds the lifetime early; its shared state is made at start
+        arranged = False
+        if extension_registry.code:         # with no code part loaded the lifetime is not built here at all
+            try:
+                runtime.lifetime()
+                arranged = True
+            except Exception:  # noqa: BLE001 - today's extensions fail the start as they always did
+                pass
+        for ext_id, item in list(extension_registry.code.items()):
+            try:
+                declared = tuple(item.extension.services())
+                if not all(isinstance(declaration, ServiceDeclaration) for declaration in declared):
+                    raise TypeError("not a service declaration")
+            except Exception as fault:  # noqa: BLE001 - only the kind of fault is said
+                extension_registry.refuse_code(ext_id, NOT_LOADED.format(type(fault).__name__))
+                continue
+            if arranged and declared:
+                runtime.extension_gates[ext_id] = tuple(_Declared(declaration) for declaration in declared)
+                try:
+                    runtime.lifetime()
+                except Exception:  # noqa: BLE001 - a name or an anchor that does not fit
+                    runtime.extension_gates[ext_id] = ()
+                    extension_registry.refuse_code(ext_id, SERVICES_DO_NOT_FIT)
+                    continue
+            runtime.extension_gates[ext_id] = tuple(
+                GatedService(ext_id, declaration, extension_registry, changes=changes) for declaration in declared)
+        runtime.lifetime_state = state
     runtime.recovery_quiescer.required = (*RECOVERY_REQUIRED, *runtime.extension_writers())
     return runtime

@@ -53,7 +53,30 @@ BOOTSTRAP_KEYS = frozenset({"foundation", "ecosystem-agent", "ecosystem"})
 EXPLICIT_CAPABILITY_OPERATIONS = frozenset({"manage_calendar"})
 
 
-def effective_tool_policy(profile: AgentProfile, role: Any, registry: Any, *, packages=()) -> list[dict]:
+def contract_tools_in_effect(extensions, profile: AgentProfile, *, connection=None, in_effect=None):
+    """Whether a tool on extensions is the agent's now: ``check(name)`` is False for a tool of an extension that follows
+    the contract while that extension is not in effect for the agent, and for the tools that manage extensions
+    (``qorqut.extension_operations.TOOLS``) while no extension is installed. Every other tool is True. ``in_effect`` is
+    what a snapshot already read (the ``ExtensionRegistry.in_effect`` triples); without it the registry is read on
+    ``connection``."""
+    from qorqut.extension_operations import TOOLS
+    if extensions is None or not extensions.installed_any():
+        return lambda name: name not in TOOLS
+    if not extensions.routes_tools():
+        return lambda name: True
+    if in_effect is None:
+        in_effect = extensions.in_effect(profile.agent_id, connection=connection, role=profile.data["role"]["id"])
+    ids = {item[0] for item in in_effect}
+
+    def check(name):
+        owner = extensions.extension_of(name)
+        return owner is None or owner in ids
+    return check
+
+
+def effective_tool_policy(profile: AgentProfile, role: Any, registry: Any, *, packages=(), contract=None) -> list[dict]:
+    """``contract`` is ``contract_tools_in_effect`` for the agent: a tool of a contract extension that is not in effect for
+    it is not listed. Every caller that lists an agent's tools gives it."""
     from qorqut.composition.policy import GLOBAL_DISCOVERY_OPERATIONS, HOST_STAGED_OPERATIONS, resolve_operation_policy
     overrides = profile.data["tool_policy"]["overrides"]
     defaults = role.manifest["default_tool_policy"]
@@ -65,6 +88,8 @@ def effective_tool_policy(profile: AgentProfile, role: Any, registry: Any, *, pa
     for metadata in registry.entries():
         if metadata.name in HOST_STAGED_OPERATIONS:
             # The host stages these as an agent's proposal itself; no agent calls them.
+            continue
+        if contract is not None and not contract(metadata.name):
             continue
         decision = resolve_operation_policy(metadata.name, defaults, overrides, registry, role_id=profile.data["role"]["id"])
         modes = None
@@ -347,6 +372,17 @@ class AgentConfigResolver:
                 overrides = {**overrides, "agents_create": "signoff"}
         return AgentPolicyBasis(defaults=defaults, overrides=overrides,
                                 role=profile.data["role"], revision=profile.revision)
+
+    def operation_available(self, context: InvocationContext, basis: AgentPolicyBasis, descriptor, uow) -> bool:
+        """False for a tool of a contract extension that is not in effect for the calling agent, read in the caller's
+        transaction, and for the tools that manage extensions while none is installed (``contract_tools_in_effect``)."""
+        from qorqut.extension_operations import TOOLS
+        extensions = getattr(self, "extensions", None)
+        if descriptor.name in TOOLS:
+            return extensions is not None and extensions.installed_any()
+        owner = extensions.extension_of(descriptor.name) if extensions is not None else None
+        return owner is None or extensions.is_on(owner, context.principal_id, connection=uow.connection,
+                                                 role=basis.role["id"])
 
     def plugin_declares(self, context: InvocationContext, basis: AgentPolicyBasis, descriptor, uow) -> bool:
         """The profile holds the descriptor's plugin grant and that pinned plugin package declares this tool."""
@@ -785,7 +821,8 @@ class AgentConfigResolver:
         native_guidance_digest = self.native_guidance_digest(profile.to_dict())
         config_id = "sha256:" + canonical_hash({"fingerprint": snapshot["fingerprint"],
                                                "native_guidance_digest": native_guidance_digest})
-        tools = effective_tool_policy(profile, role, self.registry, packages=packages)
+        tools = effective_tool_policy(profile, role, self.registry, packages=packages, contract=contract_tools_in_effect(
+            getattr(self, "extensions", None), profile, in_effect=in_effect))
         tools = view.tool_instructions().metadata(tools)
         mandatory = compose_context(profile, role, sources, effective_config_id=config_id,
             workspace=snapshot["row"]["workspace"], project=snapshot["project"],
