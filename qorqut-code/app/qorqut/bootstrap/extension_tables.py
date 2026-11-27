@@ -28,6 +28,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 import uuid
 
 from qorqut_operations.contracts import DomainError
@@ -111,14 +112,15 @@ NO_INTERPRETER = "Qorqbot knows no Python to load it with"
 _TYPE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,79}")
 
 
-def _declare(folder, others, channel) -> None:
+def _declare(folder, others, answer_path) -> None:
     """In the child process: load the code part of ``folder`` as a start loads it, with ``others`` (``_start_path``:
-    the import path entries of the other extensions, as a start has them) on the import path, and write the answer to the file
-    descriptor ``channel``: ``{"row": ...}`` (the canonical row of its declared tables, or None) or ``{"fault": kind,
-    "detail": ...}``. Only data is written, never a sentence or the text of an exception. The process then ends at
-    once, so neither a thread nor an exit handler of the loaded code keeps it alive or writes after the answer."""
-    channel = int(channel)
-    os.set_inheritable(channel, False)
+    the import path entries of the other extensions, as a start has them) on the import path, and write the answer to the
+    file ``answer_path`` in the private folder the caller made: ``{"row": ...}`` (the canonical row of its declared
+    tables, or None) or ``{"fault": kind, "detail": ...}``. Only data is written, never a sentence or the text of an
+    exception. The answer is written whole beside it and then linked to its name, which only the first writer gets (a
+    process the loaded code forked writes none after it). The process then ends at once, so neither a thread nor an
+    exit handler of the loaded code keeps it alive or writes after the answer."""
+    me = os.getpid()
     answer = {"fault": "fault", "detail": None}
     try:
         from qorqut import extension_contract as contract
@@ -142,10 +144,14 @@ def _declare(folder, others, channel) -> None:
                 stream.flush()
         except Exception:  # noqa: BLE001 - the answer is written whatever the streams do
             pass
-        data = json.dumps(answer).encode("utf-8")
-        while data:
-            data = data[os.write(channel, data):]
-        os.close(channel)
+        if os.getpid() == me:
+            part = f"{answer_path}.{me}.part"
+            try:
+                with open(part, "x", encoding="utf-8") as stream:
+                    json.dump(answer, stream)
+                os.link(part, answer_path)
+            except OSError:
+                pass
         os._exit(0)
 
 
@@ -224,8 +230,10 @@ def _sentence(answer, manifest) -> tuple[str | None, str | None]:
 def declared(folder, *, others=()) -> tuple[dict | None, str | None]:
     """``(row or None, finding or None)`` for the code part of ``folder``, loaded in a process of its own with this
     process's import path and ``others`` (``_start_path``): the canonical row of the tables it declares (None when it
-    declares none), or why its code could not be loaded. The child answers on a pipe of its own and only with data;
-    every sentence is written here, and a failure is logged with the kind of fault and a type name only."""
+    declares none), or why its code could not be loaded. The child answers only with data, in a file of a private
+    folder made here; its input and output go nowhere, so nothing it starts can hold this process, which waits for the
+    child itself to end and then reads the file. Every sentence is written here, and a failure is logged with the kind
+    of fault and a type name only."""
     from qorqut import extension_contract as contract
     from qorqut.extension_registry import NOT_LOADED
     manifest = contract.load_manifest(folder)
@@ -235,25 +243,17 @@ def declared(folder, *, others=()) -> tuple[dict | None, str | None]:
         return None, finding
     if not sys.executable:
         return failed("no_interpreter", NOT_LOADED.format(NO_INTERPRETER))
-    reading, writing = os.pipe()
     try:
-        try:
+        with tempfile.TemporaryDirectory(prefix="qorqbot-tables-") as private:
+            answer_path = Path(private) / "answer.json"
             child = subprocess.Popen(
                 [sys.executable, "-I", "-B", "-c", _CHILD, json.dumps(sys.path), str(folder), json.dumps(list(others)),
-                 str(writing)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                pass_fds=(writing,))
-        finally:
-            os.close(writing)
-        with os.fdopen(reading, "rb") as stream:
-            reading = None
-            received = stream.read()
-        child.wait()
-        answer = json.loads(received) if child.returncode == 0 and received else None
+                 str(answer_path)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            child.wait()
+            received = answer_path.read_bytes() if child.returncode == 0 and answer_path.is_file() else None
+        answer = json.loads(received) if received else None
     except (OSError, ValueError, subprocess.SubprocessError):
         answer = None
-    finally:
-        if reading is not None:
-            os.close(reading)
     if isinstance(answer, dict) and set(answer) == {"row"} and (answer["row"] is None or isinstance(answer["row"], dict)):
         return answer["row"], None
     kind, finding = _sentence(answer, manifest) if isinstance(answer, dict) else (None, None)

@@ -794,6 +794,8 @@ def check_folders(folders: Iterable[Path], *, shipped: frozenset[str] | None = N
 LOADED = ("with --load also 5 (the tool names), 8 and 10, by loading the code part in a process of its own, and the "
           "release's rule (b) of the names where the checkout has it")
 NOT_CHECKED_LOADED = "5 (that a skill's read_for covers each tool), 9, 11, 12, 13"
+NAMES_NOT_CHECKED = ("The extension id was not checked against the names of Qorqbot's tables: this Qorqbot is installed, "
+                     "without the release tools that know them.")
 
 
 @cache
@@ -861,6 +863,8 @@ def main(argv: list[str] | None = None) -> int:
     for name, items in findings.items():
         for item in items:
             print(f"{name}: {item}")
+    if load and _names_tool() is None:
+        print(NAMES_NOT_CHECKED)
     print(f"Contract rules checked: {CHECKED}{'; ' + LOADED if load else ''}. "
           f"Not checked yet: rules {NOT_CHECKED_LOADED if load else NOT_CHECKED} of section 12.")
     return 1 if any(findings.values()) else 0

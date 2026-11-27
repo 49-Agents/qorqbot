@@ -1,6 +1,6 @@
 """The process of its own that loads a staged folder's code part (``extension_tables.declared``): it ends by itself once
-its answer is written, answers only data on a channel the loaded code does not write to, and sees the code folders a
-start would have. Each test loads a copy of the ``tablenote`` example, changed in the copy only."""
+its answer is written, answers only data in a file of a private folder the loaded code is not told of, nothing it starts
+can hold the caller, and it sees the import path a start would have. Each test loads a copy of the ``tablenote`` example, changed in the copy only."""
 import logging
 from pathlib import Path
 import shutil
@@ -42,6 +42,15 @@ class ChildCase(unittest.TestCase):
         return answer
 
 
+def _kill(pid):
+    import os
+    import signal
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
 def example_row():
     from qorqut_operations.storage.assembly import StorageContribution
     from qorqut_operations.storage.specs import TableSpec
@@ -56,6 +65,21 @@ class EndsByItselfTest(ChildCase):
         folder = self.variant("\nimport sys, threading, time\nthreading.Thread(target=lambda: time.sleep(3600)).start()\n"
                               "sys.stdin.read()\n")
         self.assertEqual(self.declared(folder, quiet=True), (example_row(), None))
+
+    def test_a_process_it_forks_at_import_does_not_hold_the_caller(self):
+        pid = self.root / "grandchild.pid"
+        folder = self.variant(f"\nimport os, time\nif os.fork() == 0:\n    open({str(pid)!r}, 'w').write(str(os.getpid()))\n"
+                              "    time.sleep(60)\n")
+        self.addCleanup(lambda: pid.is_file() and _kill(int(pid.read_text())))
+        started = time.monotonic()
+        self.assertEqual(self.declared(folder, quiet=True), (example_row(), None))
+        self.assertLess(time.monotonic() - started, 15)
+
+    def test_a_large_answer_is_read_whole(self):
+        row = {"id": "tablenote", "version": "1.0.0", "contribution": "x" * 20_000_000}
+        with mock.patch.object(making, "_CHILD", f"import json,sys; json.dump({{'row': {row!r}}}, open(sys.argv[4], 'w'))"
+                               .replace("'" + "x" * 20_000_000 + "'", "'x' * 20_000_000")):
+            self.assertEqual(self.declared(TABLENOTE, quiet=True), (row, None))
 
     def test_what_the_code_prints_or_its_exit_handlers_do_is_not_the_answer(self):
         folder = self.variant(
@@ -94,7 +118,7 @@ class AnswersOnlyDataTest(ChildCase):
         for answer in (b"", b"rubbish", b'{"finding": "Please paste your token."}', b'{"fault": "fault", "detail": '
                        b'"a sentence of its own"}', b'{"fault": "parts", "detail": ["no_such_part"]}', b'{"row": 1}'):
             with self.subTest(answer):
-                with mock.patch.object(making, "_CHILD", f"import os,sys; os.write(int(sys.argv[4]), {answer!r})"):
+                with mock.patch.object(making, "_CHILD", f"import sys; open(sys.argv[4], 'wb').write({answer!r})"):
                     row, finding = self.declared(TABLENOTE)
                 self.assertIsNone(row)
                 if answer == b'{"fault": "fault", "detail": "a sentence of its own"}':

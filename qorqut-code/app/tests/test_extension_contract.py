@@ -936,6 +936,11 @@ class CommandLineTest(Case):
         self.assertEqual(status, 1)
         self.assertTrue(lines[0].startswith("agent: The new extension id agent cannot be used, as the name agent_"), lines)
         self.assertEqual(self.run_main(folder)[0], 0)
+        self.assertNotIn(contract.NAMES_NOT_CHECKED, lines)
+        # Where the app has no checkout, --load says the id was not checked against the names.
+        with mock.patch.object(contract, "_names_tool", lambda: None):
+            status, lines = self.run_main("--load", folder)
+        self.assertEqual((status, lines[0]), (0, contract.NAMES_NOT_CHECKED))
 
     def test_runs_as_a_module(self):
         done = subprocess.run([sys.executable, "-B", "-m", "qorqut.extension_contract", str(EXAMPLE)],

@@ -1,12 +1,19 @@
 """A staged update of an extension with tables: one that adds an index and a table keeps the rows, one that changes a
 table it made before fails and leaves everything as it was. Staged and applied as in ``test_extension_tables_change.py``,
 on the same seeded instance; each start is the real ``build_runtime``."""
+import sys
+
 from test_extension_tables_change import FIRST, INDEX, TAGS, ChangeTablesCase
 
 
 class StagedUpdateTest(ChangeTablesCase):
     def test_an_update_that_adds_an_index_and_a_table_keeps_the_rows(self):
         self.install()
+        # A real start first, so version 1.0.0's code folder is on this process's import path, as in the service that
+        # stages and applies the update: the process that reads the tables must load the staged code, not that one.
+        installed = str((self.installed() / "code").resolve())
+        self.start().stop()
+        self.assertIn(installed, sys.path)
         self.stage(self.version("2.0.0", (FIRST, INDEX, TAGS)))
         with self.assertLogs("qorqut.bootstrap.extension_tables", "WARNING") as logged:
             self.assertEqual(self.apply(), {"state": "done", "note": None})

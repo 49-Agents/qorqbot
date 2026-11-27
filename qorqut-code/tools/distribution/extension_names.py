@@ -7,7 +7,7 @@ name an extension already uses, and two extensions can never claim one name:
 - rule (a): no core table, index or trigger name starts with ``<id>_`` for an id ever published in an index;
 - rule (b): no new extension id is one for which a core object name already starts with ``<id>_``;
 - the id rule: no id equals another published id followed by ``_`` and more (``ab`` and ``ab_c``), whichever came
-  first.
+  first; the ids of the extensions the app ships count as published.
 
 The ids ever published are the entries of the released index files (``--released``, each an index as
 ``extension_index.py`` writes it); an index about to be released is given with ``--new``, and its ids that no released
@@ -37,17 +37,19 @@ _COMPOSE = (
     "from qorqut.composition.assembly import host_assembly; from qorqut.extensions import Extension, ExtensionSet; "
     "from qorqut.service.changes import ChangeFeed; from qorqut_operations.errors import DomainError; "
     "from qorqut_operations.storage.inventory import compile_target\n"
-    "made = []\n"
+    "made, ids = [], []\n"
     "for factory in json.loads(sys.argv[2]):\n"
     "    module_name, _, attribute = factory.partition(':'); module = importlib.import_module(module_name)\n"
     "    try:\n"
-    "        made.append(getattr(module, attribute)())\n"
+    "        made.append(getattr(module, attribute)()); ids.append(made[-1].id)\n"
     "    except DomainError:\n"
     "        own = [value for value in vars(module).values() if inspect.isclass(value) and issubclass(value, Extension)\n"
     "               and value.__module__ == module.__name__]\n"
     "        if not own or any(value.storage is not Extension.storage for value in own):\n"
     "            raise SystemExit('needs a configuration to be composed: ' + factory)\n"
-    "print(json.dumps(sorted({name for _kind, name in compile_target(host_assembly(ChangeFeed(), ExtensionSet(tuple(made)))).objects})))\n")
+    "        ids.extend(value.id for value in own)\n"
+    "print(json.dumps({'names': sorted({name for _kind, name in compile_target(host_assembly(ChangeFeed(), "
+    "ExtensionSet(tuple(made)))).objects}), 'ids': sorted(set(ids))}))\n")
 
 
 def _tool(name):
@@ -73,20 +75,31 @@ def _package_folder(factory):
     return str(found[0])
 
 
-@functools.cache
 def _shipped_names(factories):
-    """The names of the core store with ``factories`` selected, composed in a process of its own from this checkout's
-    packages, so nothing of them is imported here. A factory that needs a configuration is left out only when its
-    module declares no storage; otherwise its names cannot be known and ``ValueError`` is raised."""
+    return _shipped(factories)['names']
+
+
+def shipped_ids(factories=None):
+    """The ids of the extensions the app ships (``factories``, ``shipped_factories()`` when not given)."""
+    return _shipped(tuple(shipped_factories() if factories is None else factories))['ids']
+
+
+@functools.cache
+def _shipped(factories):
+    """``{"names": ..., "ids": ...}``: the names of the core store with ``factories`` selected and the ids of their
+    extensions, composed in a process of its own from this checkout's packages, so nothing of them is imported here. A
+    factory that needs a configuration is left out of the names only when its module declares no storage; otherwise
+    its names cannot be known and ``ValueError`` is raised."""
     if not factories:
-        return ()
+        return {'names': (), 'ids': ()}
     folders = sorted({_package_folder(factory) for factory in factories})
     done = subprocess.run([sys.executable, '-I', '-B', '-c', _COMPOSE, json.dumps([*folders, *sys.path]),
                            json.dumps(list(factories))], stdin=subprocess.DEVNULL, capture_output=True, text=True)
     if done.returncode != 0:
         raise ValueError('The extensions the app ships could not be composed: '
                          + (done.stderr.strip().splitlines() or ['no reason given'])[-1])
-    return tuple(json.loads(done.stdout))
+    found = json.loads(done.stdout)
+    return {'names': tuple(found['names']), 'ids': tuple(found['ids'])}
 
 
 def core_names(extra=(), factories=None):
@@ -127,10 +140,14 @@ def id_sentence(short, long):
     return f'the extension id {long} is the id {short} followed by _ and more.'
 
 
-def id_clashes(ids):
-    """The id rule: ``(short, long)`` for each two of ``ids`` where ``long`` is ``short`` followed by ``_`` and more."""
-    every = sorted(set(ids))
-    return [(short, long) for short in every for long in every if long.startswith(short + '_')]
+def id_clashes(ids, shipped=None):
+    """The id rule: ``(short, long)`` for each two of ``ids`` and the ids of the extensions the app ships (``shipped``,
+    ``shipped_ids()`` when not given), at least one of them of ``ids``, where ``long`` is ``short`` followed by ``_``
+    and more: a shipped id counts as a published one."""
+    ids = set(ids)
+    every = sorted(ids | set(shipped_ids() if shipped is None else shipped))
+    return [(short, long) for short in every for long in every if long.startswith(short + '_')
+            and (short in ids or long in ids)]
 
 
 def index_ids(paths):
