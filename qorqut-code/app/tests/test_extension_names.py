@@ -97,7 +97,7 @@ class ExtensionNamesTest(unittest.TestCase):
         # As in the release export, which leaves the optional Fastmail package out: neither a folder nor importable.
         tool, out = load_tool(), io.StringIO()
         factories = ("qorqut_telegram.extension:create", "qorqut_not_in_this_copy.extension:create")
-        with contextlib.redirect_stdout(out):
+        with contextlib.redirect_stderr(out):
             self.assertEqual(tool.shipped_ids(factories), ("telegram",))
             self.assertEqual(tool.shipped_ids(factories), ("telegram",))
         self.assertEqual(out.getvalue(), "The names and ids of the extensions in qorqut_not_in_this_copy were not "
@@ -108,7 +108,7 @@ class ExtensionNamesTest(unittest.TestCase):
         tool, out = load_tool(), io.StringIO()
         tool.PACKAGE_ROOTS = tuple(root for root in tool.PACKAGE_ROOTS if not (root / "qorqut-fastmail").is_dir())
         self.assertIsNone(tool._package_folder("qorqut_fastmail.extension:create"))
-        with contextlib.redirect_stdout(out):
+        with contextlib.redirect_stderr(out):
             self.assertIn("fastmail", tool.shipped_ids())
         self.assertEqual(out.getvalue(), "")
 

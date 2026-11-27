@@ -475,10 +475,13 @@ Three more rules keep the names of extension tables and of Qorqbot's own tables 
   `<id>_` for an id ever published in an index.
 - (b) A new id is refused when such a name already starts with `<id>_`. The bundle builder and `--load` check this.
 - An id is refused when it is another published id, or the id of an extension that comes with Qorqbot, followed by
-  `_` and more. The index builder checks this.
+  `_` and more. The index builder checks this; the bundle builder and `--load` check it against the ids of the
+  extensions that come with Qorqbot.
 
 Rule (a) is a command that needs the released index files. No release keeps them yet, so nothing runs it. An installed
-Qorqbot has no list of these names, so `--load` there says that the id was not checked against them.
+Qorqbot has no list of these names or of those ids, so `--load` there says that the id was not checked against them. A
+copy of Qorqbot's source that leaves out the package of an extension that comes with it leaves that extension out of
+these checks and says so in one line.
 
 1. The folder name equals `id`, and the id has the allowed form.
 2. The manifest has every required field and no unknown one.

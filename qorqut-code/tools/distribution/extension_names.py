@@ -14,11 +14,14 @@ The ids ever published are the entries of the released index files (``--released
 index has are the new ones. The core names come from the composition the app itself builds with no extension, compiled
 as a store is (``host_assembly`` and ``compile_target``), never from a list kept by hand: core, and every extension
 this app ships today (``shipped_factories``: the release tools' own lists of the optional connectors and the bundled
-extensions), composed from this checkout's packages in a process of its own. Needs the app on the import path, as the
-index tool does. Exits 1 with one line per clash, 0 when there is none.
+extensions), composed in a process of its own from this tree's package folders, or from where a package is installed.
+A shipped package this copy of Qorqbot does not hold at all (the release export leaves optional ones out) is left out
+and said in one line. Needs the app on the import path, as the index tool does. Exits 1 with one line per clash, 0
+when there is none.
 
-The bundle builder and ``extension_contract --load`` refuse an id by rule (b) (``taken_prefix``), and the index builder
-two ids by the id rule (``id_clashes``), through the functions here.
+The bundle builder and ``extension_contract --load`` refuse an id by rule (b) (``taken_prefix``) and by the id rule
+against the ids the app ships, and the index builder two ids by the id rule (``id_clashes``), through the functions
+here.
 """
 import argparse
 import functools
@@ -102,14 +105,15 @@ def _shipped(factories):
     """``{"names": ..., "ids": ..., "left_out": ...}``: the names of the core store with ``factories`` selected and the
     ids of their extensions, composed in a process of its own from this tree's package folders, or from where the
     package is importable here (installed as a wheel), so nothing of them is imported here. A factory whose package is
-    neither is left out, named in ``left_out`` and said once on standard output (``left_out_sentence``). A factory that
+    neither is left out, named in ``left_out`` and said once on standard error (``left_out_sentence``), so the JSON a
+    builder prints stays whole. A factory that
     needs a configuration is left out of the names only when its module declares no storage; otherwise its names cannot
     be known and ``ValueError`` is raised."""
     places = {factory: _package_folder(factory) for factory in factories}
     left_out = sorted({_package(factory) for factory, folder in places.items()
                        if folder is None and importlib.util.find_spec(_package(factory)) is None})
     if left_out:
-        print(left_out_sentence(left_out))
+        print(left_out_sentence(left_out), file=sys.stderr)
     factories = tuple(factory for factory in factories if _package(factory) not in left_out)
     if not factories:
         return {'names': (), 'ids': (), 'left_out': tuple(left_out)}
