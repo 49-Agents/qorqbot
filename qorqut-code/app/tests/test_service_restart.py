@@ -114,7 +114,7 @@ class ServiceExitTest(unittest.TestCase):
 
         with mock.patch.object(service_main, "instance_paths_from_arguments", return_value=SimpleNamespace(runtime=None, database=None)), \
                 mock.patch.object(extension_install, "require_complete", side_effect=lambda paths: order.append("complete")), \
-                mock.patch.object(extension_change, "apply_pending", side_effect=lambda paths: order.append("pending")), \
+                mock.patch.object(extension_change, "apply_pending", side_effect=lambda paths, selection: order.append("pending")), \
                 mock.patch.object(extensions, "installed_selection", side_effect=selection), \
                 mock.patch.object(assembly, "host_assembly"), mock.patch.object(assembly, "open_database"), \
                 mock.patch.object(extension_tables, "recorded", return_value=()), \

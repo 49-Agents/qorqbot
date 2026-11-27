@@ -3,6 +3,7 @@
 from qorqut_agentic.behavior.tool_help import text as instruction_text
 
 import argparse
+import functools
 import importlib.util
 import json
 import logging
@@ -254,10 +255,13 @@ def main(argv=None):
         from qorqut.bootstrap.extension_install import require_complete
         require_complete(paths)
         # A pending extension change (install, update or removal) is applied here, before the selection is read.
+        # Its tables are made then, which needs the selection; it is read once, by the first that asks.
         from qorqut.bootstrap.extension_change import apply_pending
-        apply_pending(paths)
+        read_selection = functools.cache(lambda: installed_selection() if args.extensions_config is None
+                                         else installed_selection(extensions_configuration(args.extensions_config)))
+        apply_pending(paths, read_selection)
         # The owner's startup selection of installed extensions is fixed for this process; the store must match it.
-        selection = installed_selection() if args.extensions_config is None else installed_selection(extensions_configuration(args.extensions_config))
+        selection = read_selection()
         token = args.token
         if args.token_file is not None:
             if token:

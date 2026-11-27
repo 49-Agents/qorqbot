@@ -8,8 +8,10 @@ An extension is installed when its folder is in ``<instance>/extensions/<id>/``;
   restart. A failure is returned as one sentence and changes nothing.
 - ``stage_removal``: write the pending removal and ask for the restart. With ``delete_data`` the extension's private
   folder ``private/extensions/<id>/`` is deleted too; what its records created in the store belongs to the owner and stays.
-- ``apply_pending`` runs at start before the selection is read. It moves the folder that is replaced or removed to
-  ``extension-backups/<change id>/`` and moves the staged folder in, then writes the result into the change file. Each
+- ``apply_pending`` runs at start before the selection is read. It makes the tables the staged folder declares
+  (``extension_tables.make_staged``, a copy of the store first under ``extension-backups/<change id>/``), moves the
+  folder that is replaced or removed to ``extension-backups/<change id>/`` and moves the staged folder in, then writes
+  the result into the change file. Tables that cannot be made end the change as ``failed``. Each
   step is a rename that the next step can see, so a start that was interrupted finishes the change at the next one.
 - ``finish`` runs after ``sync``: it reports the result to the one who asked (``report``, or the reporter the service
   gives) and deletes the change file.
@@ -260,8 +262,9 @@ def _stage_removal(paths, ext_id, requested_by, signoff_id, delete_data, restart
                   lambda: None)
 
 
-def _apply(paths, change):
+def _apply(paths, change, selection, owner):
     """The folder moves of one checked change; each can be done again after an interruption. Returns the result."""
+    from qorqut.bootstrap.extension_tables import make_staged
     from qorqut.extension_contract import check_folder
 
     target = paths.installed_extensions / change["id"]
@@ -285,6 +288,12 @@ def _apply(paths, change):
         if findings:
             shutil.rmtree(staged.parent)
             return failed("The staged folder breaks the contract: " + findings[0])
+        # Its tables are made before the folder is in; done again after an interruption, it finds them made.
+        note = make_staged(paths, selection, change["change_id"], staged, change["id"], change["version"],
+                           ownership=owner)
+        if note is not None:
+            shutil.rmtree(staged.parent)
+            return failed(note)
         if target.is_dir():
             backup.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
             os.rename(target, backup)
@@ -326,18 +335,23 @@ def _moved_in(target, change):
         return False
 
 
-def apply_pending(paths) -> None:
+def apply_pending(paths, selection=None) -> None:
     """Apply the pending extension change of the instance at ``paths``, holding the instance, before the selection is
     read. A change already applied, whose result waits for ``finish``, is left as it is; a file that is not a valid
-    change is set aside and the start goes on."""
+    change is set aside and the start goes on.
+
+    ``selection`` answers today's extension selection; it is called only when a staged folder's tables are made, and
+    without it the installation's own selection is read then."""
     change = pending(paths)
     if change is None or change["result"] is not None:
         return
     from qorqut.service.ownership import InstanceOwnership
+    if selection is None:
+        from qorqut.extensions import installed_selection as selection
 
     owner = InstanceOwnership(paths).acquire()
     try:
-        change["result"] = _apply(paths, change)
+        change["result"] = _apply(paths, change, selection, owner)
         _fault_hook("applied")
         _save(change_path(paths), change)
         LOGGER.info("extension_change_applied action=%s extension=%s state=%s", change["action"], change["id"],
