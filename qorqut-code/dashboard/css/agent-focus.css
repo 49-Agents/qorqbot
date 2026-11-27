@@ -225,8 +225,13 @@
 .agfocus:not([data-attention-board]):not(.agfocus-surface-open) > .agfocus-layout{display:flex;flex-direction:column;align-items:stretch;overflow:hidden}
 .agfocus-notes{position:relative;display:flex;flex:1;flex-direction:column;min-height:0;min-width:0}
 /* The floating microphone (js/focus-text.js) in the bottom left corner, over the notes; the reminder cards take the right. */
-.agfocus .agfocus-notes-voice{position:absolute;left:12px;bottom:12px;z-index:3}
-.agfocus .agfocus-notes .agfocus-notes-input{display:block;flex:1;width:100%;min-height:120px;box-sizing:border-box;margin:0;padding:10px 12px;border-radius:8px;overflow:auto;cursor:text}
+/* The notes microphone floats in the bottom right corner, 48px, its waveform to its left (voice-input.js puts it first); the notes keep a strip clear
+   below their last line so the button never covers text. */
+.agfocus .agfocus-notes-voice{position:absolute;right:12px;bottom:12px;z-index:3}
+.agfocus .agfocus-notes-voice .gchat-mic{width:48px;height:48px;min-height:48px;padding:12px}
+.agfocus .agfocus-notes-voice .gchat-mic svg{width:22px;height:22px}
+.agfocus .agfocus-notes-voice .gchat-wave{height:48px;border-radius:24px}
+.agfocus .agfocus-notes .agfocus-notes-input{display:block;flex:1;width:100%;min-height:120px;box-sizing:border-box;margin:0;padding:10px 12px 72px;border-radius:8px;overflow:auto;cursor:text}
 .agfocus .agfocus-notes .agfocus-notes-input:focus-within{background:rgba(255,255,255,.03)}
 .agfocus .agfocus-notes .agfocus-notes-input.loading{opacity:.6;cursor:default}
 .agfocus .agfocus-notes .ntdoc{min-height:0}

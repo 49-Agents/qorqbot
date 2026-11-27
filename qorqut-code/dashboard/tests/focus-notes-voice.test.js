@@ -1,5 +1,5 @@
 'use strict';
-// The Focus notes carry a floating microphone in their bottom left corner: the same button, pulse and waveform as the chat
+// The Focus notes carry a floating 48px microphone in their bottom right corner: the same button, pulse and waveform as the chat
 // input, and the words go where the caret was.
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
@@ -50,12 +50,12 @@ async function fixture(run) {
   } finally { await browser.close(); }
 }
 
-browserTest('the notes microphone floats in the bottom left corner and puts the words where the caret was', async () => fixture(async page => {
+browserTest('the notes microphone floats in the bottom right corner, 48px, and puts the words where the caret was', async () => fixture(async page => {
   const box = await page.evaluate(() => {
     const notes = document.querySelector('.agfocus-notes').getBoundingClientRect(), mic = document.querySelector('.agfocus-notes-voice .gchat-mic').getBoundingClientRect();
-    return {left: Math.round(mic.left - notes.left), bottom: Math.round(notes.bottom - mic.bottom), size: Math.round(mic.width)};
+    return {right: Math.round(notes.right - mic.right), bottom: Math.round(notes.bottom - mic.bottom), size: Math.round(mic.width)};
   });
-  assert.deepEqual(box, {left: 12, bottom: 12, size: 36});
+  assert.deepEqual(box, {right: 12, bottom: 12, size: 48});
   // Caret after "Call the".
   await page.click('.agfocus-notes .ntdoc');
   await page.evaluate(() => {
@@ -67,6 +67,8 @@ browserTest('the notes microphone floats in the bottom left corner and puts the 
   await page.waitForSelector('.agfocus-notes-voice .gchat-mic[data-state="recording"]');
   assert.notEqual(await page.$eval('.agfocus-notes-voice .gchat-mic', el => getComputedStyle(el).animationName), 'none', 'it pulses while on');
   assert.equal(await page.$eval('.agfocus-notes-voice .gchat-wave', el => !el.hidden && el.getBoundingClientRect().width > 40), true, 'the waveform shows beside it');
+  assert.equal(await page.evaluate(() => { const w = document.querySelector('.agfocus-notes-voice .gchat-wave').getBoundingClientRect(), m = document.querySelector('.agfocus-notes-voice .gchat-mic').getBoundingClientRect(), n = document.querySelector('.agfocus-notes').getBoundingClientRect(); return w.right <= m.left && w.left >= n.left; }), true, 'the waveform sits to its left, inside the notes');
+  await page.screenshot({path: process.env.NOTES_MIC_SHOT || '/dev/null'}).catch(() => {});
   await page.click('.agfocus-notes-voice .gchat-mic');
   await page.waitForSelector('.agfocus-notes-voice .gchat-mic .gchat-mic-spinner');
   await page.evaluate(() => finishTranscription());
