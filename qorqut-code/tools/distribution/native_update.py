@@ -72,6 +72,29 @@ def retain_completed(root, launcher):
     journal.rename(archive / 'update.json')
 
 
+# The store's record of the tables extensions made (``qorqut.composition.extension_tables.RECORD_TABLE``). This file
+# runs from the installed runtime with the system Python, so it names the table instead of importing it.
+RECORD_TABLE = 'extensiontables'
+
+
+def require_supported_store(db, schema_target):
+    """Judge the instance's store before the switch; True when it holds the record of extension tables.
+
+    A store without the record must carry exactly the update's core-only identity, as before the record existed. A
+    store with the record carries an identity that also covers its recorded tables, so the raw comparison cannot judge
+    it: the new runtime's admission check (``native_update_check --recorded-store``) opens it read-only with the
+    instance's selection and the record, and its refusal restores the previous runtime. A new runtime whose check does
+    not know that option refuses it, so a record is never admitted by a runtime that cannot read it. The payload
+    ``schema_target`` equality, checked before this, still holds the core schema fixed."""
+    with sqlite3.connect('file:' + quote(str(db)) + '?mode=ro', uri=True) as connection:
+        observed = connection.execute("SELECT name, version, digest FROM target_identity WHERE id='target'").fetchone()
+        recorded = connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                                      (RECORD_TABLE,)).fetchone() is not None
+    if not recorded and list(observed or ()) != schema_target:
+        raise ValueError('The existing database does not match the update’s supported schema')
+    return recorded
+
+
 def file_sha(path):
     with path.open('rb') as stream:
         return hashlib.file_digest(stream, 'sha256').hexdigest()
@@ -176,11 +199,7 @@ def main(argv=None):
                     raise ValueError('The update targets a different operating system or CPU')
                 if not new.get('schema_target') or new['schema_target'] != old.get('schema_target'):
                     raise ValueError('This update changes the database schema; a qualified migration is required')
-                db = instance / 'operations/.runtime/operations.sqlite3'
-                with sqlite3.connect('file:' + quote(str(db)) + '?mode=ro', uri=True) as connection:
-                    observed = connection.execute("SELECT name, version, digest FROM target_identity WHERE id='target'").fetchone()
-                if list(observed or ()) != new['schema_target']:
-                    raise ValueError('The existing database does not match the update’s supported schema')
+                recorded = require_supported_store(instance / 'operations/.runtime/operations.sqlite3', new['schema_target'])
                 shutil.copy2(root / 'qorqbot', stage / 'previous-launcher')
                 record = {'format': 1, 'phase': 'prepared', 'archive_sha256': actual,
                           'before': old.get('version'), 'after': new.get('version'),
@@ -202,7 +221,8 @@ def main(argv=None):
                     subprocess.run([sys.executable, '-I', '-B', '-c', setup, root],
                                    env=env, cwd=root, check=True)
                     subprocess.run([runtime / 'venv/bin/python', '-I', '-B', '-m', 'qorqut.bootstrap.native_update_check',
-                                    '--prepared-root', runtime, '--instance-root', instance], env=env, cwd=root, check=True)
+                                    '--prepared-root', runtime, '--instance-root', instance,
+                                    *(['--recorded-store'] if recorded else [])], env=env, cwd=root, check=True)
                 except BaseException:
                     # No new application was admitted and no data migration ran. Keep failed bytes for inspection.
                     restore_runtime(root, launcher, record)
