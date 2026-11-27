@@ -13,6 +13,7 @@ import re
 import stat
 
 from qorqut_operations.contracts import DomainError
+from qorqut_system import private_files
 
 from .support import ImportFailure, relative
 
@@ -110,15 +111,15 @@ def _read_local(source_id, path):
     root = _root(source_id)
     if source_id == "host":
         path = path.removeprefix("app/")
-    descriptor = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    descriptor = private_files.open_folder("/", follow_link=True)
     try:
         parts = (*root.parts[1:], *path.split("/"))
         for part in parts[:-1]:
-            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=descriptor)
-            os.close(descriptor); descriptor = child
-        file = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, dir_fd=descriptor)
+            child = private_files.open_child_folder(descriptor, part)
+            descriptor.close(); descriptor = child
+        file = private_files.open_read(descriptor, parts[-1], nonblock=True)
         try:
-            state = os.fstat(file)
+            state = private_files.stat_folder(file)
             if not stat.S_ISREG(state.st_mode) or state.st_size > MAX_TEXT_BYTES:
                 raise DomainError("invalid_instruction_resource", "Instruction resource must be a bounded regular file")
             with os.fdopen(file, "rb", closefd=False) as stream:
@@ -129,7 +130,7 @@ def _read_local(source_id, path):
         finally:
             os.close(file)
     finally:
-        os.close(descriptor)
+        descriptor.close()
 
 
 def declaration(source_id, source_path):

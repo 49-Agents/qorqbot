@@ -32,6 +32,7 @@ import tempfile
 import time
 
 from qorqut.private_files import read_private_file, require_private_directory
+from qorqut_system import private_files
 
 FORMAT = 1
 _DIRECTORY = 'agentic-verified'
@@ -53,8 +54,9 @@ def code_identity():
     import importlib
     import qorqut.agentic
     import qorqut_agentic
+    import qorqut_system
     files = []
-    for package in (qorqut.agentic, qorqut_agentic):
+    for package in (qorqut.agentic, qorqut_agentic, qorqut_system):
         for directory in package.__path__:
             base = Path(directory)
             files.extend((package.__name__, path.relative_to(base).as_posix(), path) for path in base.rglob('*.py')
@@ -155,8 +157,8 @@ def remember(paths, key, value):
             with os.fdopen(fd, 'wb') as stream:
                 stream.write(data)
                 stream.flush()
-                os.fsync(stream.fileno())
-            os.chmod(temporary, 0o600)
+                private_files.sync_folder(stream.fileno())
+            private_files.set_private(temporary, mode=0o600)
             os.replace(temporary, path)
         except BaseException:
             try:
@@ -172,11 +174,10 @@ def remember(paths, key, value):
 def _sweep(directory):
     """Remove temporary files left by a check that was stopped while writing."""
     now = time.time()
-    with os.scandir(directory) as stream:
-        for entry in stream:
-            if entry.name.startswith('.' + _NAME + '.') and entry.name.endswith('.tmp'):
-                try:
-                    if now - entry.stat(follow_symlinks=False).st_mtime > _STALE_TEMPORARY:
-                        os.unlink(entry.path)
-                except OSError:
-                    pass
+    for name in private_files.walk_entries(directory):
+        if name.startswith('.' + _NAME + '.') and name.endswith('.tmp'):
+            try:
+                if now - private_files.stat_entry(directory, name).st_mtime > _STALE_TEMPORARY:
+                    private_files.remove_entry(directory, name)
+            except OSError:
+                pass

@@ -7,6 +7,7 @@ import secrets
 import stat
 
 from qorqut import file_identity
+from qorqut_system import private_files
 
 from . import layout_files
 from .layout_intent import _conflict
@@ -51,7 +52,7 @@ def verify(paths, intent, journal):
         if not layout_files._root_matches(fd, paths.agentic_root, journal['root']):
             raise _conflict('Managed authored root changed')
         if not file_identity.tree_matches({**journal['initial_dirs'], **journal['created_dirs']},
-                                          layout_files._directories(fd), os.fstat(fd).st_dev):
+                                          layout_files._directories(fd), private_files.stat_folder(fd).st_dev):
             raise _conflict('Managed authored directories changed')
         found, metadata = layout_files._authored(paths.agentic_root)
         current = {p: (body, metadata[p]['mode']) for p, body in found.items()}
@@ -76,13 +77,13 @@ def create_parents(paths, intent, journal, save):
             parent, _, name = path.rpartition('/')
             parentfd = layout_files._open_dir(fd, parent, dirs)
             try:
-                os.mkdir(name, 0o755, dir_fd=parentfd)
-                child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parentfd)
+                private_files.make_folder(parentfd, name, mode=0o755)
+                child = private_files.open_child_folder(parentfd, name).descriptor
                 try:
-                    os.fchmod(child, 0o755)
-                    os.fsync(child)
-                    journal['created_dirs'][path] = layout_files._identity(os.fstat(child))
-                    os.fsync(parentfd)
+                    private_files.set_private(child, mode=0o755)
+                    private_files.sync_folder(child)
+                    journal['created_dirs'][path] = layout_files._identity(private_files.stat_folder(child))
+                    private_files.sync_folder(parentfd)
                 finally:
                     os.close(child)
             finally:
@@ -117,17 +118,17 @@ def publish(paths, intent, journal, save, hook):
                         raise _conflict('Managed original file disappeared: ' + path)
                 else:
                     try:
-                        os.stat(name, dir_fd=parentfd, follow_symlinks=False)
+                        private_files.stat_entry(parentfd, name)
                     except FileNotFoundError:
                         pass
                     else:
                         raise _conflict('Managed target appeared: ' + path)
                 if wanted is None:
-                    os.unlink(name, dir_fd=parentfd)
+                    private_files.remove_entry(parentfd, name)
                 else:
                     body, mode = wanted
                     temporary = '.managed-' + secrets.token_hex(16)
-                    filefd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parentfd)
+                    filefd = private_files.create_file(parentfd, temporary)
                     try:
                         view = memoryview(body)
                         while view:
@@ -135,24 +136,21 @@ def publish(paths, intent, journal, save, hook):
                             if count <= 0:
                                 raise OSError('short write')
                             view = view[count:]
-                        os.fchmod(filefd, mode)
-                        os.fsync(filefd)
+                        private_files.set_private(filefd, mode=mode)
+                        private_files.sync_folder(filefd)
                     finally:
                         os.close(filefd)
                     try:
                         if old is None:
-                            os.link(temporary, name, src_dir_fd=parentfd, dst_dir_fd=parentfd, follow_symlinks=False)
-                            os.unlink(temporary, dir_fd=parentfd)
+                            private_files.link_entry(parentfd, temporary, name)
+                            private_files.remove_entry(parentfd, temporary)
                         else:
                             if layout_files._expected_file(parentfd, name, old, path) is None:
                                 raise _conflict('Managed original file disappeared before replacement: ' + path)
-                            os.replace(temporary, name, src_dir_fd=parentfd, dst_dir_fd=parentfd)
+                            private_files.rename_entry(parentfd, temporary, name)
                     finally:
-                        try:
-                            os.unlink(temporary, dir_fd=parentfd)
-                        except FileNotFoundError:
-                            pass
-                os.fsync(parentfd)
+                        private_files.remove_entry(parentfd, temporary, missing_ok=True)
+                private_files.sync_folder(parentfd)
             finally:
                 os.close(parentfd)
             hook('file', path=path)

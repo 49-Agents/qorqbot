@@ -7,10 +7,10 @@ instead of repairing them. The Operations ``.runtime`` parent keeps its establis
 from __future__ import annotations
 
 import os
-import stat
 from pathlib import Path
 
 from qorqut_operations.contracts import DomainError
+from qorqut_system import private_files
 
 MODE = 0o700
 ROOTS = (
@@ -35,9 +35,9 @@ def _unsafe_parent(path: Path, base: Path):
             if not current.is_dir():
                 return "unsafe_parent_not_directory"
             status = current.stat()
-            if status.st_uid != os.geteuid():
+            if not private_files.is_mine(status):
                 return "unsafe_parent_owner"
-            if stat.S_IMODE(status.st_mode) & 0o077:
+            if not private_files.is_private(status):
                 return "unsafe_parent_permissions"
         current = current.parent
     return None
@@ -55,9 +55,9 @@ def inspect(path: Path, base: Path):
     if not path.is_dir():
         return "unsafe_not_directory"
     status = path.stat()
-    if status.st_uid != os.geteuid():
+    if not private_files.is_mine(status):
         return "unsafe_owner"
-    if stat.S_IMODE(status.st_mode) & 0o077:
+    if not private_files.is_private(status):
         return "unsafe_permissions"
     return "ready"
 
@@ -84,16 +84,17 @@ def _create_root(paths, name):
     parent = path.parent
     if not parent.is_absolute() or any(p.is_symlink() for p in (parent, *parent.parents)):
         raise DomainError("overseer_storage_unavailable", "Unsafe private provisioning parent")
-    parentfd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    parentfd = private_files.open_folder(parent).descriptor
     try:
-        os.mkdir(path.name, MODE, dir_fd=parentfd)
-        child = os.open(path.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=parentfd)
+        private_files.make_folder(parentfd, path.name, mode=MODE)
+        child = private_files.open_child_folder(parentfd, path.name).descriptor
         try:
-            os.fchmod(child, MODE)
-            os.fsync(child)
-            info = os.fstat(child)
-            os.fsync(parentfd)
-            return {'device': info.st_dev, 'inode': info.st_ino, 'mode': stat.S_IMODE(info.st_mode), 'uid': info.st_uid}
+            private_files.set_private(child, mode=MODE)
+            private_files.sync_folder(child)
+            info = private_files.stat_folder(child)
+            private_files.sync_folder(parentfd)
+            return {'device': info.st_dev, 'inode': info.st_ino,
+                    'mode': private_files.mode_of(info, mask=0o7777), 'uid': private_files.owner_of(info)}
         finally:
             os.close(child)
     finally:
@@ -119,9 +120,9 @@ def apply(paths) -> dict:
         parent = path.parent
         if parent != paths.operations and parent != paths.runtime and not parent.is_dir():
             os.makedirs(parent, mode=MODE, exist_ok=False)
-            os.chmod(parent, MODE)
+            private_files.set_private(parent, mode=MODE)
         os.mkdir(path, MODE)
-        os.chmod(path, MODE)
+        private_files.set_private(path, mode=MODE)
         created.append(name)
     return {"schema_version": 1, "mode": "0700", "created": created, "preserved": preserved,
             "items": plan(paths)["items"]}

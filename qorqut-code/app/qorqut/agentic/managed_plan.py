@@ -19,6 +19,7 @@ from .layout_inspection import inspect_git, inspect_runtime, read_legacy_tree, c
 from .plans import _desired, _validate_manifest
 from .provisioning import plan as provision_plan
 from qorqut.private_files import read_private_file
+from qorqut_system import private_files
 from .support import digest
 from .upgrade import (read_binding, history_directory, history_snapshot, _installed_selection,
                       _requested_selection, _missing_selected_components, _profile_grants)
@@ -80,7 +81,7 @@ def _state_evidence(paths, state, files):
     if not state['inspected'] or state['conflicts'] or state['migration_required']:
         return
     # The database was already inspected with a no-follow descriptor, under the shared lock.
-    fd = os.open(paths.agentic_runtime / 'state.sqlite3', os.O_RDONLY | os.O_NOFOLLOW)
+    fd = private_files.open_read(paths.agentic_runtime, 'state.sqlite3')
     try:
         before = os.fstat(fd)
         if not stat.S_ISREG(before.st_mode) or before.st_size > 1024 * 1024 * 1024:

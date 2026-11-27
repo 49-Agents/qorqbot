@@ -7,37 +7,6 @@
     "qorqut-agentic/src/qorqut_agentic/behavior/instructions.py": {
       "safe_file_access": 1
     },
-    "qorqut-code/app/qorqut/agentic/managed_files.py": {
-      "link": 1,
-      "permission_bits": 2,
-      "safe_file_access": 18
-    },
-    "qorqut-code/app/qorqut/agentic/managed_git.py": {
-      "safe_file_access": 1
-    },
-    "qorqut-code/app/qorqut/agentic/managed_plan.py": {
-      "safe_file_access": 1
-    },
-    "qorqut-code/app/qorqut/agentic/managed_update.py": {
-      "owner_check": 3,
-      "permission_bits": 1,
-      "safe_file_access": 6
-    },
-    "qorqut-code/app/qorqut/agentic/managed_verified.py": {
-      "permission_bits": 2
-    },
-    "qorqut-code/app/qorqut/agentic/provisioning.py": {
-      "owner_check": 5,
-      "permission_bits": 5,
-      "safe_file_access": 6
-    },
-    "qorqut-code/app/qorqut/agentic/text.py": {
-      "safe_file_access": 6
-    },
-    "qorqut-code/app/qorqut/agentic/upgrade.py": {
-      "permission_bits": 2,
-      "safe_file_access": 1
-    },
     "qorqut-code/app/qorqut/bootstrap/activity_hook.py": {
       "file_lock": 1,
       "link": 3,

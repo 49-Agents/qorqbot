@@ -8,6 +8,8 @@ from pathlib import Path
 import re
 import tempfile
 
+from qorqut_system import private_files
+
 from . import layout_git, managed_files
 from .layout_intent import _conflict
 from .support import digest
@@ -48,7 +50,7 @@ def prepare(paths, intent, directory):
     original, entries, expected = _project(intent)
     with tempfile.TemporaryDirectory(prefix='.managed-index-', dir=directory) as temp:
         index = Path(temp) / 'index'
-        fd = os.open(index, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        fd = private_files.create_file(temp, 'index')
         with os.fdopen(fd, 'wb') as stream:
             stream.write(original)
         records = []
