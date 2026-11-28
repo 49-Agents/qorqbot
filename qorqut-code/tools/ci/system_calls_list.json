@@ -1,0 +1,795 @@
+{
+  "files": {
+    "extensions/qorqut-fastmail/qorqut_fastmail/config.py": {
+      "permission_bits": 1,
+      "safe_file_access": 1
+    },
+    "qorqut-agentic/src/qorqut_agentic/behavior/instructions.py": {
+      "safe_file_access": 1
+    },
+    "qorqut-agentic/src/qorqut_agentic/files.py": {
+      "permission_bits": 1,
+      "safe_file_access": 43
+    },
+    "qorqut-agentic/src/qorqut_agentic/overseer/checks.py": {
+      "process_control": 1
+    },
+    "qorqut-agentic/src/qorqut_agentic/runtime.py": {
+      "process_control": 3
+    },
+    "qorqut-agentic/src/qorqut_agentic/store.py": {
+      "file_lock": 2,
+      "permission_bits": 2,
+      "safe_file_access": 1,
+      "system_module": 1
+    },
+    "qorqut-agentic/src/qorqut_agentic/tools.py": {
+      "platform_check": 3,
+      "proc_read": 3
+    },
+    "qorqut-code/app/qorqut/account.py": {
+      "file_lock": 1,
+      "permission_bits": 1,
+      "system_module": 1
+    },
+    "qorqut-code/app/qorqut/agent_cli_install.py": {
+      "link": 3,
+      "permission_bits": 1,
+      "platform_check": 1
+    },
+    "qorqut-code/app/qorqut/agent_cli_launch.py": {
+      "permission_bits": 2,
+      "shell_script": 1
+    },
+    "qorqut-code/app/qorqut/agent_cli_sign_in.py": {
+      "platform_check": 5,
+      "process_control": 8
+    },
+    "qorqut-code/app/qorqut/agent_trust.py": {
+      "file_lock": 1,
+      "owner_check": 1,
+      "permission_bits": 1,
+      "system_module": 1
+    },
+    "qorqut-code/app/qorqut/agentic/attention.py": {
+      "file_lock": 2,
+      "permission_bits": 3,
+      "safe_file_access": 13,
+      "system_module": 1
+    },
+    "qorqut-code/app/qorqut/agentic/copy_identity.py": {
+      "owner_check": 2
+    },
+    "qorqut-code/app/qorqut/agentic/installation.py": {
+      "link": 1
+    },
+    "qorqut-code/app/qorqut/agentic/layout_activation.py": {
+      "link": 2,
+      "permission_bits": 2,
+      "safe_file_access": 23
+    },
+    "qorqut-code/app/qorqut/agentic/layout_files.py": {
+      "permission_bits": 2,
+      "safe_file_access": 27
+    },
+    "qorqut-code/app/qorqut/agentic/layout_git.py": {
+      "permission_bits": 1,
+      "safe_file_access": 10
+    },
+    "qorqut-code/app/qorqut/agentic/layout_inspection.py": {
+      "safe_file_access": 17
+    },
+    "qorqut-code/app/qorqut/agentic/layout_intent.py": {
+      "safe_file_access": 3
+    },
+    "qorqut-code/app/qorqut/agentic/layout_preflight.py": {
+      "safe_file_access": 9
+    },
+    "qorqut-code/app/qorqut/agentic/layout_runtime.py": {
+      "safe_file_access": 14
+    },
+    "qorqut-code/app/qorqut/agentic/managed_files.py": {
+      "link": 1,
+      "permission_bits": 2,
+      "safe_file_access": 18
+    },
+    "qorqut-code/app/qorqut/agentic/managed_git.py": {
+      "safe_file_access": 1
+    },
+    "qorqut-code/app/qorqut/agentic/managed_plan.py": {
+      "safe_file_access": 1
+    },
+    "qorqut-code/app/qorqut/agentic/managed_update.py": {
+      "owner_check": 3,
+      "permission_bits": 1,
+      "safe_file_access": 6
+    },
+    "qorqut-code/app/qorqut/agentic/managed_verified.py": {
+      "permission_bits": 2
+    },
+    "qorqut-code/app/qorqut/agentic/provisioning.py": {
+      "owner_check": 5,
+      "permission_bits": 5,
+      "safe_file_access": 6
+    },
+    "qorqut-code/app/qorqut/agentic/support.py": {
+      "process_control": 3,
+      "safe_file_access": 11
+    },
+    "qorqut-code/app/qorqut/agentic/text.py": {
+      "safe_file_access": 6
+    },
+    "qorqut-code/app/qorqut/agentic/upgrade.py": {
+      "permission_bits": 2,
+      "safe_file_access": 1
+    },
+    "qorqut-code/app/qorqut/agents/activity.py": {
+      "link": 2,
+      "platform_check": 2,
+      "proc_read": 2
+    },
+    "qorqut-code/app/qorqut/agents/attention_delivery.py": {
+      "permission_bits": 1
+    },
+    "qorqut-code/app/qorqut/atomic_write.py": {
+      "permission_bits": 1
+    },
+    "qorqut-code/app/qorqut/attention_queue.py": {
+      "file_lock": 1,
+      "safe_file_access": 1,
+      "system_module": 1
+    },
+    "qorqut-code/app/qorqut/background/backups.py": {
+      "safe_file_access": 1
+    },
+    "qorqut-code/app/qorqut/bootstrap/activity_hook.py": {
+      "file_lock": 1,
+      "link": 3,
+      "permission_bits": 2,
+      "platform_check": 7,
+      "safe_file_access": 2,
+      "system_module": 1
+    },
+    "qorqut-code/app/qorqut/bootstrap/agentic_migration.py": {
+      "link": 1,
+      "owner_check": 6,
+      "permission_bits": 1
+    },
+    "qorqut-code/app/qorqut/bootstrap/bridge_binding.py": {
+      "platform_check": 1
+    },
+    "qorqut-code/app/qorqut/bootstrap/browser.py": {
+      "file_lock": 1,
+      "permission_bits": 2,
+      "safe_file_access": 2,
+      "system_module": 1
+    },
+    "qorqut-code/app/qorqut/bootstrap/client.py": {
+      "permission_bits": 1
+    },
+    "qorqut-code/app/qorqut/bootstrap/codex_session.py": {
+      "link": 2,
+      "platform_check": 7
+    },
+    "qorqut-code/app/qorqut/bootstrap/context_repository.py": {
+      "permission_bits": 2
+    },
+    "qorqut-code/app/qorqut/bootstrap/delegated_runtime.py": {
+      "process_control": 10
+    },
+    "qorqut-code/app/qorqut/bootstrap/extension_bundle.py": {
+      "permission_bits": 1
+    },
+    "qorqut-code/app/qorqut/bootstrap/extension_tables.py": {
+      "link": 1
+    },
+    "qorqut-code/app/qorqut/bootstrap/handoff.py": {
+      "file_lock": 1,
+      "safe_file_access": 1,
+      "system_module": 1
+    },
+    "qorqut-code/app/qorqut/bootstrap/history_repository.py": {
+      "owner_check": 2,
+      "permission_bits": 4
+    },
+    "qorqut-code/app/qorqut/bootstrap/initialize.py": {
+      "permission_bits": 6,
+      "safe_file_access": 1
+    },
+    "qorqut-code/app/qorqut/bootstrap/native_binding.py": {
+      "link": 4,
+      "platform_check": 18,
+      "proc_read": 16
+    },
+    "qorqut-code/app/qorqut/bootstrap/owner_prepare.py": {
+      "shell_script": 1
+    },
+    "qorqut-code/app/qorqut/bootstrap/preparation.py": {
+      "permission_bits": 1,
+      "shell_script": 7
+    },
+    "qorqut-code/app/qorqut/bootstrap/recovery.py": {
+      "file_lock": 1,
+      "safe_file_access": 1,
+      "system_module": 1
+    },
+    "qorqut-code/app/qorqut/bootstrap/supervisor.py": {
+      "file_lock": 2,
+      "platform_check": 1,
+      "proc_read": 1,
+      "process_control": 1,
+      "safe_file_access": 1,
+      "system_module": 1
+    },
+    "qorqut-code/app/qorqut/bootstrap/terminal_chat.py": {
+      "platform_check": 3,
+      "proc_read": 2
+    },
+    "qorqut-code/app/qorqut/bootstrap/tool_permissions.py": {
+      "file_lock": 1,
+      "safe_file_access": 2,
+      "system_module": 1
+    },
+    "qorqut-code/app/qorqut/browser/agent_browsers.py": {
+      "file_lock": 3,
+      "owner_check": 3,
+      "permission_bits": 1,
+      "platform_check": 5,
+      "proc_read": 2,
+      "process_control": 3,
+      "safe_file_access": 2,
+      "service_manager": 6,
+      "system_module": 1
+    },
+    "qorqut-code/app/qorqut/browser/agent_supervisor.py": {
+      "file_lock": 1,
+      "owner_check": 9,
+      "permission_bits": 2,
+      "platform_check": 2,
+      "process_control": 7,
+      "safe_file_access": 1,
+      "system_module": 1
+    },
+    "qorqut-code/app/qorqut/browser/captcha.py": {
+      "file_lock": 1,
+      "safe_file_access": 1,
+      "system_module": 1
+    },
+    "qorqut-code/app/qorqut/browser/control.py": {
+      "link": 1,
+      "platform_check": 2,
+      "proc_read": 4
+    },
+    "qorqut-code/app/qorqut/browser/idle_tabs.py": {
+      "owner_check": 1
+    },
+    "qorqut-code/app/qorqut/browser/live.py": {
+      "platform_check": 1
+    },
+    "qorqut-code/app/qorqut/browser/managed_chrome.py": {
+      "file_lock": 1,
+      "link": 6,
+      "owner_check": 2,
+      "permission_bits": 3,
+      "platform_check": 2,
+      "proc_read": 1,
+      "process_control": 3,
+      "safe_file_access": 2,
+      "system_module": 1
+    },
+    "qorqut-code/app/qorqut/browser/native_launcher.py": {
+      "process_control": 1
+    },
+    "qorqut-code/app/qorqut/browser/targets.py": {
+      "platform_check": 2
+    },
+    "qorqut-code/app/qorqut/calendar/operations.py": {
+      "permission_bits": 1
+    },
+    "qorqut-code/app/qorqut/calendar/preferences.py": {
+      "file_lock": 2,
+      "owner_check": 4,
+      "permission_bits": 2,
+      "safe_file_access": 13,
+      "system_module": 1
+    },
+    "qorqut-code/app/qorqut/catalog/packages.py": {
+      "permission_bits": 1
+    },
+    "qorqut-code/app/qorqut/connectors.py": {
+      "proc_read": 1
+    },
+    "qorqut-code/app/qorqut/dashboard_preferences.py": {
+      "file_lock": 4,
+      "safe_file_access": 3,
+      "system_module": 1
+    },
+    "qorqut-code/app/qorqut/extension_contract.py": {
+      "permission_bits": 1
+    },
+    "qorqut-code/app/qorqut/file_identity.py": {
+      "safe_file_access": 1
+    },
+    "qorqut-code/app/qorqut/file_viewer/files.py": {
+      "safe_file_access": 7
+    },
+    "qorqut-code/app/qorqut/focus_layout_preferences.py": {
+      "file_lock": 2,
+      "owner_check": 4,
+      "permission_bits": 2,
+      "safe_file_access": 13,
+      "system_module": 1
+    },
+    "qorqut-code/app/qorqut/installation.py": {
+      "safe_file_access": 1
+    },
+    "qorqut-code/app/qorqut/managed_runtime/claude_driver.py": {
+      "platform_check": 4,
+      "process_control": 8
+    },
+    "qorqut-code/app/qorqut/managed_runtime/client.py": {
+      "local_socket": 1,
+      "owner_check": 1
+    },
+    "qorqut-code/app/qorqut/managed_runtime/host.py": {
+      "local_socket": 3,
+      "owner_check": 3,
+      "permission_bits": 5,
+      "process_control": 4,
+      "safe_file_access": 4
+    },
+    "qorqut-code/app/qorqut/managed_runtime/launcher.py": {
+      "owner_check": 1,
+      "platform_check": 2,
+      "process_control": 3,
+      "safe_file_access": 1,
+      "service_manager": 7
+    },
+    "qorqut-code/app/qorqut/managed_runtime/manager.py": {
+      "file_lock": 2,
+      "safe_file_access": 1,
+      "system_module": 1
+    },
+    "qorqut-code/app/qorqut/managed_runtime/model_catalog.py": {
+      "process_control": 3
+    },
+    "qorqut-code/app/qorqut/managed_runtime/options.py": {
+      "permission_bits": 2
+    },
+    "qorqut-code/app/qorqut/managed_runtime/state.py": {
+      "file_lock": 2,
+      "local_socket": 3,
+      "owner_check": 9,
+      "permission_bits": 3,
+      "platform_check": 2,
+      "proc_read": 1,
+      "process_control": 3,
+      "safe_file_access": 3,
+      "system_module": 1
+    },
+    "qorqut-code/app/qorqut/migration/managed_cutover.py": {
+      "link": 2,
+      "owner_check": 2,
+      "platform_check": 1,
+      "proc_read": 1,
+      "process_control": 2
+    },
+    "qorqut-code/app/qorqut/migration/snapshots.py": {
+      "permission_bits": 2,
+      "safe_file_access": 1
+    },
+    "qorqut-code/app/qorqut/native_archive/_archive.py": {
+      "safe_file_access": 2
+    },
+    "qorqut-code/app/qorqut/native_archive/_files.py": {
+      "file_lock": 1,
+      "link": 1,
+      "safe_file_access": 24,
+      "system_module": 1
+    },
+    "qorqut-code/app/qorqut/native_chat/attachment.py": {
+      "link": 4,
+      "platform_check": 1
+    },
+    "qorqut-code/app/qorqut/native_chat/liveness.py": {
+      "platform_check": 2
+    },
+    "qorqut-code/app/qorqut/native_chat/probe.py": {
+      "platform_check": 2
+    },
+    "qorqut-code/app/qorqut/native_chat/runtime_switch.py": {
+      "file_lock": 2,
+      "safe_file_access": 1,
+      "system_module": 1
+    },
+    "qorqut-code/app/qorqut/native_chat/uploads.py": {
+      "file_lock": 1,
+      "link": 1,
+      "safe_file_access": 15,
+      "system_module": 1
+    },
+    "qorqut-code/app/qorqut/native_paths.py": {
+      "platform_check": 1
+    },
+    "qorqut-code/app/qorqut/onboarding_preferences.py": {
+      "file_lock": 1,
+      "safe_file_access": 1,
+      "system_module": 1
+    },
+    "qorqut-code/app/qorqut/overseer/archive.py": {
+      "file_lock": 1,
+      "owner_check": 2,
+      "permission_bits": 1,
+      "safe_file_access": 3,
+      "system_module": 1
+    },
+    "qorqut-code/app/qorqut/overseer/evidence.py": {
+      "safe_file_access": 1
+    },
+    "qorqut-code/app/qorqut/posix_files.py": {
+      "owner_check": 2,
+      "platform_check": 7,
+      "proc_read": 2,
+      "safe_file_access": 14
+    },
+    "qorqut-code/app/qorqut/private_files.py": {
+      "owner_check": 4,
+      "permission_bits": 4,
+      "safe_file_access": 3
+    },
+    "qorqut-code/app/qorqut/process_info.py": {
+      "link": 3,
+      "owner_check": 1,
+      "platform_check": 1,
+      "proc_read": 9,
+      "process_control": 1
+    },
+    "qorqut-code/app/qorqut/release_worker/adapters.py": {
+      "file_lock": 1,
+      "link": 9,
+      "permission_bits": 1,
+      "proc_read": 1
+    },
+    "qorqut-code/app/qorqut/release_worker/adoption_runtime.py": {
+      "proc_read": 2,
+      "service_manager": 1
+    },
+    "qorqut-code/app/qorqut/release_worker/artifact_placement.py": {
+      "owner_check": 1
+    },
+    "qorqut-code/app/qorqut/release_worker/experience_binding.py": {
+      "file_lock": 1,
+      "link": 7,
+      "safe_file_access": 1,
+      "system_module": 1
+    },
+    "qorqut-code/app/qorqut/release_worker/io.py": {
+      "file_lock": 7,
+      "permission_bits": 2,
+      "platform_check": 1,
+      "proc_read": 2,
+      "process_control": 3,
+      "safe_file_access": 3,
+      "system_module": 6
+    },
+    "qorqut-code/app/qorqut/release_worker/lifetime.py": {
+      "file_lock": 2,
+      "link": 1,
+      "platform_check": 3,
+      "proc_read": 4,
+      "safe_file_access": 1,
+      "system_module": 1
+    },
+    "qorqut-code/app/qorqut/release_worker/plugin_adoption.py": {
+      "permission_bits": 1
+    },
+    "qorqut-code/app/qorqut/release_worker/session_backup.py": {
+      "proc_read": 3
+    },
+    "qorqut-code/app/qorqut/service/ownership.py": {
+      "file_lock": 1,
+      "owner_check": 2,
+      "permission_bits": 1,
+      "safe_file_access": 5,
+      "system_module": 1
+    },
+    "qorqut-code/app/qorqut/shared_context/service.py": {
+      "safe_file_access": 1
+    },
+    "qorqut-code/app/qorqut/source_snapshot.py": {
+      "link": 2,
+      "permission_bits": 1,
+      "safe_file_access": 13
+    },
+    "qorqut-code/app/qorqut/storage/full_recovery.py": {
+      "permission_bits": 2,
+      "safe_file_access": 1
+    },
+    "qorqut-code/app/qorqut/storage/recovery.py": {
+      "permission_bits": 3
+    },
+    "qorqut-code/app/qorqut/storage/recovery_admin.py": {
+      "local_socket": 3,
+      "permission_bits": 4,
+      "proc_read": 2,
+      "safe_file_access": 7
+    },
+    "qorqut-code/app/qorqut/transport/agent_terminal_control.py": {
+      "platform_check": 13,
+      "proc_read": 7,
+      "process_control": 2,
+      "safe_file_access": 1
+    },
+    "qorqut-code/app/qorqut/transport/auth.py": {
+      "file_lock": 2,
+      "permission_bits": 1,
+      "safe_file_access": 3,
+      "system_module": 1
+    },
+    "qorqut-code/app/qorqut/viewbox_preferences.py": {
+      "file_lock": 1,
+      "safe_file_access": 1,
+      "system_module": 1
+    },
+    "qorqut-code/app/scripts/check_browser_tabs.py": {
+      "proc_read": 4
+    },
+    "qorqut-code/app/tools/browser/build_runtime.py": {
+      "link": 1,
+      "owner_check": 2,
+      "permission_bits": 2,
+      "platform_check": 1,
+      "safe_file_access": 1
+    },
+    "qorqut-code/app/tools/browser/desktop_session.py": {
+      "link": 2,
+      "owner_check": 4,
+      "permission_bits": 3,
+      "proc_read": 1,
+      "process_control": 4,
+      "safe_file_access": 2
+    },
+    "qorqut-code/app/tools/rehearse_agentic_install.py": {
+      "permission_bits": 4,
+      "shell_script": 1
+    },
+    "qorqut-code/app/tools/release_worker/install.py": {
+      "permission_bits": 3,
+      "safe_file_access": 1
+    },
+    "qorqut-code/dashboard/pty_broker.py": {
+      "process_control": 3,
+      "safe_file_access": 2,
+      "system_module": 3
+    },
+    "qorqut-code/extensions/telegram/qorqut_telegram/bridge.py": {
+      "file_lock": 2,
+      "safe_file_access": 1,
+      "system_module": 1
+    },
+    "qorqut-code/extensions/telegram/qorqut_telegram/client.py": {
+      "local_socket": 1
+    },
+    "qorqut-code/extensions/telegram/qorqut_telegram/gateway.py": {
+      "local_socket": 2,
+      "owner_check": 1,
+      "permission_bits": 4
+    },
+    "qorqut-code/extensions/telegram/qorqut_telegram/media_payloads.py": {
+      "owner_check": 4,
+      "permission_bits": 3,
+      "safe_file_access": 17
+    },
+    "qorqut-code/extensions/telegram/qorqut_telegram/media_sources.py": {
+      "safe_file_access": 8
+    },
+    "qorqut-code/extensions/whatsapp/qorqut_whatsapp/__main__.py": {
+      "safe_file_access": 1
+    },
+    "qorqut-code/extensions/whatsapp/qorqut_whatsapp/binding.py": {
+      "permission_bits": 1,
+      "platform_check": 1
+    },
+    "qorqut-code/extensions/whatsapp/qorqut_whatsapp/client.py": {
+      "local_socket": 1,
+      "owner_check": 2,
+      "permission_bits": 1
+    },
+    "qorqut-code/extensions/whatsapp/qorqut_whatsapp/receiver.py": {
+      "process_control": 1,
+      "safe_file_access": 1
+    },
+    "qorqut-code/extensions/whatsapp/qorqut_whatsapp/setup.py": {
+      "process_control": 1
+    },
+    "qorqut-code/extensions/whatsapp/tools/build.py": {
+      "owner_check": 1,
+      "platform_check": 1
+    },
+    "qorqut-code/extensions/whatsapp/tools/source_archive.py": {
+      "permission_bits": 1,
+      "shell_script": 1
+    },
+    "qorqut-code/qorqut-context/qorqut_context/claude_runner.py": {
+      "local_socket": 1,
+      "permission_bits": 2,
+      "process_control": 3
+    },
+    "qorqut-code/qorqut-context/qorqut_context/claude_tools.py": {
+      "local_socket": 1
+    },
+    "qorqut-code/qorqut-context/qorqut_context/engine.py": {
+      "file_lock": 2,
+      "safe_file_access": 3,
+      "system_module": 1
+    },
+    "qorqut-code/qorqut-context/qorqut_context/git_store.py": {
+      "owner_check": 3
+    },
+    "qorqut-code/qorqut-context/qorqut_context/integration/driver.py": {
+      "file_lock": 2,
+      "safe_file_access": 1,
+      "system_module": 1
+    },
+    "qorqut-code/qorqut-context/qorqut_context/integration/questions/store.py": {
+      "safe_file_access": 1
+    },
+    "qorqut-code/qorqut-context/qorqut_context/integration/recovery.py": {
+      "safe_file_access": 1
+    },
+    "qorqut-code/qorqut-context/qorqut_context/integration/usage/collector.py": {
+      "file_lock": 2,
+      "safe_file_access": 1,
+      "system_module": 1
+    },
+    "qorqut-code/qorqut-context/qorqut_context/pipeline.py": {
+      "permission_bits": 1
+    },
+    "qorqut-code/qorqut-context/qorqut_context/recovery.py": {
+      "file_lock": 1,
+      "permission_bits": 6,
+      "safe_file_access": 2,
+      "system_module": 1
+    },
+    "qorqut-code/qorqut-context/qorqut_context/runner.py": {
+      "permission_bits": 1,
+      "process_control": 4
+    },
+    "qorqut-code/qorqut-context/qorqut_context/usage.py": {
+      "permission_bits": 1,
+      "safe_file_access": 1
+    },
+    "qorqut-code/qorqut-operations/qorqut_operations/documents/relocation.py": {
+      "link": 1
+    },
+    "qorqut-code/qorqut-operations/qorqut_operations/history_exports/_capture.py": {
+      "permission_bits": 2,
+      "safe_file_access": 11
+    },
+    "qorqut-code/qorqut-operations/qorqut_operations/history_exports/_fs.py": {
+      "safe_file_access": 6
+    },
+    "qorqut-code/qorqut-operations/qorqut_operations/history_exports/_service.py": {
+      "file_lock": 1,
+      "safe_file_access": 13,
+      "system_module": 1
+    },
+    "qorqut-code/qorqut-operations/qorqut_operations/history_exports/_state.py": {
+      "safe_file_access": 9
+    },
+    "qorqut-code/qorqut-operations/qorqut_operations/storage/admission.py": {
+      "file_lock": 2,
+      "safe_file_access": 1,
+      "system_module": 1
+    },
+    "qorqut-code/qorqut-operations/qorqut_operations/storage/database.py": {
+      "link": 1,
+      "permission_bits": 1,
+      "safe_file_access": 1
+    },
+    "qorqut-code/qorqut-operations/qorqut_operations/storage/directories.py": {
+      "owner_check": 1,
+      "platform_check": 1,
+      "safe_file_access": 22
+    },
+    "qorqut-code/qorqut-operations/qorqut_operations/storage/executor.py": {
+      "file_lock": 1,
+      "safe_file_access": 1,
+      "system_module": 1
+    },
+    "qorqut-code/qorqut-operations/qorqut_operations/storage/files.py": {
+      "file_lock": 1,
+      "safe_file_access": 1,
+      "system_module": 1
+    },
+    "qorqut-code/qorqut-operations/qorqut_operations/storage/safe_io.py": {
+      "permission_bits": 2,
+      "safe_file_access": 25
+    },
+    "qorqut-code/tools/bench-toolcalls.py": {
+      "permission_bits": 1
+    },
+    "qorqut-code/tools/distribution/check_native.py": {
+      "owner_check": 2
+    },
+    "qorqut-code/tools/distribution/check_optional_extensions.py": {
+      "owner_check": 2,
+      "permission_bits": 2
+    },
+    "qorqut-code/tools/distribution/check_posix.py": {
+      "platform_check": 1
+    },
+    "qorqut-code/tools/distribution/macos_app/agent_cli_check.py": {
+      "link": 4,
+      "permission_bits": 1,
+      "platform_check": 6,
+      "process_control": 2
+    },
+    "qorqut-code/tools/distribution/macos_app/build_dmg.py": {
+      "platform_check": 1
+    },
+    "qorqut-code/tools/distribution/macos_app/mac_new_tests.py": {
+      "platform_check": 1,
+      "process_control": 5
+    },
+    "qorqut-code/tools/distribution/macos_app/managed_host_check.py": {
+      "local_socket": 2,
+      "owner_check": 2,
+      "permission_bits": 2,
+      "platform_check": 1,
+      "process_control": 3,
+      "shell_script": 1
+    },
+    "qorqut-code/tools/distribution/macos_tools.py": {
+      "platform_check": 1
+    },
+    "qorqut-code/tools/distribution/native_build.py": {
+      "link": 2,
+      "permission_bits": 1,
+      "platform_check": 1,
+      "shell_script": 3
+    },
+    "qorqut-code/tools/distribution/native_extension.py": {
+      "file_lock": 3,
+      "owner_check": 4,
+      "permission_bits": 3,
+      "system_module": 1
+    },
+    "qorqut-code/tools/distribution/native_launch.py": {
+      "file_lock": 1,
+      "link": 3,
+      "local_socket": 1,
+      "owner_check": 3,
+      "permission_bits": 4,
+      "platform_check": 10,
+      "proc_read": 3,
+      "safe_file_access": 1,
+      "shell_script": 1,
+      "system_module": 1
+    },
+    "qorqut-code/tools/distribution/native_update.py": {
+      "file_lock": 2,
+      "permission_bits": 1,
+      "system_module": 1
+    },
+    "qorqut-code/tools/distribution/payload_signing.py": {
+      "permission_bits": 1
+    },
+    "qorqut-code/tools/distribution/runtime_source.py": {
+      "link": 3,
+      "safe_file_access": 1
+    },
+    "qorqut-code/tools/export-source.py": {
+      "link": 1,
+      "permission_bits": 2,
+      "safe_file_access": 1
+    },
+    "qorqut-code/tools/export-unified.py": {
+      "permission_bits": 2
+    },
+    "qorqut-code/tools/prepare-local.py": {
+      "link": 2
+    }
+  },
+  "format": 1
+}
