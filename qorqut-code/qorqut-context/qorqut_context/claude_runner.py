@@ -16,13 +16,14 @@ import json
 import os
 from pathlib import Path
 import queue
-import signal
 import socket
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+
+from qorqut_system import channel, processes
 
 from .runner import PrivateLog, RunResult, RunnerError, termination_guard
 from .engine import atomic_write
@@ -103,11 +104,7 @@ class ClaudeRunner:
                                            "args": ["-I", "-B", relay, socket_path, str(definitions_path)]}}}
             (scratch / "mcp.json").write_text(json.dumps(mcp))
             command.extend(("--mcp-config", str(scratch / "mcp.json"), "--allowedTools", ",".join(allowed)))
-            server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            server.bind(socket_path)
-            os.chmod(socket_path, 0o600)
-            server.listen(8)
-            server.settimeout(0.2)
+            server = channel.listen_here(socket_path, backlog=8, mode=0o600, timeout=0.2)
 
             def answer(request):
                 name, arguments = request.get("name"), request.get("arguments")
@@ -160,8 +157,8 @@ class ClaudeRunner:
         environment = {key: value for key, value in os.environ.items()
                        if key not in DROPPED_ENVIRONMENT and not key.startswith("ACLA_")}
         environment.update(MEMORY_OFF)
-        process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                   cwd=scratch, env=environment, start_new_session=True)
+        process = processes.start_in_background(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                                stderr=subprocess.PIPE, cwd=scratch, env=environment)
         events = queue.Queue(maxsize=1024)
         stderr, stderr_truncated = bytearray(), False
 
@@ -260,9 +257,9 @@ class ClaudeRunner:
             return RunResult("completed", output, session or "", session or "", observed or config.model, usage)
         finally:
             stopped.set()
-            for sig in (signal.SIGTERM, signal.SIGKILL):
+            for stop in (processes.terminate_process_group, processes.kill_process_group):
                 try:
-                    os.killpg(process.pid, sig)
+                    stop(process.pid)
                 except ProcessLookupError:
                     break
                 try:

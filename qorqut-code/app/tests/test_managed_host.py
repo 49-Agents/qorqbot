@@ -34,6 +34,7 @@ from unittest import mock
 from qorqut.managed_runtime import host as host_module, launcher, protocol, state as layout
 from qorqut.managed_runtime.client import HostClient, HostUnavailable
 
+
 PROTECTED = {"-p", "--print", "--input-format", "--output-format", "--permission-prompt-tool", "--resume", "-r", "--session-id"}
 SLEEPER = "import time; time.sleep(600)"
 
