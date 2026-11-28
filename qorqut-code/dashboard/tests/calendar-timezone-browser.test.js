@@ -94,9 +94,9 @@ test('rendered times, columns, provider ranges and navigation follow UTC in diff
           assert.ok(reads.some(([start,end])=>start==='2026-11-09T00:00:00.000Z' && end==='2026-11-16T00:00:00.000Z'));
           assert.equal(await page.locator('[data-calendar-view="7"]').getAttribute('aria-pressed'),'true');
           assert.equal(await page.locator('.calendar-day').last().getAttribute('data-calendar-day'),'2026-11-15');
-          // The mini month marks today with a dot and outlines the week as one range.
+          // The mini month marks today with a filled circle and bands the week as one range.
           assert.equal(await page.locator('.calendar-monthday.is-today').getAttribute('data-calendar-date'),'2026-11-11');
-          assert.equal(await page.locator('.calendar-monthday.is-today').evaluate(el=>getComputedStyle(el,'::after').width),'3px');
+          assert.equal(await page.locator('.calendar-monthday.is-today').evaluate(el=>getComputedStyle(el,'::before').width),'24px');
           assert.deepEqual(await page.locator('.calendar-monthday.in-range').evaluateAll(list=>list.map(b=>b.dataset.calendarDate)),
             ['2026-11-09','2026-11-10','2026-11-11','2026-11-12','2026-11-13','2026-11-14','2026-11-15']);
           assert.equal(await page.locator('.calendar-monthday.range-start').count(),1);
