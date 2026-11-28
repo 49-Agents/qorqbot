@@ -289,7 +289,9 @@ class AfterTool(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.workspace = Path(temporary.name)
+        # Resolved: on macOS the temporary folder is under /var, a symlink to /private/var, and the rest file is not
+        # written through a symlink.
+        self.workspace = Path(temporary.name).resolve()
         self.database = connection()
 
         @contextmanager
@@ -379,7 +381,8 @@ class StopPoint(CheckpointTests):
             self.connection.execute(statement)
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.workspace = Path(temporary.name)
+        # Resolved, as in AfterTool: the rest file is not written through a symlink.
+        self.workspace = Path(temporary.name).resolve()
         patcher = mock.patch("qorqut.agents.checkpoints.agent_workspace_of", return_value=self.workspace)
         patcher.start()
         self.addCleanup(patcher.stop)

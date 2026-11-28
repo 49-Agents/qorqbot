@@ -11,6 +11,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 from unittest import mock
 
@@ -131,10 +132,32 @@ class Prepare(Folder):
         self.assertFalse((self.runtime / 'ENVIRONMENT.json').exists())
 
     def test_prerequisites_ask_for_nothing_when_the_package_ships_its_own(self):
-        with mock.patch.object(native_launch.shutil, 'which', return_value=None):
+        # The Python running this is pinned as Python 3.12 with venv support, so only the missing git is asked for: the
+        # Python of a test computer can lack venv support (a standalone build without ensurepip).
+        with mock.patch.object(native_launch.shutil, 'which', return_value=None), \
+                mock.patch.object(native_launch.sys, 'version_info', (3, 12, 0)), \
+                mock.patch.dict(sys.modules, {'ensurepip': types.ModuleType('ensurepip')}):
             native_launch.require_prerequisites({'PATH': '/nowhere'}, self_contained=True)
-            with self.assertRaisesRegex(RuntimeError, 'Git is required'):
+            with self.assertRaisesRegex(RuntimeError, '^Git is required'):
                 native_launch.require_prerequisites({'PATH': '/nowhere'})
+
+    def test_a_python_without_venv_support_is_given_the_command_that_installs_it(self):
+        # On macOS venv support comes with Homebrew's Python, so that is what the command installs; on Ubuntu it is a
+        # package of its own.
+        cases = {('Darwin', None): 'brew install python@3.12 git',
+                 ('Darwin', '/usr/bin/git'): 'brew install python@3.12',
+                 ('Linux', None): 'sudo apt install python3.12-venv git',
+                 ('Linux', '/usr/bin/git'): 'sudo apt install python3.12-venv'}
+        for (system, git), command in cases.items():
+            with self.subTest(system=system, git=git):
+                with mock.patch.object(native_launch.shutil, 'which', return_value=git), \
+                        mock.patch.object(native_launch.sys, 'version_info', (3, 12, 0)), \
+                        mock.patch.dict(sys.modules, {'ensurepip': None}), self.assertRaises(RuntimeError) as missing:
+                    native_launch.require_prerequisites({'PATH': '/nowhere'}, system=system)
+                named = 'Python 3.12 venv support is required. Install it' if git else \
+                    'Python 3.12 venv support and Git are required. Install them'
+                self.assertEqual(str(missing.exception),
+                                 f'{named} with this command, then run ./qorqbot again:\n  {command}')
 
     def test_everything_missing_is_named_at_once_with_one_command(self):
         with mock.patch.object(native_launch.shutil, 'which', return_value=None), \
@@ -258,12 +281,17 @@ class StartCommand(Folder):
         write(self.root / 'qorqbot', native_build.LAUNCHER, 0o755)
         bare = self.root.parent / (self.root.name + '-bin')  # only the commands the script itself needs
         bare.mkdir()
-        for name in ('dirname', 'uname'):
-            (bare / name).symlink_to(shutil.which(name))
-        done = subprocess.run(['/bin/sh', str(self.root / 'qorqbot')], env={'PATH': str(bare)}, capture_output=True, text=True)
-        self.assertEqual(done.returncode, 1)
-        self.assertIn('Python 3.12 with venv support and Git are required', done.stderr)
-        self.assertIn('  sudo apt install python3.12 python3.12-venv git\n', done.stderr)
+        (bare / 'dirname').symlink_to(shutil.which('dirname'))
+        # A stand-in uname names the system, so the command for each is checked on any computer.
+        for system, command in (('Linux', 'sudo apt install python3.12 python3.12-venv git'),
+                                ('Darwin', 'brew install python@3.12 git')):
+            with self.subTest(system=system):
+                write(bare / 'uname', f'#!/bin/sh\necho {system}\n', 0o755)
+                done = subprocess.run(['/bin/sh', str(self.root / 'qorqbot')], env={'PATH': str(bare)},
+                                      capture_output=True, text=True)
+                self.assertEqual(done.returncode, 1)
+                self.assertIn('Python 3.12 with venv support and Git are required', done.stderr)
+                self.assertIn(f'  {command}\n', done.stderr)
 
     def test_a_folder_without_shipped_tools_uses_the_computers_python(self):
         # A Linux package builds its environment in runtime/venv from the computer's Python 3.12.

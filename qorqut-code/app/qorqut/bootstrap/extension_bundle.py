@@ -345,11 +345,14 @@ def check_bundle(archive):
     """Every way a format 2 bundle breaks the format or the contract, one sentence each. Empty means it passes.
 
     The members must equal ``BUNDLE.json``, no member may be inside a ``tests`` folder, the folder inside must pass the
-    checker, and its manifest must carry the id and version of ``BUNDLE.json``.
+    checker, and its manifest must carry the id and version of ``BUNDLE.json``. It is unpacked into a short-lived folder
+    beside the archive, so the archive's folder must be writable.
     """
     from qorqut.extension_contract import ContractError, check_folder, load_manifest
 
-    with tempfile.TemporaryDirectory(prefix='.extension-bundle-') as temporary:
+    # Unpacked beside the archive, not in the system temporary folder: on macOS that is under /var, a symlink to
+    # /private/var, and a bundle is unpacked only on a path without links.
+    with tempfile.TemporaryDirectory(prefix='.extension-bundle-', dir=Path(archive).absolute().parent) as temporary:
         try:
             value = unpack(archive, temporary)
         except (OSError, ValueError, tarfile.TarError) as error:

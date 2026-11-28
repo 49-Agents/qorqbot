@@ -15,9 +15,12 @@ import socket
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import native_launch  # noqa: E402
+
+IDENTITY = {'boot': 'boot-1', 'start': '1'}
 
 CHILD = r'''
 import http.server, json, sys
@@ -67,7 +70,10 @@ class RestartTest(unittest.TestCase):
         native_launch.save_json, saved = save, native_launch.save_json
         self.addCleanup(setattr, native_launch, 'save_json', saved)
         output = io.StringIO()
-        with (self.root / 'application.log').open('ab') as log, contextlib.redirect_stdout(output):
+        # The launcher's own identity is a stand-in: on macOS it is read with an installation's completed Python
+        # environment, which the source tree does not have.
+        with (self.root / 'application.log').open('ab') as log, contextlib.redirect_stdout(output), \
+                mock.patch.object(native_launch, 'identity', return_value=IDENTITY):
             code = native_launch.run_service(argv, env=dict(os.environ), cwd=self.root, log=log, state=self.state,
                                              url=f'http://127.0.0.1:{self.port}', show=False)
         starts = json.loads((self.root / 'starts.json').read_text())
@@ -78,7 +84,7 @@ class RestartTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(starts, [[str(self.port)]] * 3)
         # One record of this launcher for the whole run, removed at the end.
-        self.assertEqual([state['pid'] for state in states], [os.getpid()])
+        self.assertEqual([(state['pid'], state['identity']) for state in states], [(os.getpid(), IDENTITY)])
         self.assertFalse(self.state.exists())
         self.assertEqual(output.count('Qorqbot restarted and is running at'), 2)
         self.assertEqual(output.count('Press Ctrl+C to stop it.'), 1)

@@ -13,6 +13,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
 import zipfile
 
 import yaml
@@ -68,7 +69,9 @@ class Case(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
-        self.root = Path(temp.name)
+        # Resolved: on macOS the temporary folder is under /var, a symlink to /private/var, and a bundle is checked
+        # beside it, on a path without links.
+        self.root = Path(temp.name).resolve()
         self.folder = self.root / "source" / "network"
         shutil.copytree(EXAMPLE, self.folder)
 
@@ -104,6 +107,19 @@ class BuildTest(Case):
         second = self.build("second.tar.gz")
         self.assertEqual(first["sha256"], second["sha256"])
         self.assertEqual(Path(first["path"]).read_bytes(), Path(second["path"]).read_bytes())
+
+    def test_a_bundle_checks_fine_when_the_temporary_folder_is_reached_through_a_link(self):
+        # As on macOS, where the temporary folder is under /var, a symlink to /private/var: the check unpacks beside
+        # the bundle and leaves nothing beside it afterwards.
+        real = self.root / "real-temporary"
+        real.mkdir()
+        linked = self.root / "linked-temporary"
+        linked.symlink_to(real)
+        with mock.patch.object(tempfile, "tempdir", str(linked)):
+            built = self.build()["path"]
+            self.assertEqual(reading.check_bundle(built), [])
+        self.assertEqual({path.name for path in Path(built).parent.iterdir()},
+                         {"linked-temporary", "network.tar.gz", "real-temporary", "source"})
 
     def test_the_bundle_holds_the_folder_and_its_checksums(self):
         result = self.build()
@@ -372,7 +388,8 @@ class FormatOneTest(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
-        self.root = Path(temp.name)
+        # Resolved, as in Case: a format 1 bundle is also extracted only on a path without links.
+        self.root = Path(temp.name).resolve()
 
     def bundle(self, extra=(), name="telegram.tar.gz"):
         wheel = self.root / "qorqut_telegram-1.0-py3-none-any.whl"

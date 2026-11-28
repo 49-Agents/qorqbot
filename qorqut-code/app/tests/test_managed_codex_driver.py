@@ -390,6 +390,12 @@ class DriverCase(unittest.TestCase):
         while time.time() < end and session.alive_threads():
             time.sleep(0.02)
         self.assertEqual(session.alive_threads(), [])
+        # A thread the session starts and does not keep, the one that ends the process after a failed start, returns
+        # once the session's own threads have ended; on a slower computer it is still returning a moment later, so it
+        # gets the same bounded wait. A thread that never ends still fails the check.
+        end = time.time() + 3
+        while time.time() < end and self.driver_threads() - self.before_threads:
+            time.sleep(0.02)
         leaked = self.driver_threads() - self.before_threads
         self.assertEqual(leaked, set())
 

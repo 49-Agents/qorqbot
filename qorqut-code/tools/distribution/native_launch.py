@@ -274,8 +274,9 @@ def keep_setup_log(root):
 def install_hint(*packages, system=None):
     """The command that installs ``packages`` here: Homebrew on macOS, apt on Ubuntu (including Ubuntu in WSL)."""
     if (system or platform.system()) == 'Darwin':
-        names = {'python3.12': 'python@3.12', 'python3.12-venv': None}
-        return 'brew install ' + ' '.join(dict.fromkeys(n for n in (names.get(p, p) for p in packages) if n))
+        # Homebrew's Python comes with venv support, so a Python that lacks it is answered with Homebrew's Python.
+        names = {'python3.12': 'python@3.12', 'python3.12-venv': 'python@3.12'}
+        return 'brew install ' + ' '.join(dict.fromkeys(names.get(p, p) for p in packages))
     return 'sudo apt install ' + ' '.join(dict.fromkeys(packages))
 
 

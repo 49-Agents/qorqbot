@@ -48,7 +48,9 @@ class Case(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
-        self.root = Path(temp.name)
+        # Resolved: on macOS the temporary folder is under /var, a symlink to /private/var, and a bundle is checked
+        # beside it, on a path without links.
+        self.root = Path(temp.name).resolve()
 
     def write(self, value, name="extensions-index.json"):
         path = self.root / name
