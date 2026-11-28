@@ -23,6 +23,7 @@ import re
 import weakref
 
 from qorqut_operations.contracts import DomainError, utc_now
+from qorqut_system import private_files
 from .assembly import Assembly
 from .inventory import CompiledTarget, IDENTITY_DDL, IDENTITY_TABLE, compile_target, describe, differences, read_objects
 from .relocation import RelocationGuard, permitted
@@ -546,7 +547,7 @@ class Database:
         finally:
             connection.close()
         if created:
-            self.path.chmod(0o600)
+            private_files.set_private(self.path)
         return self
 
     def columns(self, table: str) -> frozenset[str]:
@@ -864,12 +865,8 @@ class Database:
             with temporary.open("rb") as handle:
                 os.fsync(handle.fileno())
                 digest = hashlib.file_digest(handle, "sha256").hexdigest()
-            os.link(temporary, destination)
-            directory = os.open(destination.parent, os.O_RDONLY | os.O_DIRECTORY)
-            try:
-                os.fsync(directory)
-            finally:
-                os.close(directory)
+            private_files.link_entry(temporary.parent, temporary.name, destination.name, follow_symlinks=True)
+            private_files.sync_folder(destination.parent)
             return {"path": str(destination), "checksum": digest, **metadata}
         except FileExistsError as exc:
             raise DomainError("backup_exists", "Snapshot destination already exists") from exc

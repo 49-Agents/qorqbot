@@ -11,13 +11,13 @@ restored pair has passed the library's final ownership and event-integrity check
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from qorqut_context import recovery as component
 from qorqut_operations.contracts import DomainError, canonical_bytes
 from qorqut_operations.storage.quiescence import RecoveryBarrierProof
 from qorqut_operations.storage.safe_io import atomic_write
+from qorqut_system import private_files
 
 from qorqut_context.integration.driver import LOCK_NAME as QUEUE_DRIVER_LOCK
 
@@ -127,10 +127,6 @@ class ContextRecovery:
             raise _translate(error, "restore") from error
         if marker is not None:
             Path(marker).unlink()
-            descriptor = os.open(Path(marker).parent, os.O_RDONLY | os.O_DIRECTORY)
-            try:
-                os.fsync(descriptor)
-            finally:
-                os.close(descriptor)
+            private_files.sync_folder(Path(marker).parent)
         return {key: report[key] for key in ("status", "published_commit", "manifest_sha256", "pending_event")
                 if key in report} | {"repository": str(repository), "runtime": str(runtime)}

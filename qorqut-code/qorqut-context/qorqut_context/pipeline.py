@@ -5,11 +5,12 @@ from contextlib import contextmanager
 from dataclasses import asdict
 import hashlib
 import logging
-import os
 import json
 from pathlib import Path
 import unicodedata
 import uuid
+
+from qorqut_system import private_files
 
 from . import bootstrap, controlled, usage
 from .engine import atomic_write, file_lock
@@ -87,9 +88,7 @@ class PropagationError(ContextError):
 
 
 def private_directory(path):
-    path.mkdir(mode=0o700, parents=True, exist_ok=True)
-    path.chmod(0o700)
-    return path
+    return private_files.make_private_directory(path, parents=True)
 
 
 class Pipeline:
@@ -228,7 +227,7 @@ class Pipeline:
             if pending is not None and pending["id"] == event_id and event_id not in self.context.snapshot().events:
                 for directory, _ in self._attempts(event_id):
                     if (directory / "ready.json").exists():
-                        os.replace(directory / "ready.json", directory / "ready.discarded.json")
+                        private_files.rename_entry(directory, "ready.json", "ready.discarded.json")
             self.context.discard(event_id)
             return {"status": "discarded", "event_id": event_id}
 
