@@ -1,6 +1,6 @@
 'use strict';
-// Ordubashy's Focus top area is one row: Notes, Browser, Desktop, Calendar (only while a calendar is connected), a thin divider,
-// then the scrolling attention queue.
+// Ordubashy's Focus top area is one row: Notes, Browser, Desktop (only in Testing mode), Calendar (only while a calendar is
+// connected), a thin divider, then the scrolling attention queue.
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -11,16 +11,21 @@ const executable = process.env.CHROME_PATH || chromium?.executablePath();
 const browserTest = (name, fn) => test(name, {skip: (!chromium || !fs.existsSync(executable)) && 'Local Playwright Chromium is unavailable'}, fn);
 const root = path.join(__dirname, '..');
 // The strip's page: its styles, the few globals it needs and, unless `linked` is undefined, a calendar connection state
-// (js/global-calendar.js) whose answer `window.calendarLinked` holds.
-async function stripPage(page, linked) {
+// (js/global-calendar.js) whose answer `window.calendarLinked` holds, and a Testing mode (js/testing-mode.js) in `window.testing`.
+async function stripPage(page, linked, testing = false) {
   for (const file of ['app.css', 'css/agent-focus.css', 'css/agent-workspace.css']) await page.addStyleTag({path: path.join(root, file)});
   const icon = '<svg viewBox="0 0 24 24"><path d="M1 1h9"/></svg>';
-  await page.evaluate(({icon, linked}) => {
+  await page.evaluate(({icon, linked, testing}) => {
+    window.testing = testing; window.testingListeners = new Set();
+    window.testingModeEnabled = () => window.testing;
+    window.testingModeReady = async () => {};
+    window.testingModeSubscribe = fn => { window.testingListeners.add(fn); return () => window.testingListeners.delete(fn); };
+    window.setTesting = on => { window.testing = on; for (const fn of window.testingListeners) fn(); };
     window.$ = (s, h = document) => h.querySelector(s);
     window.T_VIEW_ICON = {notes: icon, browser: icon, desktop: icon};
     window.agfocusDesktopTab = () => {};
     if (linked !== undefined) { window.calendarLinked = linked; window.calendarConnection = {connected: () => window.calendarLinked}; }
-  }, {icon, linked});
+  }, {icon, linked, testing});
   await page.addScriptTag({path: path.join(root, 'js/agent-viewbox.js')});
 }
 
@@ -29,7 +34,7 @@ browserTest('the Focus strip is one row with the queue after a divider that show
   try {
     const page = await browser.newPage({viewport: {width: 700, height: 700}});
     await page.setContent('<body class="agent-workspace-app"><div class="agfocus" style="width:600px"><section class="attention-queue" id="queue"></section></div></body>');
-    await stripPage(page, true);
+    await stripPage(page, true, true);
     const result = await page.evaluate(() => {
       const host = document.getElementById('queue');
       const strip = agviewboxSurfacesMount({agentId: 'a', workspaceScope: 'project', workspaceRole: 'ordubashy', views: ['focus', 'calendar']}, host);
@@ -81,18 +86,42 @@ browserTest('the Calendar launcher shows only while a calendar is connected, and
         window.pane = {agentId: 'a', workspaceScope: 'project', workspaceRole: 'ordubashy', views: ['focus']};
         window.strip = agviewboxSurfacesMount(window.pane, document.getElementById('queue'));
       });
-      assert.deepEqual(await read(), {visible: ['Notes', 'Browser', 'Desktop'], enabled: false, group: 'Notes, Browser and Desktop',
-        host: 'Notes, Browser, Desktop and attention queue'}, label);
+      assert.deepEqual(await read(), {visible: ['Notes', 'Browser'], enabled: false, group: 'Notes and Browser',
+        host: 'Notes, Browser and attention queue'}, label);
       if (linked === false) {
         // Connected later: the pane adds the view and repaints the strip, so the launcher appears and opens the Calendar.
         await page.evaluate(() => { window.calendarLinked = true; window.pane.views.push('calendar'); window.strip.paint(); });
-        assert.deepEqual(await read(), {visible: ['Notes', 'Browser', 'Desktop', 'Calendar'], enabled: true, group: 'Notes, Browser, Desktop and Calendar',
-          host: 'Notes, Browser, Desktop, Calendar and attention queue'});
+        assert.deepEqual(await read(), {visible: ['Notes', 'Browser', 'Calendar'], enabled: true, group: 'Notes, Browser and Calendar',
+          host: 'Notes, Browser, Calendar and attention queue'});
         // And it goes again when the list says there is none.
         await page.evaluate(() => { window.calendarLinked = false; window.pane.views.pop(); window.strip.paint(); });
-        assert.deepEqual((await read()).visible, ['Notes', 'Browser', 'Desktop']);
+        assert.deepEqual((await read()).visible, ['Notes', 'Browser']);
       }
       await page.close();
     }
+  } finally { await browser.close(); }
+});
+
+browserTest('the Desktop launcher shows only in Testing mode, and follows Testing mode being switched', async () => {
+  const browser = await chromium.launch({headless: true, executablePath: executable});
+  try {
+    const page = await browser.newPage({viewport: {width: 700, height: 700}});
+    await page.setContent('<body class="agent-workspace-app"><div class="agfocus" style="width:600px"><section class="attention-queue" id="queue"></section></div></body>');
+    await stripPage(page, false);
+    const read = () => page.evaluate(() => {
+      const host = document.getElementById('queue'), chip = host.querySelector('[data-focus-surface="desktop"]');
+      return {visible: [...host.querySelectorAll('.agfocus-fixed > button')].filter(b => getComputedStyle(b).display !== 'none').map(b => b.textContent.trim()),
+        desktopDisabled: chip.getAttribute('aria-disabled') === 'true', group: host.querySelector('.agfocus-fixed').getAttribute('aria-label')};
+    });
+    await page.evaluate(() => { window.strip = agviewboxSurfacesMount({agentId: 'a', workspaceScope: 'project', workspaceRole: 'ordubashy', views: ['focus']}, document.getElementById('queue')); });
+    assert.deepEqual(await read(), {visible: ['Notes', 'Browser'], desktopDisabled: true, group: 'Notes and Browser'});
+    await page.evaluate(() => setTesting(true));
+    assert.deepEqual((await read()).visible, ['Notes', 'Browser', 'Desktop']);
+    assert.equal((await read()).group, 'Notes, Browser and Desktop');
+    await page.evaluate(() => setTesting(false));
+    assert.deepEqual((await read()).visible, ['Notes', 'Browser']);
+    // A closed strip stops listening.
+    await page.evaluate(() => { strip.dispose(); });
+    assert.equal(await page.evaluate(() => testingListeners.size), 0);
   } finally { await browser.close(); }
 });

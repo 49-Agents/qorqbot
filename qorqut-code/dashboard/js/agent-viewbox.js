@@ -331,7 +331,7 @@ function agviewboxBack(p, toList = false) {
 }
 
 // ------------------------------------------------------------ Focus surfaces strip
-// One row: Notes, Browser, Desktop and Calendar stay fixed, then a quiet divider and the scrolling attention queue.
+// One row: Notes, Browser, Desktop (Testing mode only) and Calendar stay fixed, then a quiet divider and the scrolling attention queue.
 // Notes (the Journal's feather) returns to the owner's notes: it closes whatever is open on the board and puts the caret there.
 const AGVB_SURFACES = [['browser', 'Browser'], ['desktop', 'Desktop'], ['calendar', 'Calendar']];
 const agvbSurfaceIcon = name => (typeof T_VIEW_ICON === 'object' && T_VIEW_ICON[name]) || '';
@@ -363,14 +363,18 @@ function agviewboxSurfacesMount(p, host) {
   };
   // Calendar shows only while a calendar is known to be connected (js/global-calendar.js); until then there is no launcher at all.
   const calendarShown = () => typeof calendarConnection === 'object' && calendarConnection.connected();
+  // Desktop shows only in Testing mode (owner's choice); an unknown or failed Testing mode read keeps it hidden.
+  const desktopShown = () => typeof testingModeEnabled === 'function' && testingModeEnabled();
   const paintLaunchers = () => {
     for (const chip of host.querySelectorAll('[data-focus-surface]')) {
-      const [on, text] = launcher(chip.dataset.focusSurface);
+      const kind = chip.dataset.focusSurface;
+      const [on, text] = launcher(kind);
+      const shown = kind === 'calendar' ? calendarShown() : kind === 'desktop' ? desktopShown() : true;
       chip.title = text; chip.setAttribute('aria-label', text);
-      if (on) chip.removeAttribute('aria-disabled'); else chip.setAttribute('aria-disabled', 'true');
-      if (chip.dataset.focusSurface === 'calendar') chip.hidden = !calendarShown();
+      if (on && shown) chip.removeAttribute('aria-disabled'); else chip.setAttribute('aria-disabled', 'true');
+      chip.hidden = !shown;
     }
-    const fixed = calendarShown() ? 'Notes, Browser, Desktop and Calendar' : 'Notes, Browser and Desktop';
+    const fixed = ['Notes', 'Browser', desktopShown() && 'Desktop', calendarShown() && 'Calendar'].filter(Boolean).join(', ').replace(/, ([^,]+)$/, ' and $1');
     host.setAttribute('aria-label', `${fixed.replace(' and ', ', ')} and attention queue`);
     $('.agfocus-fixed', host)?.setAttribute('aria-label', fixed);
     agfocusDesktopTab(p);
@@ -411,7 +415,9 @@ function agviewboxSurfacesMount(p, host) {
   strip.chip = kind => host.querySelector(`[data-focus-surface="${kind}"]`);
   strip.refresh = () => { if (strip.discovery === 'failed') discover(true); };
   strip.paint = paintLaunchers;
-  strip.dispose = () => { strip.dead = true; host.onclick = null; host.innerHTML = ''; host.classList.remove('agfocus-queues'); };
+  const stopTesting = typeof testingModeSubscribe === 'function' ? testingModeSubscribe(() => { if (!strip.dead) paintLaunchers(); }) : () => {};
+  if (typeof testingModeReady === 'function') void testingModeReady();
+  strip.dispose = () => { strip.dead = true; stopTesting(); host.onclick = null; host.innerHTML = ''; host.classList.remove('agfocus-queues'); };
   applyActive();
   discover(false);
   return strip;
