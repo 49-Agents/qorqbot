@@ -68,6 +68,41 @@ class SharedTargetTest(unittest.TestCase):
             browser.read_target(self.workspace)
 
 
+class NoGoogleChromeTest(unittest.TestCase):
+    """An agent that uses the browser before there is one is told plainly when Google Chrome is what is missing."""
+
+    def worker_target(self, chrome_available):
+        from contextlib import nullcontext
+        from types import SimpleNamespace
+        from qorqut.browser import managed_chrome
+        from qorqut.browser.access import BrowserAccess
+        access = BrowserAccess.__new__(BrowserAccess)
+        connection = SimpleNamespace(execute=lambda *_a: SimpleNamespace(fetchone=lambda: {"1": 1}))
+        render = mock.Mock(return_value="You are not connected to the Shared browser.")
+        access.runtime = SimpleNamespace(
+            database=SimpleNamespace(read=lambda: nullcontext(SimpleNamespace(connection=connection))),
+            paths=SimpleNamespace(runtime=Path("/runtime")),
+            resolver=SimpleNamespace(require_agentic_view=lambda: SimpleNamespace(
+                runtime_instructions=lambda: SimpleNamespace(render=render))))
+        with mock.patch("qorqut.browser.access.agent_workspace_of", return_value=Path("/workspace")), \
+                mock.patch.object(browser, "load_target", side_effect=browser.BrowserNotConfigured("none")), \
+                mock.patch.object(managed_chrome, "chrome_available", return_value=chrome_available), \
+                self.assertRaises(Exception) as raised:
+            access._worker_target("configured:atlas", "atlas")
+        return raised.exception
+
+    def test_without_google_chrome_the_agent_is_told_to_ask_the_owner_for_it(self):
+        from qorqut.browser import managed_chrome
+        error = self.worker_target(False)
+        self.assertEqual((error.code, str(error)), ("google_chrome_needed", managed_chrome.GOOGLE_CHROME_NEEDED_FOR_AGENT))
+        self.assertIn("Tell the owner", str(error))
+        self.assertIn("google.com/chrome", str(error))
+
+    def test_with_a_chrome_the_agent_is_sent_to_ordubashy_as_before(self):
+        error = self.worker_target(True)
+        self.assertEqual((error.code, str(error)), ("browser_not_configured", "You are not connected to the Shared browser."))
+
+
 class PinnedCommandTest(unittest.TestCase):
     def setUp(self):
         folder = tempfile.TemporaryDirectory()

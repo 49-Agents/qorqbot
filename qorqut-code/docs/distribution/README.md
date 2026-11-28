@@ -15,14 +15,10 @@ is the Ubuntu baseline; Python must be 3.12 for this wheel set.
 
 Agents' web browsing needs Google Chrome installed on Ubuntu 24.04. The package
 ships the `agent-browser` tool (`runtime/tools/agent-browser`). Agents' browsers
-run on the installed Google Chrome. Only where none is installed does Qorqbot
-download its own Chrome (a pinned Chrome for Testing build, about 200 MB) in the
-background once the app runs, and verify its checksum before use. Ubuntu 24.04
-as installed does not let a program outside the system folders use Chrome's
-sandbox, so that Chrome does not start there and Settings asks for Google Chrome.
-Qorqbot never turns the sandbox off. Where its own Chrome can start, nothing
-needs installing. If the computer is offline, Qorqbot tries the Chrome download
-again by itself while the app runs.
+run on the installed Google Chrome, never on Chromium or another Chrome. Without
+it the dashboard says Qorqbot needs Google Chrome, with a Get Chrome link, and
+the agents' browser is set up by itself once it is installed. Qorqbot never
+turns Chrome's sandbox off.
 
 ## Install and run
 
@@ -46,8 +42,8 @@ closes them or starts them by itself, and the updater refuses while they run. St
 in `runtime/`; your records/work live in `instance/operations/`. The browser
 tool is part of `runtime/` and is replaced with it; a folder first installed
 from an older release keeps the copy it downloaded in `tools/` until then.
-Qorqbot's own Chrome, where it is downloaded, is in
-`instance/operations/.runtime/chrome/`, so updates keep it. Qorqbot's own
+Qorqbot's own Chrome, which earlier versions downloaded for a computer without
+Google Chrome, is in `instance/operations/.runtime/chrome/`, so updates keep it. Qorqbot's own
 configuration, profiles, logs and caches stay here. So do the folders Claude Code
 and Codex keep their sign-in and settings in (`instance/home/claude` and
 `instance/home/codex`): Qorqbot has its own sign-in for each, apart from the one
@@ -66,17 +62,14 @@ The app can run without a browser or an agent client. Install the external tools
 when you need those features. Tools are found on your PATH. You can specify
 `QORQUT_CHROME_EXECUTABLE`, `QORQUT_AGENT_BROWSER_EXECUTABLE` and `QORQUT_PYTHON`
 with explicit executable paths. `QORQUT_AGENT_BROWSER_EXECUTABLE` replaces the
-shipped browser tool. `QORQUT_CHROME_EXECUTABLE` makes agents use that Chrome,
-and Qorqbot then does not download its own.
+shipped browser tool. `QORQUT_CHROME_EXECUTABLE` makes agents use that Chrome.
 
 Without it, a new agent browser uses the Google Chrome found on your PATH
-(`google-chrome-stable` or `google-chrome`). Where there is none, it uses
-Qorqbot's own Chrome once that is downloaded and has started once on this
-computer; until then, or when it cannot start here, an installed Chromium
-(`chromium` or `chromium-browser`) when there is one. An existing agent browser
-keeps the Chrome it was created with. Qorqbot's own Chrome does not update itself;
-it changes only with a Qorqbot update. Every Chrome runs with its normal sandbox;
-Qorqbot neither changes AppArmor nor disables the browser sandbox.
+(`google-chrome-stable` or `google-chrome`), and where there is none no browser
+is created until it is installed. An existing agent browser keeps the Chrome it
+was created with, including Qorqbot's own Chrome from an earlier version, which
+Qorqbot keeps at its pinned version for that browser. Every Chrome runs with its
+normal sandbox; Qorqbot neither changes AppArmor nor disables the browser sandbox.
 
 Google Calendar is included but inactive. With Qorqbot stopped, run:
 

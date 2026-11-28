@@ -29,39 +29,47 @@ class AboutTest(unittest.TestCase):
         view = owner_settings.about_view({})
         self.assertEqual((view["version"], view["install_folder"], view["data_folder"]), (None, None, None))
 
-    def test_reports_whether_chrome_is_installed(self):
-        from unittest import mock
-        with mock.patch("qorqut.native_paths.installed_chrome", return_value=None):
-            self.assertIs(owner_settings.about_view({})["chrome_installed"], False)
-        with mock.patch("qorqut.native_paths.installed_chrome", return_value="/Applications/Google Chrome.app"):
+    def clean_environment(self):
+        """No explicit Chrome choice from the environment this runs in."""
+        patcher = mock.patch.dict(os.environ)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        for name in ("QORQUT_CHROME_EXECUTABLE", "QORQUT_NATIVE_ROOT"):
+            os.environ.pop(name, None)
+
+    def test_reports_whether_google_chrome_is_installed(self):
+        self.clean_environment()
+        with mock.patch("qorqut.native_paths.installed_google_chrome", return_value=None), \
+                mock.patch("qorqut.native_paths.installed_chrome", return_value="/usr/bin/chromium"):
+            self.assertIs(owner_settings.about_view({})["chrome_installed"], False, "Chromium does not count")
+        with mock.patch("qorqut.native_paths.installed_google_chrome", return_value="/Applications/Google Chrome.app"):
             self.assertIs(owner_settings.about_view({})["chrome_installed"], True)
+        with mock.patch("qorqut.native_paths.installed_google_chrome", return_value=None), \
+                mock.patch.dict(os.environ, {"QORQUT_CHROME_EXECUTABLE": "/opt/chosen/chrome"}):
+            self.assertIs(owner_settings.about_view({})["chrome_installed"], True, "an explicit choice is never asked about")
 
-    def test_chrome_is_asked_for_only_when_qorqbots_own_cannot_be_used(self):
+    def test_without_google_chrome_the_owner_is_asked_for_it_unless_a_browser_keeps_a_usable_chrome(self):
         from qorqut.browser import managed_chrome
-        expected = {"ready": True, "waiting": True, "downloading": True, "failed": True,
-                    "unusable": False, "unsupported": False, "not_used": False}
-        for state, enough in expected.items():
-            with self.subTest(state=state), mock.patch("qorqut.native_paths.installed_chrome", return_value=None), \
-                    mock.patch.object(managed_chrome, "view", return_value={"state": state}):
-                self.assertIs(owner_settings.about_view({}, runtime_directory="/runtime")["chrome_installed"], enough)
-
-    def test_google_chrome_is_enough_and_without_it_the_download_is_on_its_way(self):
-        from qorqut.browser import managed_chrome
+        self.clean_environment()
         folder = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, folder)
-        google = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-        with mock.patch.dict(os.environ), mock.patch.object(managed_chrome, "platform_key", return_value="mac-arm64"):
-            for name in ("QORQUT_CHROME_EXECUTABLE", "QORQUT_NATIVE_ROOT"):
-                os.environ.pop(name, None)
-            with mock.patch("qorqut.native_paths.installed_chrome", return_value=google), \
-                    mock.patch("qorqut.native_paths.installed_google_chrome", return_value=google):
-                self.assertEqual(managed_chrome.view(folder)["state"], "not_needed")
-                self.assertIs(owner_settings.about_view({}, runtime_directory=folder)["chrome_installed"], True)
-            with mock.patch("qorqut.native_paths.installed_chrome", return_value=None), \
-                    mock.patch("qorqut.native_paths.installed_google_chrome", return_value=None):
-                self.assertEqual(managed_chrome.view(folder)["state"], "waiting")
-                self.assertIs(owner_settings.about_view({}, runtime_directory=folder)["chrome_installed"], True,
-                              "no Get Chrome notice while Qorqbot's own is coming")
+        with mock.patch.object(managed_chrome, "platform_key", return_value="mac-arm64"), \
+                mock.patch("qorqut.native_paths.installed_google_chrome", return_value=None):
+            self.assertEqual(managed_chrome.view(folder)["state"], "not_needed")
+            self.assertIs(owner_settings.about_view({}, runtime_directory=folder)["chrome_installed"], False)
+            record = folder / "agent-browsers/earlier"
+            record.mkdir(parents=True)
+            (record / "meta.json").write_text(json.dumps({"mode": "managed",
+                                                          "managed": {"chrome": str(folder / "chrome/current/x/chrome")}}))
+            self.assertEqual(managed_chrome.view(folder)["state"], "waiting")
+            self.assertIs(owner_settings.about_view({}, runtime_directory=folder)["chrome_installed"], True,
+                          "a browser on Qorqbot's own build: its build is on its way")
+            for state, enough in {"ready": True, "waiting": True, "downloading": True, "failed": True,
+                                  "unusable": False, "unsupported": False}.items():
+                with self.subTest(state=state), mock.patch.object(managed_chrome, "view", return_value={"state": state}):
+                    self.assertIs(owner_settings.about_view({}, runtime_directory=folder)["chrome_installed"], enough)
+        with mock.patch("qorqut.native_paths.installed_google_chrome", return_value="/usr/bin/google-chrome-stable"):
+            self.assertIs(owner_settings.about_view({}, runtime_directory=folder)["chrome_installed"], True)
 
 
 class AgentClientsTest(unittest.TestCase):

@@ -1,13 +1,14 @@
 """Qorqbot's own Chrome: one pinned Chrome for Testing build, downloaded into the runtime folder and checked before use.
 
-New browsers run on the installed Google Chrome (``google_chrome``); this build is for a computer without one, so it is
-downloaded only there, or while a browser already runs on it (``needed``). The build lives under ``<runtime>/chrome/``:
+New browsers run on the installed Google Chrome (``google_chrome``), and where there is none no browser is created: the
+owner is asked to install it (``chrome_available``). This build is kept only for a browser whose ownership record already
+runs on it, so it is downloaded and kept at the pin only then (``needed``). The build lives under ``<runtime>/chrome/``:
 
 * ``<version>-<platform>/`` is one published build: the archive's own top folder plus ``installed.json``. It appears by a
   single rename of a finished folder, so a half-finished download or extraction is never mistaken for a Chrome.
-* ``current`` is a symbolic link to the build new browsers use. It is set only after that build has started once on this
-  computer with its normal sandbox, so a build that cannot start here (missing system libraries, or a Linux that denies
-  user namespaces to programs outside the system folders) is never chosen for a new browser.
+* ``current`` is a symbolic link to the build in use. It is set only after that build has started once on this computer
+  with its normal sandbox, so a build that cannot start here (missing system libraries, or a Linux that denies user
+  namespaces to programs outside the system folders) is never started for a browser.
 
 A browser's ownership record names ``<runtime>/chrome/current/...``, never a versioned folder. A new pin therefore reaches
 a browser the next time that browser starts, and a superseded build is removed only when no process runs from it.
@@ -70,6 +71,13 @@ PERMANENT = frozenset({"chrome_libraries_missing", "chrome_sandbox_unavailable"}
 GET_CHROME = "Install Google Chrome from google.com/chrome, then press Retry setup."
 DOWNLOADING = "Qorqbot is downloading its own browser (about 200 MB). This card updates by itself."
 GOOGLE_CHROME_USED = "Agents use the Google Chrome installed on this computer. Nothing to do."
+# Where the agents' browser has no Chrome it may run on (``chrome_available``): for the owner, and for an agent to pass on.
+GOOGLE_CHROME_NEEDED = ("Qorqbot needs Google Chrome so your agents can work on the web, and it isn't installed on this "
+                        "computer. Install it from google.com/chrome. Qorqbot carries on by itself once it is installed.")
+GOOGLE_CHROME_NEEDED_FOR_AGENT = ("Qorqbot needs Google Chrome so the agents can work on the web, and it isn't installed on "
+                                  "this computer, so there is no browser yet. Tell the owner to install Google Chrome from "
+                                  "google.com/chrome; Qorqbot sets the browser up by itself once it is installed. Do not try "
+                                  "to install it yourself.")
 AGAIN = "Qorqbot tries again by itself, or press Retry setup."
 FAILURE_TEXT = {
     "chrome_download_failed": "Qorqbot couldn't download its own browser. Check this computer's internet connection. " + AGAIN,
@@ -109,9 +117,10 @@ def external_choice(environ=None):
 
 
 def google_chrome():
-    """The installed Google Chrome a new browser is created on, as text, or None. It comes before Qorqbot's own build: it
-    updates itself and is the browser websites expect, where Chrome for Testing calls itself Chromium. An installation's
-    explicit choice comes before both, so there is none then."""
+    """The installed Google Chrome a new browser is created on, as text, or None: then no new browser is created. Qorqbot's
+    own build is not used instead: Google Chrome updates itself and is the browser websites expect, where Chrome for Testing
+    calls itself Chromium. An installation's explicit choice comes first, so there is none then. Only a file lookup: no
+    Chrome is started."""
     if external_choice():
         return None
     from qorqut.native_paths import installed_google_chrome
@@ -123,13 +132,23 @@ def chrome_root(runtime_directory):
 
 
 def needed(runtime_directory):
-    """Whether Qorqbot's own build is to be downloaded and kept at the pin: where no Google Chrome is installed, and where a
-    browser's ownership record runs on the build (or a record cannot be read, so that cannot be ruled out). A computer with
-    Google Chrome is not made to download a browser no new browser would use."""
-    if google_chrome() is None:
-        return True
+    """Whether Qorqbot's own build is to be downloaded and kept at the pin: only where a browser's ownership record runs on the
+    build (or a record cannot be read, so that cannot be ruled out). No new browser is created on it, so a computer without
+    such a browser never downloads it, whether Google Chrome is installed or not."""
     names = _recorded_names(chrome_root(runtime_directory))
     return names is None or bool(names)
+
+
+def chrome_available(runtime_directory):
+    """Whether the agents' browser has a Chrome it may run on: the installation's explicit choice, the installed Google Chrome,
+    or the Chrome a browser that exists keeps (Qorqbot's own build while it can still be used here, or another Chrome that is
+    still installed). False is what the owner is asked to install Google Chrome for; only files are looked at."""
+    if external_choice() or google_chrome() is not None:
+        return True
+    if needed(runtime_directory) and view(runtime_directory)["state"] in {"ready", "waiting", "downloading", "failed"}:
+        return True
+    return any(not is_own(chrome, runtime_directory) and chrome.is_file() and os.access(chrome, os.X_OK)
+               for chrome in _recorded_chromes(chrome_root(runtime_directory)) or [])
 
 
 def program(platform):
@@ -178,8 +197,8 @@ def current_program(runtime_directory, platform=None):
 
 
 def preferred(runtime_directory):
-    """Qorqbot's own build as the Chrome a NEW browser is created on, as text, when it is installed and has started here,
-    else None. The caller asks ``google_chrome`` first; this is for a computer without Google Chrome.
+    """Qorqbot's own build by the path valid outside the private bind mounts, as text, when it is installed and has started
+    here, else None. No new browser is created on it any more (see ``google_chrome``).
 
     A browser that already exists keeps the Chrome its ownership record names: a profile last opened by a newer Chrome can
     lose its sign-ins when an older one opens it, and the installed Chrome updates itself past this pin. The supervisor
@@ -476,20 +495,29 @@ def _recorded_builds(root):
     return names
 
 
-def _recorded_names(root):
-    """The first folder under ``root`` of each Chrome a browser's ownership record names there (``current`` as itself), or
-    None when a record cannot be read."""
-    from .agent_browsers import outside_private_mounts
-    names = set()
-    bases = {root, Path(os.path.realpath(root)), outside_private_mounts(root)}
+def _recorded_chromes(root):
+    """The Chrome path each browser's ownership record names, or None when a record cannot be read."""
+    chromes = []
     for record in (root.parent / "agent-browsers").glob("*/meta.json"):
         try:
             meta = json.loads(record.read_bytes()[:16384])
             if meta.get("mode") != "managed":
                 continue
-            chrome = Path(meta["managed"]["chrome"])
+            chromes.append(Path(meta["managed"]["chrome"]))
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             return None
+    return chromes
+
+
+def _recorded_names(root):
+    """The first folder under ``root`` of each Chrome a browser's ownership record names there (``current`` as itself), or
+    None when a record cannot be read."""
+    from .agent_browsers import outside_private_mounts
+    names, chromes = set(), _recorded_chromes(root)
+    if chromes is None:
+        return None
+    bases = {root, Path(os.path.realpath(root)), outside_private_mounts(root)}
+    for chrome in chromes:
         for base in bases:
             try:
                 name = chrome.relative_to(base).parts[0]
@@ -582,8 +610,8 @@ def converge(runtime_directory, *, download=fetch, check=start_check, automatic=
 def start(runtime_directory, finished=None, *, run=converge, automatic=False):
     """Begin installing the pinned build in the background and return at once. Returns whether a run was started.
 
-    Nothing starts when there is nothing to do, when the installation chose its Chrome itself, where Google Chrome is
-    installed and no browser runs on the build (``needed``), or while a run is going. ``finished`` is called in the background
+    Nothing starts when there is nothing to do, when the installation chose its Chrome itself, where no browser runs on the
+    build (``needed``), or while a run is going. ``finished`` is called in the background
     with the ``DomainError`` of a failed run, or None. ``automatic`` is the background loop's run (see ``converge``); the
     owner's explicit retry is not."""
     key = str(chrome_root(runtime_directory))
@@ -618,18 +646,19 @@ def start(runtime_directory, finished=None, *, run=converge, automatic=False):
 def view(runtime_directory):
     """What Settings shows about Qorqbot's own Chrome: a state, and for the owner what is happening or what to do.
 
-    States: ``ready`` (installed and started here: new browsers use it where no Google Chrome is installed),
-    ``downloading``, ``waiting`` (not tried yet), ``failed`` (the download or install; retried by itself), ``unusable``
-    (installed but it does not start on this computer), ``unsupported`` (no build for this computer), ``not_needed``
-    (Google Chrome is installed, so it is not downloaded) and ``not_used`` (the installation names its own Chrome)."""
+    States: ``ready`` (installed and started here, for the browser that runs on it), ``downloading``, ``waiting`` (not
+    tried yet), ``failed`` (the download or install; retried by itself), ``unusable`` (installed but it does not start on
+    this computer), ``unsupported`` (no build for this computer), ``not_needed`` (no browser runs on it, so it is not
+    downloaded; the text says whether Google Chrome is installed or needed) and ``not_used`` (the installation names its own
+    Chrome)."""
     def result(state, explanation="", diagnostic=""):
         return {"state": state, "version": VERSION, "explanation": explanation, "diagnostic": diagnostic}
     if external_choice():
         return result("not_used")
     entry = _RUNS.get(str(chrome_root(runtime_directory))) or {"thread": None, "failure": None}
     running = entry["thread"] is not None and entry["thread"].is_alive()
-    if not running and current_program(runtime_directory) is None and not needed(runtime_directory):
-        return result("not_needed", GOOGLE_CHROME_USED)
+    if not running and not needed(runtime_directory):
+        return result("not_needed", GOOGLE_CHROME_USED if google_chrome() is not None else GOOGLE_CHROME_NEEDED)
     if platform_key() is None:
         return result("unsupported", FAILURE_TEXT["chrome_unsupported_platform"])
     if current_program(runtime_directory) is not None:
