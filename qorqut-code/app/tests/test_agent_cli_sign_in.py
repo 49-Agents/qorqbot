@@ -468,6 +468,45 @@ class ClaudeOutputTest(SignInBase):
         self.settle()
         self.assertEqual(self.opened, [])
 
+    PAGE = "https://claude.com/cai/oauth/authorize?code=true&client_id=c-1&state=abc"
+
+    def test_a_page_printed_as_a_terminal_hyperlink_is_read_once_and_clean(self):
+        self.start()                                      # what the CLI prints under Windows Terminal and WSL (WT_SESSION set)
+        self.say(f"Could not open the browser.\nIf the browser didn't open, visit: \x1b]8;;{self.PAGE}\x07{self.PAGE}\x1b]8;;\x07\n")
+        wait_for(self, lambda: self.opened)
+        self.settle()
+        self.assertEqual(self.opened, [self.PAGE])
+        self.assertEqual(sign_in.sign_in_details("claude")["page_url"], self.PAGE)
+
+    def test_a_hyperlink_ended_by_the_string_terminator_is_read_the_same(self):
+        self.start()
+        self.say(f"Could not open the browser.\nvisit: \x1b]8;id=1;{self.PAGE}\x1b\\{self.PAGE}\x1b]8;;\x1b\\\n")
+        wait_for(self, lambda: self.opened)
+        self.settle()
+        self.assertEqual(self.opened, [self.PAGE])
+        self.assertEqual(sign_in.sign_in_details("claude")["page_url"], self.PAGE)
+
+    def test_a_hyperlink_that_shows_words_instead_of_the_address_still_gives_its_target(self):
+        self.start()
+        self.say("Could not open the browser. Please \x1b]8;;https://claude.ai/oauth/authorize?x=1\x07sign in\x1b]8;;\x07 here.\n")
+        wait_for(self, lambda: self.opened)
+        self.assertEqual(self.opened, ["https://claude.ai/oauth/authorize?x=1"])
+
+    def test_colours_do_not_hide_the_failure_or_stick_to_the_page(self):
+        self.start()
+        self.say("\x1b[1mCould not open the browser\x1b[0m\nvisit \x1b[4mhttps://claude.ai/x\x1b[0m\n")
+        wait_for(self, lambda: self.opened)
+        self.settle()
+        self.assertEqual(self.opened, ["https://claude.ai/x"])
+
+    def test_a_page_of_another_site_inside_a_hyperlink_is_never_opened(self):
+        self.start()
+        self.say("Failed to open the browser\n\x1b]8;;https://evil.example/x\x07https://evil.example/x\x1b]8;;\x07 "
+                 "\x1b]8;;https://evil.example/claude.ai\x07https://claude.ai.evil.example/x\x1b]8;;\x07\n")
+        self.settle()
+        self.assertEqual(self.opened, [])
+        self.assertIsNone(sign_in.sign_in_details("claude")["page_url"])
+
     def test_a_broken_opener_is_not_fatal_and_the_sign_in_goes_on(self):
         sign_in.start_sign_in("claude", environ=self.env, opener=lambda url: 1 / 0)
         os.write(self.commands[0][1]["stdout"].fileno(), b"Could not open the browser\nhttps://claude.ai/x\n")
