@@ -35,7 +35,7 @@ POLICY = "qorqbot-native-runtime-v1"
 
 # Default native-core components. Anything else must be an explicitly excluded family or it needs a reviewed decision.
 CORE_COMPONENTS = ("qorqut-code", "qorqut-operations", "qorqut-context", "dashboard", "qorqut-agentic",
-                   "document-history", "email-management")
+                   "qorqut-system", "document-history", "email-management")
 # Components that never ship in the default payload. Matched by name token so a renamed checkout of one is still recognised.
 EXCLUDED_FAMILIES = (
     ("fastmail", re.compile(r"(?:^|-)fastmail(?:-|$)")),

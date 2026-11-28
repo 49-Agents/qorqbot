@@ -14,7 +14,7 @@ DOCS = ("qorqut-code/docs/", "qorqut-code/dashboard/docs/")
 DOC_FILES = {"README.md", "CONTRIBUTING.md", "RELEASES.md", "SECURITY.md", "LICENSE-SCOPE.md",
              "qorqut-code/README.md", "qorqut-agentic/README.md",
              "qorqut-code/qorqut-operations/README.md", "qorqut-code/qorqut-context/README.md",
-             "qorqut-code/tools/distribution/RUNTIME-CONTENTS.md"}
+             "qorqut-system/README.md", "qorqut-code/tools/distribution/RUNTIME-CONTENTS.md"}
 PACKAGING = ("qorqut-code/tools/distribution/", "qorqut-code/tools/export-",
              "qorqut-code/tools/prepare-local.py", "qorqut-code/tools/tests/")
 INSTALLATION = ("qorqut-code/app/qorqut/bootstrap/", "qorqut-code/app/qorqut/composition/",
@@ -27,6 +27,9 @@ BUNDLED = ("qorqut-code/extensions/google-calendar/", "qorqut-code/extensions/tr
            "qorqut-code/extensions/whatsapp/")
 BACKEND = ("qorqut-code/app/", "qorqut-code/qorqut-operations/", "qorqut-code/qorqut-context/",
            "qorqut-agentic/", "dependencies/", "qorqut-code/tools/")
+# The system layer ships in the package and is imported by every first-party package: its tests and the packaging
+# checks both depend on it.
+LAYER = ("qorqut-system/",)
 
 
 def select(paths, *, full=False):
@@ -37,6 +40,8 @@ def select(paths, *, full=False):
             continue
         if path.startswith((".github/", "qorqut-code/tools/ci/")):
             selected.update(dict.fromkeys(CHECKS, True))
+        elif path.startswith(LAYER):
+            selected.update(backend=True, distribution=True)
         elif path.startswith(PACKAGING + INSTALLATION):
             selected.update(backend=True, distribution=True, connectors=True)
         elif path.endswith(("pyproject.toml", "constraints.txt", ".lock")):

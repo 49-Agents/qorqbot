@@ -77,10 +77,11 @@ jobs:
           python -m pip install 'setuptools>=77.0.3' wheel 'psutil>=7,<8'
           python -m pip install --no-build-isolation -c qorqut-code/app/service-constraints.txt \
             ./qorqut-agentic ./dependencies/document-history \
-            ./qorqut-code/qorqut-operations ./qorqut-code/qorqut-context \
+            ./qorqut-code/qorqut-operations ./qorqut-code/qorqut-context ./qorqut-system \
             './qorqut-code/app[service]'
       - name: Run application and release-tool unit tests
         run: |
+          python -I -B -m unittest discover -s qorqut-system/tests
           python -I -B -m unittest discover -s qorqut-code/app/tests --durations 30
           python -I -B -m unittest discover -s qorqut-code/tools/tests
           python -I -B -m unittest discover -s qorqut-code/tools/distribution/tests

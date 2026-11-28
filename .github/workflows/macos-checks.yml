@@ -161,6 +161,8 @@ jobs:
           test_python="/tmp/qm-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/i/qorqbot/runtime/venv/bin/python"
           mkdir -p "$MAC_EVIDENCE/suite"
           status=0
+          "$test_python" -I -B -m unittest discover -s qorqut-system/tests >"$MAC_EVIDENCE/suite/system-tests.log" 2>&1 || status=1
+          tail -n 30 "$MAC_EVIDENCE/suite/system-tests.log"
           "$test_python" -I -B -m unittest discover -s qorqut-code/app/tests >"$MAC_EVIDENCE/suite/app-tests.log" 2>&1 || status=1
           tail -n 80 "$MAC_EVIDENCE/suite/app-tests.log"
           "$test_python" -I -B -m unittest discover -s qorqut-code/tools/distribution/tests >"$MAC_EVIDENCE/suite/distribution-tests.log" 2>&1 || status=1
