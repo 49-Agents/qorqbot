@@ -4,11 +4,10 @@ The generic prepared file executor: the host supplies the trusted file-target re
 ``FileApplier``) and the explicit lock directories; this module owns the receipts, claims and sequencing."""
 
 from contextlib import contextmanager, nullcontext
-import fcntl
-import os
 from uuid import UUID, uuid5
 
 from qorqut_operations.contracts import ChangeSet, DomainError, InvocationOptions, OperationResult, canonical_hash, plain
+from qorqut_system.locks import open_lock
 from .locks import LockPaths
 from .receipts import ApplyReceipts, IdempotencyReceipts
 from .queue_indexes import RECOVER_PENDING
@@ -28,15 +27,15 @@ def application_claim(locks: LockPaths, application_id):
         raise DomainError("validation_error", "Application claim requires a stable UUID") from exc
     directory = locks.application
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-    descriptor = os.open(directory / (application_id + ".lock"), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    handle = open_lock(directory, application_id + ".lock")
     try:
         try:
-            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            handle.acquire(exclusive=True, wait=False)
         except BlockingIOError as exc:
             raise DomainError("busy", "Prepared application is already running", retryable=True) from exc
         yield
     finally:
-        os.close(descriptor)
+        handle.close()
 
 
 class PreparedFileExecutor:

@@ -5,14 +5,13 @@ from __future__ import annotations
 import base64
 from contextlib import contextmanager
 from dataclasses import dataclass
-import fcntl
 import hashlib
-import os
 from pathlib import Path, PurePosixPath
 import time
 from uuid import UUID
 
 from qorqut_operations.contracts import ChangeSet, DomainError
+from qorqut_system import locks
 from .directories import DirectoryEffects, RegisteredDirectoryTarget, UNTOUCHED, STAGED, PUBLISHED, observe_directory
 from .directory_layout import ACTION as DIRECTORY_ACTION
 from .locks import LockPaths
@@ -114,12 +113,12 @@ class FileApplier:
             raise DomainError("validation_error", "Invalid application receipt ID") from exc
         root = self.locks.apply
         root.mkdir(mode=0o700, parents=True, exist_ok=True)
-        descriptor = os.open(root / (receipt_id + ".lock"), os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        handle = locks.open_lock(root, receipt_id + ".lock")
         started = time.monotonic()
         try:
             while True:
                 try:
-                    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    handle.acquire(exclusive=True, wait=False)
                     break
                 except BlockingIOError as exc:
                     if time.monotonic() - started >= self.database.busy_timeout:
@@ -127,7 +126,7 @@ class FileApplier:
                     time.sleep(0.01)
             yield
         finally:
-            os.close(descriptor)
+            handle.close()
 
     def release_unchanged(self, receipt_id, error: DomainError):
         """Release claims only after proving every managed file still has its before bytes."""
