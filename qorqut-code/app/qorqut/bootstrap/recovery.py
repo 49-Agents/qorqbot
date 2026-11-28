@@ -1,13 +1,12 @@
 """Session-local preparation failures, advisory only; never grant authority."""
 import hashlib
 import json
-import fcntl
-import os
 import re
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
+from qorqut_system import locks
 from .client import path_has_symlink, write_json_private
 
 DENIALS = frozenset({'forbidden', 'invalid_principal', 'inactive_agent', 'invalid_credential',
@@ -23,12 +22,8 @@ def locked(registration, session):
         return
     path = path.with_suffix('.lock')
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    descriptor = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
-    try:
-        fcntl.flock(descriptor, fcntl.LOCK_EX)
+    with locks.lock(path.parent, path.name, mode=0o600):
         yield
-    finally:
-        os.close(descriptor)
 
 
 def state_path(registration, session):

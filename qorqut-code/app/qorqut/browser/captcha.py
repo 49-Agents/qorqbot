@@ -29,7 +29,6 @@ the click and the wait only.
 from __future__ import annotations
 
 from collections import namedtuple
-import fcntl
 import json
 import logging
 import os
@@ -39,6 +38,7 @@ import time
 from urllib.parse import parse_qs, urlsplit
 
 from qorqut_operations.contracts import DomainError, utc_now
+from qorqut_system import locks, private_files
 
 from . import captcha_solver, tab_reference
 
@@ -498,11 +498,7 @@ def record(directory, entry):
     except OSError:
         pass
     try:
-        descriptor = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600)
-        try:
-            os.write(descriptor, (json.dumps(entry, sort_keys=True) + "\n").encode())
-        finally:
-            os.close(descriptor)
+        private_files.append_entry(directory, LOG, (json.dumps(entry, sort_keys=True) + "\n").encode(), mode=0o600)
     except OSError:
         logger.warning("Captcha: the attempt could not be written to %s", path)
 
@@ -546,13 +542,16 @@ def runner(runtime, agent_id):
         with (directory / "command.lock").open("a") as lock:
             try:
                 # The session's own command lock: no click or navigation of the same agent runs into the middle of this.
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                locks.acquire(lock, wait=False)
             except BlockingIOError:
                 raise browser.BrowserError("Another browser command is running in this workspace; wait for it to finish.") from None
-            started = time.monotonic()
-            key, provider = settings(runtime)
-            outcome = on_tab(endpoint, session, bool(pinned), key=key, provider=provider)
-            seconds = round(time.monotonic() - started, 1)
+            try:
+                started = time.monotonic()
+                key, provider = settings(runtime)
+                outcome = on_tab(endpoint, session, bool(pinned), key=key, provider=provider)
+                seconds = round(time.monotonic() - started, 1)
+            finally:
+                locks.release(lock)
         entry = {"at": utc_now(), "agent": agent_id, "seconds": seconds,
                  **{name: outcome.get(name) for name in ("captcha", "host", "type", "method", "code", "cost") if outcome.get(name) is not None}}
         record(runtime.paths.runtime, entry)

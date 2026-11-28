@@ -17,7 +17,6 @@ terminal.
 Nothing is written without consent. Revoking removes the consent file; folder trust already recorded in Claude Code's file
 stays, because it is that client's own record. Codex configuration is never written: Codex agents do not run in terminals.
 """
-import fcntl
 import json
 import os
 from pathlib import Path
@@ -26,6 +25,7 @@ import time
 
 from qorqut.atomic_write import atomic_write as _atomic_write
 from qorqut_operations.contracts import DomainError, utc_now
+from qorqut_system import locks, private_files
 
 CONSENT_FILE = "agent-trust.json"
 # A CLI rewrites its own file while it runs. A changed file between read and replace is read again, a bounded number of times.
@@ -151,15 +151,16 @@ def clients(environ=None) -> dict:
 def _replace_if_unchanged(path: Path, before, content: bytes) -> bool:
     """Replace ``path`` atomically unless it changed since ``before`` (a stat, or None for a file that did not exist)."""
     # Serializes Qorqbot's own writers; the CLI itself takes no part, which is what the unchanged check is for.
-    with open(Path(tempfile.gettempdir()) / f"qorqbot-cli-trust-{os.getuid()}.lock", "a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        try:
-            now = path.stat()
-        except FileNotFoundError:
-            now = None
-        if (now is None) != (before is None) or (now and (now.st_mtime_ns, now.st_size) != (before.st_mtime_ns, before.st_size)):
-            return False
-        _atomic_write(path, content, mode=(before.st_mode & 0o777) if before else 0o600)
+    lock_path = Path(tempfile.gettempdir()) / f"qorqbot-cli-trust-{private_files.user_key()}.lock"
+    with lock_path.open("a") as lock:
+        with locks.held(lock):
+            try:
+                now = path.stat()
+            except FileNotFoundError:
+                now = None
+            if (now is None) != (before is None) or (now and (now.st_mtime_ns, now.st_size) != (before.st_mtime_ns, before.st_size)):
+                return False
+            _atomic_write(path, content, mode=private_files.mode_of(before) if before else 0o600)
     return True
 
 

@@ -14,13 +14,11 @@ whatever revision it names, so a retry after a lost response is harmless; any ot
 block's ``before_id`` and ``after_id`` are kept for older layouts and never checked; ``card_ids`` (computed on every read,
 never stored) still lists the stored Focus card IDs for compatibility.
 """
-import fcntl
 import hashlib
 import json
 import logging
 import os
 import re
-import secrets
 import stat
 import time
 from contextlib import contextmanager
@@ -29,6 +27,8 @@ from pathlib import Path
 
 from qorqut_operations.application.plans import timestamp
 from qorqut_operations.contracts import DomainError
+from qorqut_system import locks, private_files
+from qorqut_system.errors import PrivateFileError
 from qorqut.management.identity import is_active_installation_owner
 
 logger = logging.getLogger(__name__)
@@ -186,12 +186,10 @@ def _owner_name(owner_id):
 
 
 def _open_directory(runtime_directory, *, create):
-    """The preferences directory as a descriptor (every later access is relative to it), or None when absent and not created."""
+    """The preferences directory as a folder handle (every later access is relative to it), or None when absent and not created."""
     directory = Path(runtime_directory) / 'dashboard-preferences'
     try:
-        if create:
-            directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-        descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        folder = private_files.open_folder(directory, create=create)
     except FileNotFoundError:
         if create:
             raise _unreadable('cannot be stored') from None
@@ -199,16 +197,16 @@ def _open_directory(runtime_directory, *, create):
     except OSError:
         logger.exception('Focus layout directory is not usable')
         raise _unreadable('cannot be reached') from None
-    if os.fstat(descriptor).st_uid != os.geteuid():
-        os.close(descriptor)
+    if not private_files.is_mine(private_files.stat_folder(folder)):
+        folder.close()
         raise _unreadable('are in a directory owned by another user')
-    return descriptor
+    return folder
 
 
 def _load(directory, name):
     """The stored per-agent entries; empty only when the file does not exist. Anything unreadable is an error, never an empty set."""
     try:
-        descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory)
+        descriptor = private_files.open_read(directory, name)
     except FileNotFoundError:
         return {}
     except OSError:
@@ -217,7 +215,7 @@ def _load(directory, name):
     try:
         with os.fdopen(descriptor, 'rb') as stream:
             status = os.fstat(stream.fileno())
-            if not stat.S_ISREG(status.st_mode) or status.st_mode & 0o077 or status.st_uid != os.geteuid():
+            if not stat.S_ISREG(status.st_mode) or not private_files.is_private_and_mine(status):
                 raise _unreadable('are not a private regular file')
             data = stream.read(MAX_STORE_BYTES + 1)
     except OSError:
@@ -229,10 +227,7 @@ def _load(directory, name):
 
 
 def _remove(directory, name):
-    try:
-        os.unlink(name, dir_fd=directory)
-    except FileNotFoundError:
-        pass
+    private_files.remove_entry(directory, name, missing_ok=True)
 
 
 def _replace(directory, name, agents, prefix):
@@ -244,27 +239,13 @@ def _replace(directory, name, agents, prefix):
                          sort_keys=True).encode('utf-8')
     if len(payload) > MAX_STORE_BYTES:
         raise DomainError('validation_error', 'The limit of saved Focus layout text is reached')
-    temporary = prefix + secrets.token_hex(8)
     try:
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory)
-        try:
-            os.fchmod(descriptor, 0o600)
-            with os.fdopen(descriptor, 'wb') as stream:
-                descriptor = None
-                stream.write(payload)
-                stream.flush()
-                os.fsync(stream.fileno())
-        finally:
-            if descriptor is not None:
-                os.close(descriptor)
-        os.replace(temporary, name, src_dir_fd=directory, dst_dir_fd=directory)
+        private_files.replace_entry(directory, name, payload, mode=0o600, prefix=prefix)
     except OSError:
         logger.exception('Focus layouts could not be saved')
         raise _unreadable('could not be saved') from None
-    finally:
-        _remove(directory, temporary)
     try:
-        os.fsync(directory)
+        private_files.sync_folder(directory)
     except OSError:
         logger.exception('Focus layout directory could not be flushed after the swap')
         raise DomainError('operation_failed', 'The Focus layout may have been saved but could not be confirmed durable; '
@@ -275,15 +256,15 @@ def _replace(directory, name, agents, prefix):
 def _locked(directory, name):
     """Exclusive cross-process lock for one owner's store; a stuck holder becomes a retryable error, not a hung request."""
     try:
-        descriptor = os.open(name, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600, dir_fd=directory)
-    except OSError:
+        handle = locks.open_lock(directory, name)
+    except (OSError, PrivateFileError):
         logger.exception('Focus layout lock could not be opened')
         raise _unreadable('could not be locked') from None
     try:
         deadline = time.monotonic() + LOCK_SECONDS
         while True:
             try:
-                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                handle.acquire(wait=False)
                 break
             except BlockingIOError:
                 if time.monotonic() >= deadline:
@@ -292,9 +273,9 @@ def _locked(directory, name):
         try:
             yield
         finally:
-            fcntl.flock(descriptor, fcntl.LOCK_UN)
+            handle.release()
     finally:
-        os.close(descriptor)
+        handle.close()
 
 
 def _entry(agents, agent_id):
@@ -316,7 +297,7 @@ def read_layout(runtime_directory, owner_id, agent_id):
     try:
         return _public(*_entry(_load(directory, prefix + '.focus-layouts.json'), agent_id))
     finally:
-        os.close(directory)
+        directory.close()
 
 
 def save_layout(runtime_directory, owner_id, agent_id, change):
@@ -328,7 +309,7 @@ def save_layout(runtime_directory, owner_id, agent_id, change):
         with _locked(directory, prefix + '.focus-layouts.lock'):
             # Every writer of this owner's store holds the lock, so a leftover temporary file belongs to a crashed writer.
             temporary = '.' + prefix + '.focus-layouts-'
-            for leftover in (name for name in os.listdir(directory) if name.startswith(temporary)):
+            for leftover in (name for name in private_files.list_entries(directory) if name.startswith(temporary)):
                 _remove(directory, leftover)
             name = prefix + '.focus-layouts.json'
             agents = _load(directory, name)
@@ -346,7 +327,7 @@ def save_layout(runtime_directory, owner_id, agent_id, change):
             _replace(directory, name, {**agents, agent_id: entry}, temporary)
             return _public(revision + 1, blocks, statuses)
     finally:
-        os.close(directory)
+        directory.close()
 
 
 def _owned_agent(runtime, ctx, agent_id):
