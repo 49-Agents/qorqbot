@@ -17,6 +17,7 @@ from qorqut_agentic.changes import normalize_attribution, package_ids_of
 from qorqut_agentic.store import Store
 from qorqut import file_identity
 from qorqut.private_files import fsync_directory, read_private_file, require_private_directory
+from qorqut_system import private_files
 from . import (layout_activation, layout_files, layout_git, layout_intent, managed_ancestry, managed_binding,
                managed_feed, managed_files, managed_git, managed_intent, managed_journal, managed_plan,
                managed_runtime_evidence, provisioning)
@@ -39,7 +40,7 @@ def _publish_intent(path, raw):
         if read_private_file(path, max_bytes=MAX_INTENT_BYTES) != raw:
             raise _conflict('Managed intent differs from retained evidence')
         return
-    parent = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    parent = private_files.open_folder(directory).descriptor
     try:
         pending = posix_files.anonymous_file(parent)
         try:
@@ -49,10 +50,10 @@ def _publish_intent(path, raw):
                 if count <= 0:
                     raise OSError('short intent write')
                 view = view[count:]
-            os.fchmod(pending.fd, 0o600)
-            os.fsync(pending.fd)
+            private_files.set_private(pending.fd, mode=0o600)
+            private_files.sync_folder(pending.fd)
             posix_files.publish(pending, parent, path.name)
-            os.fsync(parent)
+            private_files.sync_folder(parent)
         finally:
             posix_files.discard(pending)
     finally:
@@ -107,9 +108,9 @@ def _provision_before(paths, plan):
     identities = {}
     for item in actual['items']:
         if item['state'] == 'ready':
-            info = os.stat(item['path'], follow_symlinks=False)
+            info = private_files.stat_folder(item['path'])
             identities[item['name']] = {'device': info.st_dev, 'inode': info.st_ino,
-                                        'mode': stat.S_IMODE(info.st_mode), 'uid': info.st_uid}
+                                        'mode': stat.S_IMODE(info.st_mode), 'uid': private_files.owner_of(info)}
         else:
             identities[item['name']] = None
     return {'original': identities, 'created': {}, 'pending': None, 'result': None}
@@ -134,17 +135,17 @@ def _provision_verify(paths, plan, journal):
         if initial['state'] == 'ready':
             if current['state'] != 'ready':
                 raise _conflict('Preserved private root disappeared')
-            info = os.stat(current['path'], follow_symlinks=False)
+            info = private_files.stat_folder(current['path'])
             if not file_identity.matches(identity, {'device': info.st_dev, 'inode': info.st_ino, 'mode': stat.S_IMODE(info.st_mode),
-                                                    'uid': info.st_uid}, file_identity.parent_volume(current['path'])):
+                                                    'uid': private_files.owner_of(info)}, file_identity.parent_volume(current['path'])):
                 raise _conflict('Preserved private root identity changed')
         elif current['state'] == 'ready':
             created = journal['provisioning']['created'].get(name)
             if created is None:
                 raise _conflict('Ambiguous managed provisioning interruption for plan ' + plan['plan_digest'] + ': ' + current['path'])
-            info = os.stat(current['path'], follow_symlinks=False)
+            info = private_files.stat_folder(current['path'])
             if (not file_identity.matches(created, {'device': info.st_dev, 'inode': info.st_ino, 'mode': stat.S_IMODE(info.st_mode),
-                                                    'uid': info.st_uid}, file_identity.parent_volume(current['path']))
+                                                    'uid': private_files.owner_of(info)}, file_identity.parent_volume(current['path']))
                     or stat.S_IMODE(info.st_mode) != 0o700):
                 raise _conflict('Created private root identity changed: ' + current['path'])
             root = Path(current['path'])
@@ -168,7 +169,7 @@ def _provision(paths, intent, journal, save):
         parent = Path(item['path']).parent
         if not parent.is_absolute() or any(p.is_symlink() for p in (parent, *parent.parents)):
             raise _conflict('Unsafe private provisioning parent')
-        info = os.stat(parent, follow_symlinks=False)
+        info = private_files.stat_folder(parent)
         expected = {'name': item['name'], 'path': item['path'],
                     'parent': {'device': info.st_dev, 'inode': info.st_ino}}
         pending = provision['pending']
@@ -186,7 +187,7 @@ def _provision(paths, intent, journal, save):
             raise _conflict('Managed retained evidence changed before provisioning')
         if any(p.is_symlink() for p in (parent, *parent.parents)):
             raise _conflict('Private provisioning parent became unsafe')
-        observed = os.stat(parent, follow_symlinks=False)
+        observed = private_files.stat_folder(parent)
         if {'device': observed.st_dev, 'inode': observed.st_ino} != expected['parent']:
             raise _conflict('Private provisioning parent identity changed')
         _provision_verify(paths, plan, journal)
@@ -244,7 +245,7 @@ def _check_git(paths, intent, journal, *, allow_index_lock=False):
         raise _conflict('Managed Git HEAD changed')
     if os.path.lexists(paths.agentic_root / '.git/index.lock') and not allow_index_lock:
         raise _conflict('Unexpected Git index lock')
-    fd = os.open(paths.agentic_root / '.git', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    fd = private_files.open_folder(paths.agentic_root / '.git').descriptor
     try:
         held, _, index = layout_git._read_index_at(fd, 'index')
         os.close(held)
@@ -557,7 +558,7 @@ def apply(paths, plan, *, attribution, acknowledge_grants=False):
             _check_runtime(paths, intent, after=False, commit=None)
             original = base64.b64decode(intent['index']['content_base64'], validate=True)
             final = managed_git.verify(paths, intent, journal['git'], history_directory(paths))
-            gitfd = os.open(paths.agentic_root / '.git', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            gitfd = private_files.open_folder(paths.agentic_root / '.git').descriptor
             try:
                 def check(lockfd, *, expected):
                     if managed_journal.read(journal_path) != journal:

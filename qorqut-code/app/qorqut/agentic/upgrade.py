@@ -33,6 +33,7 @@ from .support import relative
 from .provisioning import apply as provision_apply, plan as provision_plan
 from .support import canonical
 from qorqut.private_files import fsync_directory, read_private_file, require_private_directory
+from qorqut_system import private_files
 
 BINDING_VERSION = 2
 _replace = os.replace
@@ -198,10 +199,10 @@ def _profile_grants(paths, *, immutable=False):
                 raise OSError("unsafe database path")
             wal = database.with_name(database.name + "-wal")
             if os.path.lexists(wal):
-                info = os.stat(wal, follow_symlinks=False)
+                info = private_files.stat_folder(wal)
                 if not stat.S_ISREG(info.st_mode) or info.st_size:
                     raise OSError("database WAL requires offline checkpoint")
-            descriptor = os.open(database, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            descriptor = private_files.open_read(database.parent, database.name, nonblock=True)
             info = os.fstat(descriptor)
             if not stat.S_ISREG(info.st_mode) or info.st_size > 1024 * 1024 * 1024:
                 raise OSError("unsafe or oversized database")
@@ -552,5 +553,5 @@ def _write_private_temp(directory, raw):
 def _tempfile(directory):
     import tempfile
     descriptor, name = tempfile.mkstemp(prefix=".agentic-layer.", dir=directory)
-    os.chmod(name, 0o600)
+    private_files.set_private(name, mode=0o600)
     return descriptor, name
