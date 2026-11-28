@@ -223,7 +223,7 @@ test('an entry that records a Stop is a quiet centred notice, not the owner’s 
 
 test('the question card never covers the last message: the end of the list is read before the card appears and kept after the repaint', () => {
   const paint = between('  function paint(patch = {}, scroll', '  const paintEntries');
-  const read = paint.indexOf('view?.isAtBottom'), sync = paint.indexOf('syncManaged()'), render = paint.indexOf('view.render('), keep = paint.indexOf('view.scrollToBottom()');
+  const read = paint.indexOf('view?.isAtBottom'), sync = paint.indexOf('syncManaged('), render = paint.indexOf('view.render('), keep = paint.indexOf('view.scrollToBottom()');
   assert.ok(read > 0 && read < sync && sync < render && render < keep, 'read the position, show the card, repaint, then keep the end in view');
   const css = fs.readFileSync(path.join(__dirname, '../css/managed-chat.css'), 'utf8');
   assert.match(css, /\.mchat-card \{[^}]*max-height: 45vh/);

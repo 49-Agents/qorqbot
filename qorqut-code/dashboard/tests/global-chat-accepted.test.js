@@ -60,3 +60,35 @@ test('one transcript entry settles only one of two identical sends', () => {
   assert.equal(fixture(['hello ', 'hello '], ['hello']).match().length, 1);
   assert.equal(fixture(['hello ', 'hello '], ['hello', 'hello']).match().length, 0);
 });
+
+// The first message to an agent whose session was never started: it is accepted under the agent's opening scope while no
+// conversation exists yet, and the session goes live with an empty transcript a few seconds before the message is captured.
+test('the message that opened a session stays on screen until its transcript entry arrives, and is shown once', () => {
+  const scopeLines = ['globalChatKey', 'globalChatScope'].map(name => source.match(new RegExp(`^const ${name} = .*;$`, 'm'))[0]).join('\n');
+  const accepted = new Map(), entries = new Map(), page = {conversation: null, live: false};
+  const bubbles = new Function('GLOBAL_CHAT_ACCEPTED', 'entries', 'page', `
+    ${normalizer}
+    ${scopeLines}
+    ${source.match(/^const GLOBAL_CHAT_ECHO_SLACK = .*;$/m)[0]}
+    const GLOBAL_CHAT_HIDDEN = new Set(), agentId = 'agent', inputs = [], GLOBAL_CHAT_INPUT_STATE = {waiting: 'Sending…', submitted: 'Sent'};
+    const viewingLive = () => page.live;
+    let conversation;
+    ${source.slice(start, end)}
+    return () => { conversation = page.conversation; return acceptedBubbles(new Set()); };
+  `)(accepted, entries, page);
+  // What submit records once the message is accepted (globalChatAccept), under the scope the composer had: the opening one.
+  accepted.set('agent\nmanaged', {records: [{id: 'input-1', entry: null, text: 'hi, help me get set up', position: -1, command: false,
+    state: 'waiting', sequence: 1, createdAt: Date.parse('2026-11-27T10:00:00Z')}], consumed: new Set()});
+  const texts = () => bubbles().map(row => row.model.text);
+  // Live, with nothing captured yet: the server sends no conversation.
+  page.live = true;
+  assert.deepEqual(texts(), ['hi, help me get set up']);
+  // The conversation is captured, still without the owner's message.
+  page.conversation = {provider: 'claude', conversation_id: 'c-1'};
+  assert.deepEqual(texts(), ['hi, help me get set up']);
+  assert.equal(accepted.has('agent\nmanaged'), false);
+  // Its own entry arrives: the bubble goes, so it is never shown twice.
+  entries.set('e-1', {id: 'e-1', speaker: 'user', text: 'hi, help me get set up', position: 0, timestamp: '2026-11-27T10:00:12Z'});
+  assert.deepEqual(texts(), []);
+  assert.deepEqual(texts(), []);
+});

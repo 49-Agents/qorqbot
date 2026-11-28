@@ -180,7 +180,14 @@ a thread omits the card's nested channel composer when its channel is the enclos
 Native Chat combines contiguous verified inbox nudges and trusted outgoing agent messages into
 `notice.activity: {nudgeCount, recipients: [{id, name, glyphHtml}]}` with `markerOnly: true`. The first entry
 supplies the key and position; each render recomputes counts and first-seen distinct recipients from
-the ordered ID-keyed transcript. Other entries break a run. Each `glyphHtml` comes from the trusted local
+the ordered ID-keyed transcript. Other entries break a run. Inbox nudges count only in Testing mode
+(`testingModeEnabled()`); otherwise they are left out, so a run of nudges alone shows nothing.
+Native Chat passes the view only an agent's conversation messages: the reply that ends a turn (`partial: false`, or a
+`completion_sequence`) and a card's message (`references`). A mid-work line (an agent entry with neither, and `partial`
+not `false`) is left out before runs are built, so it never splits one, and is passed only in Testing mode, where it renders as
+before (`partial: true` for Claude's). An entry that later gets its completion is passed from the next read on. While the agent
+works, the newest mid-work line of the live conversation is shown in the activity line instead (plain text, one clipped line,
+the whole text as its `title`). Each `glyphHtml` comes from the trusted local
 agent glyph renderer, never server HTML. The shared view displays icons in a compact left-aligned row
 without navigation; escaped names appear only as accessible labels. Missing glyphs use a neutral local
 fallback. Legacy `notice.agentMessage` markers remain supported;

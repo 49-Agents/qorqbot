@@ -25,6 +25,8 @@ const agentClients = (() => {
   // What a button says while its request is on the way, so it never sits disabled without a reason.
   const BUSY = {download: 'Starting…', connect: 'Opening your browser…', switch: 'Opening sign-in…', cancel_download: 'Cancelling…',
     cancel_connect: 'Cancelling…', use_other: 'Switching…'};
+  // Claude's sign-in, when no page opened on this screen: the code the page shows can be pasted here.
+  const SIGNIN_FALLBACK = 'Page did not open, or Qorqbot runs on another computer? Open the sign-in page yourself and paste the code it shows.';
   // How long "Switched just now" stays on the row.
   const SWITCHED_MS = 10 * 60 * 1000;
   // The products' marks, drawn before their names (simple-icons, CC0). Claude in its own colour, the OpenAI mark in the text colour.
@@ -63,9 +65,11 @@ const agentClients = (() => {
     if (when.toDateString() === new Date(now).toDateString()) return `at ${time}`;
     return `${when.toLocaleDateString([], {month: 'short', day: 'numeric'})}, ${time}`;
   }
-  // The sentence about agents after a completed switch (`switched.restarted` and the like are counts).
+  // The sentence about agents after a completed switch (`switched.restarted` and the like are counts). A first sign-in (no account
+  // was signed in before: `previous_account` is null) switched nothing, so the row shows only its ready text.
   function switchedNote(switched, now) {
     if (!switched || typeof switched !== 'object') return '';
+    if (!switched.previous_account || typeof switched.previous_account !== 'object') return '';
     const at = Date.parse(str(switched.at));
     if (Number.isNaN(at) || now - at > SWITCHED_MS) return '';
     const count = key => Math.max(0, Math.floor(Number(switched[key]) || 0));
@@ -171,11 +175,11 @@ const agentClients = (() => {
     const act = (id, label, kind = 'primary') => row.actions.push({id, label, kind, aria: id === 'download' && row.key === 'error' ? `Try again to download ${name}` : ARIA[id]});
     if (signingIn(it)) {
       const s = row.signin = signInState(provider, it, pending);
-      // A code to type on the page replaces the browser window; a code to paste here is for when no window opened.
+      // A code to type on the page replaces the browser window; a code to paste here is for when no window opened. The view does
+      // not say whether a window opened (Qorqbot may run on another computer), so the words hold either way.
       const help = s.userCode ? 'Open the sign-in page on any device and type the code below. This page updates when you are done.'
-        : 'Finish signing in in the browser window that opened. This page updates when you are done.';
-      const fallback = s.acceptsCode ? 'No window, or Qorqbot runs on another computer? Open the page yourself and paste the code it shows.'
-        : s.pageUrl && !s.userCode ? 'No window? Open the sign-in page yourself.' : '';
+        : 'Finish signing in on the sign-in page. This page updates when you are done.';
+      const fallback = s.acceptsCode ? SIGNIN_FALLBACK : s.pageUrl && !s.userCode ? 'Page did not open? Open the sign-in page yourself.' : '';
       Object.assign(row, {key: 'connecting', pill: 'Signing in', tone: 'info', detail: help, notes: [fallback, stillSignedIn(s)].filter(Boolean)});
       act('cancel_connect', 'Cancel', 'quiet');
     } else if (phase(it) === 'downloading' && !it.installed) {
@@ -418,8 +422,8 @@ const agentClients = (() => {
     const start = limit ? 'switch' : 'connect';
     if (notice.signin) {
       const s = notice.signin;
-      Object.assign(notice, {key: 'signing', text: s.userCode ? 'Open the sign-in page and type the code shown here.' : 'Finish signing in in the browser window that opened.',
-        small: [s.acceptsCode ? 'No window, or Qorqbot runs on another computer? Open the page yourself and paste the code it shows.' : '', stillSignedIn(s)].filter(Boolean).join(' ')});
+      Object.assign(notice, {key: 'signing', text: s.userCode ? 'Open the sign-in page and type the code shown here.' : 'Finish signing in on the sign-in page.',
+        small: [s.acceptsCode ? SIGNIN_FALLBACK : '', stillSignedIn(s)].filter(Boolean).join(' ')});
       act('cancel_connect', 'Cancel', 'quiet', `Cancel signing in to ${name}`);
     } else if (attempted && it.switched && it.switched.state === 'restarting') {
       // The new sign-in is in: the session restarts and this notice goes with the problem.

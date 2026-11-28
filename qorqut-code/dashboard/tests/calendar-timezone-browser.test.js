@@ -8,7 +8,8 @@ const executable = process.env.CHROME_PATH || chromium?.executablePath();
 const available = !!chromium && fs.existsSync(executable);
 const root = path.join(__dirname,'..');
 
-async function fixture(browser, browserZone, appZone = 'UTC') {
+// `configured` is the calendar list's answer; `testing`, when given, is the Testing mode switch (js/testing-mode.js).
+async function fixture(browser, browserZone, appZone = 'UTC', {configured = true, testing} = {}) {
   const context = await browser.newContext({viewport:{width:1200,height:800},timezoneId:browserZone,locale:'en-US'});
   const page = await context.newPage(), errors = [];
   page.on('pageerror',error=>errors.push(error.message));
@@ -16,8 +17,9 @@ async function fixture(browser, browserZone, appZone = 'UTC') {
   await page.setContent('<div id="calendar"></div>');
   await page.clock.install({time:new Date('2026-11-11T02:54:00Z')});
   for (const file of ['app.css','css/global-calendar.css']) await page.addStyleTag({path:path.join(root,file)});
-  await page.evaluate(() => {
+  await page.evaluate(({configured,testing}) => {
     window.$ = (selector,host=document)=>host.querySelector(selector);
+    if (testing !== undefined) window.testingModeEnabled = ()=>testing;
     window.esc = value=>String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     window.coreData = value=>value;
     window.accessLost = ()=>false;
@@ -34,17 +36,18 @@ async function fixture(browser, browserZone, appZone = 'UTC') {
     ];
     window.post = async (url,args)=>{
       calls.push({url,args:structuredClone(args)});
-      if (url.endsWith('calendar_calendars_list')) return {configured:true,errors:[],calendars:[{connection_id:'conn',id:'cal',name:'Work',writable:true,organizers:[]}]};
+      if (url.endsWith('calendar_calendars_list')) return configured ? {configured:true,errors:[],calendars:[{connection_id:'conn',id:'cal',name:'Work',writable:true,organizers:[]}]} : {configured:false,errors:[],calendars:[]};
       if (url.endsWith('calendar_events_list')) return {events:structuredClone(events),next_cursor:null};
       throw new Error('Unexpected request '+url);
     };
-  });
+  },{configured,testing});
   for (const file of ['san-juan-time','global-calendar']) await page.addScriptTag({path:path.join(root,'js',file+'.js')});
   await page.evaluate(zone=>{
     sjConfigure({operational_timezone:zone});
     window.disposeCalendar = calendarMount(document.querySelector('#calendar'));
   },appZone);
-  await page.waitForFunction(()=>document.querySelector('.calendar-status').textContent==='');
+  await page.waitForFunction(done=>document.querySelector('.calendar-status').textContent.startsWith(done),configured ? '' : 'No calendar connected yet.');
+  if (configured) await page.waitForFunction(()=>document.querySelector('.calendar-status').textContent==='');
   return {context,page,errors};
 }
 
@@ -133,5 +136,35 @@ test('a UTC browser renders app-local overnight segments on their correct dates'
       assert.equal(await page.locator('.calendar-all-day-cell').nth(2).textContent(),'Veterans Day');
       assert.equal(await page.evaluate(()=>calls.find(c=>c.url.endsWith('calendar_events_list')).args.start),'2026-11-09T05:00:00.000Z');
       assert.deepEqual(errors,[]);
+    } finally { await browser.close(); }
+  });
+
+test('with no calendar connected the Calendar says only that, and links the developer guide in Testing mode alone',
+  {skip:!available && 'Local Playwright Chromium is unavailable'}, async () => {
+    const browser = await chromium.launch({headless:true,executablePath:executable});
+    try {
+      for (const testing of [undefined,false,true]) {
+        const {context,page,errors} = await fixture(browser,'UTC','UTC',{configured:false,testing});
+        try {
+          const status = page.locator('.calendar-status'), label = `testing ${testing}`;
+          assert.equal(await page.evaluate(()=>calendarConnection.state),'none',label);
+          assert.equal(await page.evaluate(()=>calls.filter(c=>c.url.endsWith('calendar_events_list')).length),0,label);
+          assert.doesNotMatch(await status.textContent(),/technical setup|Google Calendar/,label);
+          const links = await page.locator('.calendar-page a').evaluateAll(list=>list.map(a=>a.href));
+          if (testing) {
+            assert.equal(await status.textContent(),'No calendar connected yet. Calendar guide');
+            assert.equal(links.length,1); assert.match(links[0],/^https:\/\/github\.com\//);
+          } else {
+            assert.equal(await status.textContent(),'No calendar connected yet.',label);
+            assert.deepEqual(links,[],label);
+            assert.equal((await page.locator('#calendar').innerHTML()).includes('github.com'),false,label);
+          }
+          assert.deepEqual(errors,[],label);
+        } finally { await context.close(); }
+      }
+      // A connected calendar is learnt when the Calendar opens.
+      const {context,page} = await fixture(browser,'UTC');
+      assert.equal(await page.evaluate(()=>calendarConnection.state),'connected');
+      await context.close();
     } finally { await browser.close(); }
   });

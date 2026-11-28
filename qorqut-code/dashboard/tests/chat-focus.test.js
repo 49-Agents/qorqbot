@@ -301,16 +301,44 @@ browserTest('focus paints while chat history is pending and remounts from the sh
   }finally{await browser.close();}
 });
 
-browserTest('workflow focus shows its name and intent without steps or Todo rows',async()=>{
+browserTest('workflow focus is titled by its intent, never its reference, without steps or Todo rows',async()=>{
   const {browser,page,errors}=await fixture();
   try {
-    await page.evaluate(()=>{attentions.ord={state:'focused',focus:{type:'workflow',label:'Release UI'},intent:'Finish the approved release.',workflow:{steps:[{label:'Must not render',status:'active'}]}};});
+    await page.evaluate(()=>{
+      // The server labels a workflow focus with the raw reference and each step with its raw id.
+      attentions.ord={state:'focused',focus:{type:'workflow',id:'run-1',label:'agentic-management/get-set-up'},intent:'Getting set up',
+        workflow:{name:'agentic-management/get-set-up',steps:[{id:'about-you',label:'about-you',status:'active',current:true},{id:'voice-input',label:'voice-input',status:'pending'}]}};
+      attentions.atlas={state:'focused',focus:{type:'workflow',id:'run-2',label:'agentic-management/review_open-work'},intent:''};
+      profiles.push(profile('atlas'));mount();
+    });
     await page.clock.fastForward(12000);
-    await page.waitForFunction(()=>document.querySelector('.gchat-focus-label').textContent==='Release UI');
-    assert.equal(await page.locator('.gchat-focus-intent').innerText(),'Finish the approved release.');
-    assert.ok(!(await page.locator('.wfpanel').innerText()).includes('Must not render'));
+    await page.waitForFunction(()=>document.querySelector('.gchat-focus-label').textContent==='Getting set up'
+      && document.querySelector('.wfpanel-agent-focus')?.textContent==='Review open work');
+    // The intent is the title, so it is not repeated as the line below.
+    assert.equal(await page.locator('.gchat-focus-intent').isVisible(),false);
+    assert.equal(await page.locator('.gchat-focus-intent').textContent(),'');
+    assert.equal(await page.locator('.wfpanel-agent').getAttribute('aria-label'),'atlas: Review open work');
+    const visible=await page.locator('.wfpanel').innerText();
+    for(const raw of ['/','agentic-management','get-set-up','about-you','voice-input','review_open-work'])assert.ok(!visible.includes(raw),raw+' is shown: '+visible);
     assert.equal(await page.locator('.wfpanel-step,.wfpanel-steps').count(),0);
     assert.deepEqual(await page.evaluate(()=>todoReads),[]);
+    assert.deepEqual(errors,[]);
+  }finally{await browser.close();}
+});
+
+browserTest('workflow focus without an intent shows the reference\'s last part in plain words',async()=>{
+  const {browser,page,errors}=await fixture();
+  try {
+    await page.evaluate(()=>{attentions.ord={state:'focused',focus:{type:'workflow',id:'run-1',label:'agentic-management/get-set-up'},intent:'  '};});
+    await page.clock.fastForward(12000);
+    await page.waitForFunction(()=>document.querySelector('.gchat-focus-label').textContent==='Get set up');
+    assert.equal(await page.locator('.gchat-focus-intent').isVisible(),false);
+    assert.ok(!(await page.locator('.wfpanel').innerText()).includes('/'));
+    // A Task focus keeps its own title and intent line.
+    await page.evaluate(()=>{attentions.ord={state:'focused',focus:{type:'task',id:'launch',label:'Coordinate launch'},intent:'Check the remaining tasks.'};});
+    await page.clock.fastForward(12000);
+    await page.waitForFunction(()=>document.querySelector('.gchat-focus-label').textContent==='Coordinate launch');
+    assert.equal(await page.locator('.gchat-focus-intent').innerText(),'Check the remaining tasks.');
     assert.deepEqual(errors,[]);
   }finally{await browser.close();}
 });

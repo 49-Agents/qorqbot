@@ -26,6 +26,9 @@ browserTest('compact activity groups ordered transcript entries and renders safe
       window.agentGlyph = (meta, size) => { glyphCalls.push({meta, size}); return '<svg data-trusted="yes" aria-hidden="true"><circle cx="8" cy="8" r="6"/></svg>'; };
       window.globalChatNoticeLabel = system => system?.verified ? system.input_type : 'Unverified notice';
       window.globalChatMarkerOnly = type => ['inbox_nudge', 'bootstrap_recovery'].includes(type);
+      // Inbox nudge markers are shown only in Testing mode.
+      window.testing = true;
+      window.testingModeEnabled = () => window.testing;
     });
     await page.addScriptTag({path: path.join(root, 'js/safe-links.js')});
     await page.addScriptTag({path: path.join(root, 'js/chat-view.js')});
@@ -63,6 +66,11 @@ browserTest('compact activity groups ordered transcript entries and renders safe
     assert.equal(await rows.first().locator('[title]').count(), 0);
     assert.match(await rows.first().innerHTML(), /A &amp; &lt;B&gt;/);
     assert.equal(await rows.first().getAttribute('data-id'), 'n1');
+    // Testing mode off: no inbox nudge marker, and a run of nudges alone shows nothing.
+    await page.evaluate(() => { window.testing = false; draw([nudge('n1', 1), message('m1', 2, recipient('x','X')), nudge('n2', 3), {id:'user', position:4, speaker:'user', text:'hello'}, nudge('n3', 5)]); });
+    assert.deepEqual(await rows.allTextContents(), ['messaged', 'hello']);
+    assert.equal(await page.locator('.gchat-log').evaluate(el => /inbox nudge/i.test(el.textContent)), false);
+    await page.evaluate(() => { window.testing = true; });
     await page.evaluate(() => draw([message('malformed', 1, null)]));
     assert.equal(await rows.first().locator('[role=img]').getAttribute('aria-label'), 'Agent');
     assert.equal(await rows.first().locator('svg[data-trusted=yes]').count(), 1);

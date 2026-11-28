@@ -121,6 +121,8 @@ function agentPaneViewAllowed(roleId, view) {
   // Testing mode only: Timeline, Journal, Files and Context.
   if (view === "files" || view === "timeline" || view === "journal" || view === "context_graph") return roleId === "ordubashy" && typeof testingModeEnabled === "function" && testingModeEnabled();
   if (view === "explorer" || view === "work") return roleId === "ordubashy";
+  // Calendar only while a calendar is known to be connected (js/global-calendar.js); unknown or none hides it.
+  if (view === "calendar" && !(typeof calendarConnection === "object" && calendarConnection.connected())) return false;
   return view !== "threads" && !(view === "journal" && roleId !== "ordubashy") && !AGPAD_RETIRED_PANE_VIEWS.has(view)
     && !(view === "viewbox" && roleId === "learning-applier");
 }
@@ -200,6 +202,22 @@ function agpadWorkspaceViewsSync(p) {
 if (typeof testingModeSubscribe === 'function') testingModeSubscribe(() => {
   if (_agpad?.workspaceRole === 'ordubashy') agpadWorkspaceViewsSync(_agpad);
 });
+// The Calendar view and its Focus launcher follow whether a calendar is connected. global-calendar.js loads after this file,
+// so the first registered agent pane starts the watch and the one start-up check.
+let agpadCalendarWatched = false;
+function agpadCalendarWatch() {
+  if (agpadCalendarWatched || typeof calendarConnection !== "object") return;
+  agpadCalendarWatched = true;
+  calendarConnection.subscribe(() => {
+    const p = _agpad;
+    if (!p) return;
+    // Where Focus holds the Calendar launcher only the view list changes; the open view is never re-mounted for it.
+    if (agpadFocusSurfaces(p) && p.view !== "calendar") p.views = agentPaneViews(p.workspaceScope, p.workspaceRole, p.workspaceBase, agpadBrowserTab(p), p.agentId);
+    else agpadWorkspaceViewsSync(p);
+    p.focusSurfaces?.paint?.();
+  });
+  void calendarConnection.check();
+}
 
 function agpadWorkspaceMount(p, view) {
   if (!agentPaneViewAllowed(p.workspaceRole, view)) return;
@@ -256,6 +274,17 @@ function agTakeLinkedWorkspace(hash) {
 function agpadRequestView(p, view) {
   // Built-in views keep their camelCase keys (attentionBoard was one); registered workspace types are lowercase.
   if (typeof view !== "string" || !(p.views.includes(view) || /^[a-z][a-z0-9_]{0,63}$/.test(view))) return false;
+  // A Calendar link that arrives before the start-up check has answered waits for it (the default view stays usable), and is
+  // honored only if a calendar turns out to be connected and the owner has not moved elsewhere.
+  if (view === "calendar" && typeof calendarConnection === "object" && calendarConnection.state === "unknown") {
+    if (!p.viewShown) agpadSetView(p, p.views[0]);
+    const pending = p.pendingView = {view};
+    return calendarConnection.check().then(() => {
+      if (p.pendingView !== pending) return false;
+      p.pendingView = null;
+      return _agpad === p && calendarConnection.connected() ? agpadRequestView(p, view) : false;
+    });
+  }
   if (!agentPaneViewAllowed(p.workspaceRole, view)) return false;
   // Tables lives in the shared drawer: the retired key never adds a tab (links translate first).
   if (view === "tables") return false;
@@ -442,6 +471,7 @@ function agpadMount(name, el, options = {}) {
   if (initialView === "desktop" && p.workspaceRole !== "ordubashy" && workspaceScope === "global") initialView = "browser";
   if (initialView === "browser") p.browserRequested = true;
   p.views = agentPaneViews(workspaceScope, p.workspaceRole, workspaceBase, agpadBrowserTab(p), p.agentId);
+  if (p.agentId) agpadCalendarWatch();
   if (p.workspaceRole) workspaceTypesLoad();
   if (typeof agbrowserDiscover === "function") agbrowserDiscover(p);
   p.dividerDispose = agentPaneDividerMount(el.closest?.(".agsplit"));

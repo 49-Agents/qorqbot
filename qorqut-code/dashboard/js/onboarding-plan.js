@@ -28,8 +28,9 @@ const onboardingPlan = (() => {
     if (!saved || saved.status !== 'in_progress') return 0;
     const find = id => steps.findIndex(step => saveId(step) === id);
     let index = find(saved.step);
-    // The retired Todo board and Activity/Inbox steps resume at Calendar, the step that now follows Focus.
-    if (index < 0 && ['attention', 'activity'].includes(saved.step)) index = find('calendar');
+    // The retired Todo board and Activity/Inbox steps, and the retired Calendar step (no calendar can be connected from the app
+    // yet), resume at Projects, the step that now follows Focus.
+    if (index < 0 && ['attention', 'activity', 'calendar'].includes(saved.step)) index = find('projects');
     // The Learning Applier steps are retired while it is unavailable; their chapter continues at Settings.
     if (index < 0 && ['learning', 'context'].includes(saved.step)) index = find('settings');
     // The retired start steps (the folder consent, the terminal launch and the managed start) continue at the step that
@@ -37,6 +38,8 @@ const onboardingPlan = (() => {
     if (index < 0 && RETIRED_START.has(saved.step)) index = find('focus');
     // The retired connector steps resume at the browser step, now the end of the tour.
     if (index < 0 && ['connectors', 'connect-more'].includes(saved.step)) index = find('browser-setup');
+    // The retired Journal step (a Testing mode view) continues at the step that followed it.
+    if (index < 0 && saved.step === 'journal') index = find('projects');
     return index < 0 ? 0 : index;
   }
   // Whether the hello on the last step can be answered. `clients` is GET /root/agent-clients ({claude, codex}, each with `installed` and

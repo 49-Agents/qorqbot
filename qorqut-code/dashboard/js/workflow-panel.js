@@ -1,6 +1,20 @@
 // Ordubashy's recorded focus as the top strip of the composer; expand to see other agents with a focus.
 // Only focus projections are read. The working dots always belong to the chat's native session.
 const WORKFLOW_PANEL_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
+// A workflow focus arrives labelled with its reference ("package/workflow-id"), which the owner never sees.
+// Its title is the agent's own words for the run, else the reference's last part in plain words ("get-set-up" -> "Get set up").
+function chatFocusPlainName(ref) {
+  const words = String(ref || '').split('/').pop().replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return words ? words[0].toUpperCase() + words.slice(1) : '';
+}
+function chatFocusTitle(attention) {
+  const focus = attention?.focus;
+  if (focus?.type === 'workflow') {
+    const intent = typeof attention.intent === 'string' ? attention.intent.trim() : '';
+    return intent || chatFocusPlainName(focus.label) || 'Focused';
+  }
+  return focus?.label || attention?.task?.label || 'Focused';
+}
 
 function chatFocusPanelMount(composer, agentId, {agent, visible, onChange, workingTag}) {
   const panel = document.createElement('section');
@@ -53,8 +67,8 @@ function chatFocusPanelMount(composer, agentId, {agent, visible, onChange, worki
     peers.hidden=!focusedAgents.length;
     peers.replaceChildren(...focusedAgents.map(agent=>{
       const row=document.createElement('div');row.className='wfpanel-agent';row.dataset.agentId=agent.agent_id;
-      const data=peerData.get(agent.agent_id),attention=data?.attention,focus=attention?.focus;
-      const text=focus.label || attention.task?.label || 'Focused';
+      const data=peerData.get(agent.agent_id),attention=data?.attention;
+      const text=chatFocusTitle(attention);
       const label=agent.display_name || agent.name || 'Agent';
       row.innerHTML='<span class="wfpanel-agent-mark">'+identityAvatar('agent',label,agent)+'</span>';
       const summary=document.createElement('span');summary.className='wfpanel-agent-summary';
@@ -106,8 +120,9 @@ function chatFocusPanelMount(composer, agentId, {agent, visible, onChange, worki
   const paint = () => {
     const focus = attention?.focus, focused = attention?.state === 'focused' && focus && !focus.unavailable;
     panel.querySelector('.gchat-focus-label').textContent = !loaded ? 'Loading…' : !primary ? 'Ordubashy unavailable' : focusError || focus?.unavailable ? 'Focus unavailable'
-      : focused ? focus.label || attention.task?.label || 'Focused' : 'No focus set';
-    intent.textContent=focused && !focusError && typeof attention.intent==='string' ? attention.intent.trim() : '';
+      : focused ? chatFocusTitle(attention) : 'No focus set';
+    // A workflow's intent is already its title; it is not repeated below.
+    intent.textContent=focused && !focusError && focus.type!=='workflow' && typeof attention.intent==='string' ? attention.intent.trim() : '';
     paintIntent();
     head.setAttribute('aria-expanded', String(open));
     head.setAttribute('aria-label', (open ? 'Collapse' : 'Expand') + ' focus details');

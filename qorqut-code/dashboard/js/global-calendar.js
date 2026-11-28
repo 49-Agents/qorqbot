@@ -1,5 +1,5 @@
 // One time grid over provider calendars; events stay in the provider.
-// How Google Calendar gets connected (also linked from the walkthrough's Calendar step).
+// The developer notes on connecting Google Calendar; linked from the empty Calendar only in Testing mode.
 const CALENDAR_GUIDE_URL = 'https://github.com/49-Agents/qorqbot/blob/main/qorqut-code/extensions/google-calendar/docs/CALENDAR.md';
 const calendarZone = () => SJ_ZONE;
 // Navigation and all-day events use literal dates; only timed events are converted to the app zone.
@@ -31,7 +31,7 @@ function calendarInputInstant(value) {
 const calendarTarget = event => ({connection_id:event.connection_id, calendar_id:event.calendar_id, event_id:event.id, revision:event.revision});
 const calendarCall = async (operation, args = {}, key) => {
   try { return coreData(await post(`/root/operations/${operation}`, {...args, ...(key ? {idempotency_key:key} : {})})); }
-  catch (error) { if (accessLost(error)) calendarDirectory = null; throw error; }
+  catch (error) { if (accessLost(error)) { calendarDirectory = null; calendarConnection.forget(); } throw error; }
 };
 // Calendar names/IDs change much less often than events. Share one short-lived
 // directory across views instead of rediscovering every provider on each poll.
@@ -43,12 +43,40 @@ function calendarDirectoryLoad(force = false) {
   if (!force && calendarDirectory && Date.now() - calendarDirectory.at < CALENDAR_DIRECTORY_FRESH_MS) return Promise.resolve(calendarDirectory.data);
   const flight = calendarDirectoryFlight = calendarCall('calendar_calendars_list').then(data => {
     calendarDirectory = data.errors.length ? null : {data, at:Date.now()};
+    calendarConnection.learn(data);
     return data;
   }, error => { calendarDirectory = null; throw error; });
   const clear = () => { if (calendarDirectoryFlight === flight) calendarDirectoryFlight = null; };
   flight.then(clear, clear);
   return flight;
 }
+// Whether a calendar is connected, as the last calendar list said (its `configured`): 'unknown' until a list answers (and again
+// after access is lost), then 'connected' or 'none'. Until a one-click connection exists, every Calendar entry point shows only
+// while 'connected', so a new user never meets the Calendar as a dead end. A failed list keeps the last answer. The answer comes
+// from the reads that already happen (the attention strip's calendar read, opening the Calendar), plus at most one own read per
+// page through `check`, which shares their in-flight read and five-minute directory cache.
+const calendarConnection = (() => {
+  let state = 'unknown', first = null;
+  const listeners = new Set();
+  const set = next => {
+    if (next === state) return;
+    state = next;
+    for (const listener of [...listeners]) { try { listener(state); } catch (error) { console.error(error); } }
+  };
+  return {
+    get state() { return state; },
+    connected: () => state === 'connected',
+    learn: data => set(data?.configured === true ? 'connected' : 'none'),
+    forget: () => set('unknown'),
+    subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
+    // Resolves to the state once the one start-up read has answered or failed; it is never repeated in this page.
+    check() {
+      if (state !== 'unknown') return Promise.resolve(state);
+      first ||= calendarDirectoryLoad().catch(() => {});
+      return first.then(() => state);
+    },
+  };
+})();
 const calendarTime = (date, timeZone = calendarZone()) => date.toLocaleTimeString([], {hour:'numeric', minute:'2-digit',timeZone});
 const calendarDateLabel = (date, now = new Date()) => {
   const key = calendarDateString(date);
@@ -400,8 +428,8 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
     const paint = () => {
       if (!current()) return;
       status.textContent = fixedMessage || [...failures.values(),calendarStatusNotice()].filter(Boolean).join(' · ') || (loading ? 'Loading events…' : '');
-      // No calendar yet: say how one gets connected, since nothing in the app can do it.
-      if (unconnected && fixedMessage) status.insertAdjacentHTML('beforeend', ` <a href="${CALENDAR_GUIDE_URL}" target="_blank" rel="noopener noreferrer">Calendar guide</a>`);
+      // No calendar yet: the developer guide is offered only in Testing mode; nobody else is sent to it.
+      if (unconnected && fixedMessage && typeof testingModeEnabled === 'function' && testingModeEnabled()) status.insertAdjacentHTML('beforeend', ` <a href="${CALENDAR_GUIDE_URL}" target="_blank" rel="noopener noreferrer">Calendar guide</a>`);
       paintedHour = fitHour();
       gridHours = calendarPaintGrid(page,dates,allEvents,eventButton,paintedHour);
       placeNow(); syncScrollbar();
@@ -425,7 +453,7 @@ function calendarMount(host, {isCurrent = () => true, embedded = false} = {}) {
       calendars = result.calendars;
       result.errors.forEach(e => failures.set(e.connection_id,`${e.connection_id}: ${e.message}`));
       $('.calendar-sources > div',page).innerHTML = calendars.map((calendar,index) => `<div class="calendar-source" data-calendar-tone="${calendarTone(index)}"><span class="calendar-dot" aria-hidden="true"></span><span class="calendar-source-name">${esc(calendar.name)}</span><span class="calendar-source-provider">${esc(calendar.provider_name || calendar.provider || '')}</span></div>`).join('');
-      if (!result.configured) { fixedMessage = 'No calendar connected yet. Connecting Google Calendar is a one-time technical setup for now.'; unconnected = true; paint(); return; }
+      if (!result.configured) { fixedMessage = 'No calendar connected yet.'; unconnected = true; paint(); return; }
       await Promise.all(calendars.map(async calendar => {
         let cursor, more;
         const failureKey = `${calendar.connection_id}:${calendar.id}`;

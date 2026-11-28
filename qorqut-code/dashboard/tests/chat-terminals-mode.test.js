@@ -39,9 +39,10 @@ test('only execution "terminal" is a terminal agent; anything else is a managed 
 // ---- the wording of a terminal agent, through the real Chat code
 function chatParts({session, entries = 0, inputs = 0, viewing = true, local = false, withModule = true, openTerminal = true}) {
   const body = between('  const hasHistory = ', '  // ---- slash commands') + between('  function emptyState() {', '  // ---- managed runtime') + between('  const sessionLineText = ', '  // One repaint');
-  return new Function('session', 'label', 'agentRuntime', 'viewingLive', 'entries', 'shownInputs', 'hasLocal', 'GLOBAL_CHAT_INFLIGHT', 'composerScope', 'GLOBAL_CHAT_OPENING', 'agentId', 'agentTerminalView', 'options', 'earlier',
-    `${body}; return {sessionSummary, emptyState, sessionLineText, hasHistory};`)(session, 'Ada', runtime, () => viewing, {size: entries}, {length: inputs}, local,
-    {has: () => false}, 'scope', {has: () => false}, 'agent-1', withModule ? terminalView : undefined, openTerminal ? {openTerminal() {}} : {}, []);
+  return new Function('session', 'label', 'agentRuntime', 'viewingLive', 'entries', 'shownInputs', 'hasLocal', 'GLOBAL_CHAT_INFLIGHT', 'composerScope', 'GLOBAL_CHAT_OPENING', 'agentId', 'agentTerminalView', 'options', 'earlier', 'shownInChat',
+    `${body}; return {sessionSummary, emptyState, sessionLineText, hasHistory};`)(session, 'Ada', runtime, () => viewing,
+    new Map(Array.from({length: entries}, (_, i) => [`e${i}`, {id: `e${i}`, speaker: 'user'}])), {length: inputs}, local,
+    {has: () => false}, 'scope', {has: () => false}, 'agent-1', withModule ? terminalView : undefined, openTerminal ? {openTerminal() {}} : {}, [], () => true);
 }
 const words = options => { const chat = chatParts(options), summary = chat.sessionSummary(), empty = chat.emptyState(); return {key: summary.key, summaryLine: summary.line, empty, shown: terminalView.isTerminal(options.session) ? terminalView.sessionLineText(summary, empty) : chat.sessionLineText(summary, empty)}; };
 

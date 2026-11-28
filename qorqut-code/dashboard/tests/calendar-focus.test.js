@@ -419,3 +419,31 @@ test('the card keeps Accept, Maybe and Decline while the owner must respond and 
   await card(root, 'Cancelled').onclick({currentTarget: card(root, 'Cancelled')}); await h.flush();
   assert.match(root.note.textContent, /Not saved/); assert.equal(discarded, 0); assert.equal(h.session.isCurrent(), true);
 });
+
+test('the calendar list says whether a calendar is connected: one start-up check, a failed read keeps the last answer', async () => {
+  const h = harness(), reads = [], seen = []; let reply;
+  h.context.post = async url => { reads.push(url); return reply(); };
+  const state = () => h.run('calendarConnection.state');
+  h.run('calendarConnection').subscribe(value => seen.push(value));
+  assert.equal(state(), 'unknown');
+  reply = () => { throw Object.assign(new Error('offline'), {httpStatus:503}); };
+  assert.equal(await h.run('calendarConnection.check()'), 'unknown');
+  assert.equal(await h.run('calendarConnection.check()'), 'unknown');
+  assert.deepEqual(reads, ['/root/operations/calendar_calendars_list'], 'the start-up check is never repeated');
+  reply = () => ({configured:false, calendars:[], errors:[]});
+  await h.run('calendarDirectoryLoad(true)');
+  assert.equal(state(), 'none');
+  // A configured connection counts even while its provider fails (the Calendar then shows that error, as today).
+  reply = () => ({configured:true, calendars:[], errors:[{connection_id:'fastmail', code:'provider_unavailable', message:'down'}]});
+  await h.run('calendarDirectoryLoad(true)');
+  assert.equal(state(), 'connected');
+  assert.equal(await h.run('calendarConnection.check()'), 'connected');
+  reply = () => { throw new Error('offline'); };
+  await assert.rejects(h.run('calendarDirectoryLoad(true)'));
+  assert.equal(state(), 'connected', 'a failed read keeps the last answer');
+  h.context.accessLost = () => true;
+  await assert.rejects(h.run('calendarDirectoryLoad(true)'));
+  assert.equal(state(), 'unknown', 'losing access forgets it');
+  assert.deepEqual(seen, ['none', 'connected', 'unknown']);
+  assert.equal(reads.length, 5);
+});

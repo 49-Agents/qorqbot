@@ -419,9 +419,10 @@ const between = (from, to) => {
 };
 function statusParts({session, entries = 0, inputs = 0, viewing = true, local = false, sending = false}) {
   const body = between('  const hasHistory = ', '  // ---- slash commands') + between('  function emptyState() {', '  // ---- managed runtime') + between('  const sessionLineText = ', '  // One repaint');
-  return new Function('session', 'label', 'agentRuntime', 'viewingLive', 'entries', 'shownInputs', 'hasLocal', 'GLOBAL_CHAT_INFLIGHT', 'composerScope', 'GLOBAL_CHAT_OPENING', 'agentId', 'earlier',
-    `${body}; return {sessionSummary, emptyState, sessionLineText, hasHistory};`)(session, 'Ada', runtime, () => viewing, {size: entries}, {length: inputs}, local,
-    {has: () => sending}, 'scope', {has: () => false}, 'agent-1', []);
+  return new Function('session', 'label', 'agentRuntime', 'viewingLive', 'entries', 'shownInputs', 'hasLocal', 'GLOBAL_CHAT_INFLIGHT', 'composerScope', 'GLOBAL_CHAT_OPENING', 'agentId', 'earlier', 'shownInChat',
+    `${body}; return {sessionSummary, emptyState, sessionLineText, hasHistory};`)(session, 'Ada', runtime, () => viewing,
+    new Map(Array.from({length: entries}, (_, i) => [`e${i}`, {id: `e${i}`, speaker: 'user'}])), {length: inputs}, local,
+    {has: () => sending}, 'scope', {has: () => false}, 'agent-1', [], () => true);
 }
 // What the owner reads in each state: the session line, the empty state in the middle of the pane, and the composer's placeholder.
 function wording(options) {
@@ -714,6 +715,31 @@ test('shown outside its block, the activity line takes no room there and still s
   assert.equal(ui.sent.filter(([route]) => route === '/interrupt').length, 1);
 });
 
+test('the activity line shows the agent’s newest mid-work line after the step while it works, and drops it otherwise', () => {
+  const ui = bar(), text = () => ui.line.querySelector('.mchat-activity-text');
+  const note = {text: 'Reading the startup file…', title: 'Reading the startup file and the rest of it'};
+  ui.update(managed({phase: 'working', activity: 'Reading a file'}), {note});
+  assert.equal(text().textContent, 'Reading a file · Reading the startup file…');
+  assert.equal(text().title, 'Reading the startup file and the rest of it');
+  ui.update(managed({phase: 'working', activity: ''}), {note});
+  assert.equal(text().textContent, 'Working · Reading the startup file…', 'beside the default step');
+  ui.update(managed({phase: 'working', activity: 'Reading a file'}), {note: null});
+  assert.equal(text().textContent, 'Reading a file', 'a newer entry cleared it');
+  assert.equal(text().title, '');
+  ui.update(managed({phase: 'idle'}), {note});
+  assert.equal(ui.line.hidden, true, 'not working: no line, and no note');
+  assert.equal(text().textContent, '');
+  ui.update(managed({phase: 'working', activity: 'Editing'}));
+  assert.equal(text().textContent, 'Editing', 'callers without a note are unchanged');
+  ui.update(managed({phase: 'blocked', activity: 'Asking', pending: [question()]}), {note});
+  assert.equal(text().textContent, 'Waiting for your answer', 'a waiting question shows alone');
+  assert.equal(text().title, '');
+  // the note's text is text, never markup
+  ui.update(managed({phase: 'working', activity: 'Editing'}), {note: {text: PAYLOAD, title: PAYLOAD}});
+  assert.equal(text().textContent, `Editing · ${PAYLOAD}`);
+  assert.equal(text().querySelectorAll('img').length, 0);
+});
+
 test('the Stop block is not built before the first session read', () => {
   const s = shell({session: null});
   const before = s.root.querySelectorAll('div').length;
@@ -889,7 +915,7 @@ test('Switch sends switch for the product, the notice becomes the sign-in part, 
   click(t.buttons()[0]);
   await flush();
   assert.deepEqual(t.server.acts, [{provider: 'claude', action: 'switch'}]);
-  assert.match(t.box().querySelector('.mchat-notice-text').textContent, /^Finish signing in in the browser window that opened\./);
+  assert.match(t.box().querySelector('.mchat-notice-text').textContent, /^Finish signing in on the sign-in page\./);
   assert.match(t.box().querySelector('.mchat-notice-text').textContent, /Still signed in as owner@example\.com \(Max\) until you finish\./);
   assert.deepEqual(t.labels(), ['Cancel']);
   const link = t.box().querySelector('a[data-ac-open]');
