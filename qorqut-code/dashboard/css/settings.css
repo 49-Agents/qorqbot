@@ -68,6 +68,8 @@
 .st-help code { font: 11.5px var(--mono); padding: 1px 5px; border-radius: 4px; background: var(--hover); color: var(--fg); word-break: break-all; }
 ul.st-help { padding-left: 18px; }
 .st-control { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.st-control [data-cf-input] { width: 240px; max-width: 100%; min-width: 0; }
+[data-cf-row] .st-control { flex-wrap: wrap; }
 .st-chapters { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 420px; }
 .settingspane :is(button.quiet, .ac-actions button) { height: auto; min-height: 28px; padding: 4px 12px; border-radius: var(--r-sm); font: 500 12px/18px var(--sans); }
 .settingspane :is(.ac-pill, .ac-note) { font-size: 12px; color: var(--fg-2); }

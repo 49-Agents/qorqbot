@@ -45,7 +45,9 @@ const PYTHON = execFileSync('/bin/sh', ['-c', 'command -v python3.12']).toString
 let base;
 let engines;
 
-function makePayload(version, { checksum } = {}) {
+const SCHEMA = ['qorqut-v1.2', 1, 'a'.repeat(64)];
+
+function makePayload(version, { checksum, schema = SCHEMA, platform = 'macos14-arm64' } = {}) {
   const payload = path.join(base, `payload-${version}`);
   const stage = path.join(base, `stage-${version}`);
   fs.rmSync(payload, { recursive: true, force: true });
@@ -53,7 +55,7 @@ function makePayload(version, { checksum } = {}) {
   fs.mkdirSync(path.join(stage, 'qorqbot', 'runtime'), { recursive: true });
   fs.mkdirSync(payload);
   fs.writeFileSync(path.join(stage, 'qorqbot', 'qorqbot'), FAKE_QORQBOT, { mode: 0o755 });
-  fs.writeFileSync(path.join(stage, 'qorqbot', 'runtime', 'PAYLOAD.json'), JSON.stringify({ version }));
+  fs.writeFileSync(path.join(stage, 'qorqbot', 'runtime', 'PAYLOAD.json'), JSON.stringify({ version, platform, schema_target: schema }));
   const name = `qorqbot-${version}-macos14-arm64.tar.gz`;
   execFileSync('/usr/bin/tar', ['-czf', path.join(payload, name), '-C', stage, 'qorqbot']);
   const digest = crypto.createHash('sha256').update(fs.readFileSync(path.join(payload, name))).digest('hex');
@@ -222,6 +224,61 @@ test('a refused update keeps the installed version and reports why', async () =>
   const updater = await engineFor(makePayload('1.1.0').payload, { env: { FAKE_UPDATE_FAIL: '1' } });
   await assert.rejects(updater.update(), (error) => error.code === 'update' && error.detail.includes('refused'));
   assert.equal(updater.installedVersion(), '1.0.0');
+});
+
+test('an update with the same schema and platform is compatible', async () => {
+  const engine = await engineFor(makePayload('1.0.0').payload);
+  await engine.install();
+  const updater = await engineFor(makePayload('1.1.0').payload);
+  assert.deepEqual(await updater.updateCompatibility(), { compatible: true, reason: '' });
+});
+
+test('an update that changes the database schema is not compatible', async () => {
+  const engine = await engineFor(makePayload('1.0.0').payload);
+  await engine.install();
+  const updater = await engineFor(makePayload('1.1.0', { schema: ['qorqut-v1.2', 1, 'b'.repeat(64)] }).payload);
+  assert.equal(updater.updateAvailable(), true, 'the version alone still reads as newer');
+  assert.deepEqual(await updater.updateCompatibility(), { compatible: false, reason: 'schema' });
+});
+
+test('a bundle without a schema target or for another platform is not compatible', async () => {
+  const engine = await engineFor(makePayload('1.0.0').payload);
+  await engine.install();
+  const noSchema = await engineFor(makePayload('1.1.0', { schema: null }).payload);
+  assert.equal((await noSchema.updateCompatibility()).reason, 'schema');
+  const otherPlatform = await engineFor(makePayload('1.2.0', { platform: 'ubuntu24-x86_64' }).payload);
+  assert.equal((await otherPlatform.updateCompatibility()).reason, 'platform');
+});
+
+test('an unreadable bundled archive is not compatible', async () => {
+  const engine = await engineFor(makePayload('1.0.0').payload);
+  await engine.install();
+  const newer = makePayload('1.1.0');
+  fs.writeFileSync(newer.archive, 'not a tar archive');
+  const updater = await engineFor(newer.payload);
+  assert.deepEqual(await updater.updateCompatibility(), { compatible: false, reason: 'unreadable' });
+});
+
+test('setting the installation aside keeps it unchanged and lets the new version install fresh', async () => {
+  const engine = await engineFor(makePayload('1.0.0').payload);
+  await engine.install();
+  await engine.start();
+  fs.writeFileSync(path.join(engine.root, 'records'), 'keep me');
+  const updater = await engineFor(makePayload('1.1.0', { schema: ['qorqut-v1.2', 1, 'b'.repeat(64)] }).payload);
+  const moved = await updater.setAside();
+  assert.equal(path.dirname(moved), engine.installParent);
+  assert.match(path.basename(moved), /^qorqbot-1\.0\.0-\d{8}-\d{6}$/);
+  assert.equal(fs.readFileSync(path.join(moved, 'records'), 'utf8'), 'keep me');
+  assert.ok(fs.readFileSync(path.join(moved, 'calls'), 'utf8').includes('stop'), 'the running server is stopped first');
+  assert.equal(updater.isInstalled(), false);
+  await updater.install();
+  assert.equal(updater.installedVersion(), '1.1.0');
+  assert.equal(fs.readFileSync(path.join(moved, 'runtime', 'PAYLOAD.json'), 'utf8').includes('"1.0.0"'), true);
+});
+
+test('setting aside refuses when nothing is installed', async () => {
+  const engine = await engineFor(makePayload('1.0.0').payload);
+  await assert.rejects(engine.setAside(), (error) => error.code === 'command');
 });
 
 test('same version is not offered as an update', async () => {

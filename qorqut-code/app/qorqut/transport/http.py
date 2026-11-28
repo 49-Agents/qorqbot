@@ -209,6 +209,20 @@ class HTTPAPI:
         self.guards = selection.operation_guards()
         self.owner_routes, self.integration_routes, self.agent_routes = selection.routes()
 
+    def restart_claude_sessions(self) -> dict:
+        """Close and reopen every open Claude Code session so it starts with the current folder: ``{"restarted", "continued",
+        "failed", "terminals"}``. In Terminals mode nothing is restarted here (``terminals`` true): each agent's terminal picks
+        the folder up when it is next started."""
+        from qorqut.managed_runtime import mode
+        if mode.is_terminal(getattr(self.runtime, "paths", None)):
+            return {"restarted": 0, "continued": 0, "failed": 0, "terminals": True}
+        chat = getattr(self.runtime, "native_chat", None)
+        if chat is None:
+            raise DomainError("operation_unavailable", "Agent sessions are not available on this installation")
+        from qorqut_operations.contracts import utc_now
+        counts = chat.account_switch.restart_product("claude", "folder:" + utc_now())
+        return {**counts, "terminals": False}
+
     def require_terminals(self):
         """A terminal-only route in managed mode (or during a switch) answers the product's normal error before anything else runs."""
         if self.terminals is not None:
@@ -518,6 +532,38 @@ class HTTPAPI:
                             raise DomainError("validation_error", f"{flag} must be true or false")
                     data = await anyio.to_thread.run_sync(partial(switch.start, context.principal_id, body["mode"],
                                                                   force=bool(body.get("force")), trust=bool(body.get("trust"))))
+                result = response(OperationResult.ok(data, request_id=request_id))
+                result.headers["Cache-Control"] = "private, no-store"
+                return result
+            if parts == ["root", "agents", "claude-folder"] and request.method in {"GET", "POST"}:
+                # Which Claude Code folder (CLAUDE_CONFIG_DIR) every agent runs with, and restarting the open Claude sessions
+                # with it (``claude_folder.py``). The owner's own setting; dispatched before the per-agent routes below.
+                if request.headers.get("authorization") is not None:
+                    raise DomainError("forbidden", "The Claude Code folder is for the owner's dashboard")
+                context, _ = self.context(actor)
+                with self.runtime.database.read() as uow:
+                    owner = uow.repository("installation").get("service")
+                if context.principal_kind != "human" or not owner or owner["owner_principal_id"] != context.principal_id:
+                    raise DomainError("forbidden", "Only the installation owner can choose the Claude Code folder")
+                from qorqut import claude_folder
+                root = self.runtime.paths.instance_root
+                if request.method == "GET":
+                    data = await anyio.to_thread.run_sync(partial(claude_folder.view, root))
+                else:
+                    body = await read_json(request, limit=4096)
+                    if not isinstance(body, dict):
+                        raise DomainError("validation_error", "A Claude Code folder change must be an object")
+                    checked_fields(body, {"path", "restart"})
+                    if not body:
+                        raise DomainError("validation_error", "Supply path, restart or both")
+                    if "path" in body and body["path"] is not None and not isinstance(body["path"], str):
+                        raise DomainError("validation_error", "path must be text or null")
+                    if "restart" in body and type(body["restart"]) is not bool:
+                        raise DomainError("validation_error", "restart must be true or false")
+                    data = (await anyio.to_thread.run_sync(partial(claude_folder.change, root, body["path"])) if "path" in body
+                            else await anyio.to_thread.run_sync(partial(claude_folder.view, root)))
+                    if body.get("restart"):
+                        data = {**data, "restart": await anyio.to_thread.run_sync(self.restart_claude_sessions)}
                 result = response(OperationResult.ok(data, request_id=request_id))
                 result.headers["Cache-Control"] = "private, no-store"
                 return result

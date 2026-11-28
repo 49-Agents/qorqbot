@@ -248,6 +248,15 @@ def main(argv=None):
         if args.workspace is None:
             raise DomainError("invalid_configuration", "Set the explicit engine workspace with --workspace")
         paths = instance_paths_from_arguments(args, required=("app", "dashboard"))
+        # The owner's choice of Claude Code folder (Settings > Model/Provider) applies before anything starts or checks a client.
+        # A choice that cannot be applied is logged and never keeps the service from starting: agents then use the default.
+        from qorqut import claude_folder
+        instance_root = getattr(paths, "instance_root", None)
+        if instance_root is not None:
+            try:
+                claude_folder.apply_saved(instance_root)
+            except Exception:  # noqa: BLE001
+                logging.getLogger(__name__).exception("The saved Claude Code folder could not be applied")
         from qorqut.extensions import installed_selection
         from qorqut.installation import extensions_configuration
         from qorqut.private_files import read_private_file

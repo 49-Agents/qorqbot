@@ -76,27 +76,22 @@ async function boot() {
   const firstLaunch = !engine.isInstalled();
   publish({ phase: 'starting', title: firstLaunch ? 'Setting up Qorqbot' : 'Starting Qorqbot', steps: [], log: [], error: null, choice: null });
   await showStatusPage();
+  let updateNotice = null;
   try {
     if (!engine.isInstalled()) {
       step('Setting up Qorqbot (first launch, a few seconds)');
       await engine.install({ onLine: logLine });
     } else if (engine.updateAvailable()) {
-      step('Update available');
-      const answer = await ask({
-        message: `This app contains Qorqbot ${engine.bundledVersion}. The installed version is ${engine.installedVersion()}. Your records stay in place. Running agents are closed first and start again when you next message them. If agents run in terminals (Settings > Model/Provider), close their terminals first.`,
-        buttons: [{ id: 'later', label: 'Later' }, { id: 'update', label: 'Update Now', primary: true }],
-      });
-      publish({ choice: null });
-      if (answer === 'update') {
-        step('Updating to ' + engine.bundledVersion);
-        await engine.update({ onLine: logLine });
-      }
+      updateNotice = await offerUpdate();
     }
     step('Starting the local server');
     const url = (await engine.status()) || (await engine.start({ onLine: logLine }));
     finishSteps();
     publish({ phase: 'running', title: 'Qorqbot is running', error: null });
     await openDashboard(url);
+    if (updateNotice && mainWindow && !mainWindow.isDestroyed()) {
+      await dialog.showMessageBox(mainWindow, { type: 'warning', ...updateNotice });
+    }
   } catch (error) {
     finishSteps('failed');
     publish({
@@ -106,6 +101,60 @@ async function boot() {
   } finally {
     busy = false;
     rebuildMenu();
+  }
+}
+
+/**
+ * Ask about the bundled newer version. An update the folder's updater would refuse (different database schema
+ * or platform) is not offered; the owner keeps the installed version or sets the new one up fresh with the old
+ * folder moved aside. A refused update keeps the installed version running. Resolves to a notice to show once
+ * the dashboard is open, or null.
+ */
+async function offerUpdate() {
+  const installed = engine.installedVersion();
+  const bundled = engine.bundledVersion;
+  step('Checking the update');
+  const { compatible, reason } = await engine.updateCompatibility();
+  if (!compatible) {
+    step(`Qorqbot ${bundled} cannot update this installation`);
+    const why = reason === 'platform' ? 'is built for a different Mac type'
+      : reason === 'schema' ? 'stores records in a different format and has no migration from it'
+        : 'could not be compared with the installed version';
+    const answer = await ask({
+      message: `This app contains Qorqbot ${bundled}, but it ${why}, so the installed version ${installed} cannot be updated in place. `
+        + `Keep using ${installed}, or set up ${bundled} fresh. Setting up fresh moves the current folder aside unchanged `
+        + `(${engine.root}-… stays next to it); your records, agents and settings do not carry over to ${bundled}.`,
+      buttons: [{ id: 'keep', label: `Keep Using ${installed}`, primary: true }, { id: 'fresh', label: `Set Up ${bundled} Fresh` }],
+    });
+    publish({ choice: null });
+    if (answer === 'fresh') {
+      step(`Moving ${installed} aside`);
+      const moved = await engine.setAside();
+      logLine(`The previous installation is kept unchanged at ${moved}`);
+      step(`Setting up Qorqbot ${bundled}`);
+      await engine.install({ onLine: logLine });
+    }
+    return null;
+  }
+  step('Update available');
+  const answer = await ask({
+    message: `This app contains Qorqbot ${bundled}. The installed version is ${installed}. Your records stay in place. Running agents are closed first and start again when you next message them. If agents run in terminals (Settings > Model/Provider), close their terminals first.`,
+    buttons: [{ id: 'later', label: 'Later' }, { id: 'update', label: 'Update Now', primary: true }],
+  });
+  publish({ choice: null });
+  if (answer !== 'update') return null;
+  step('Updating to ' + bundled);
+  try {
+    await engine.update({ onLine: logLine });
+    return null;
+  } catch (error) {
+    // The updater leaves the installed version unchanged; start it rather than stopping here.
+    step(`Update not applied; keeping ${installed}`, 'failed');
+    logLine(error.message);
+    return {
+      message: `The update to ${bundled} was not applied. Qorqbot ${installed} is running unchanged.`,
+      detail: [error.message, error.detail].filter(Boolean).join('\n\n'),
+    };
   }
 }
 
