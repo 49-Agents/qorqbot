@@ -68,7 +68,7 @@ class Case(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
-        self.root = Path(temp.name)
+        self.root = Path(temp.name).resolve()       # a Mac reaches its temporary folder through a link
         self.folder = self.root / "source" / "network"
         shutil.copytree(EXAMPLE, self.folder)
 
@@ -372,7 +372,7 @@ class FormatOneTest(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
-        self.root = Path(temp.name)
+        self.root = Path(temp.name).resolve()
 
     def bundle(self, extra=(), name="telegram.tar.gz"):
         wheel = self.root / "qorqut_telegram-1.0-py3-none-any.whl"

@@ -349,7 +349,10 @@ def check_bundle(archive):
     """
     from qorqut.extension_contract import ContractError, check_folder, load_manifest
 
-    with tempfile.TemporaryDirectory(prefix='.extension-bundle-') as temporary:
+    with tempfile.TemporaryDirectory(prefix='.extension-bundle-') as made:
+        # The system's temporary folder can sit behind a link (on a Mac, /var is one), and an unpack refuses any
+        # path that crosses a link, so the bundle is unpacked into the folder's real path.
+        temporary = Path(made).resolve()
         try:
             value = unpack(archive, temporary)
         except (OSError, ValueError, tarfile.TarError) as error:
