@@ -38,11 +38,9 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import platform
 import queue
 import re
 import shutil
-import signal
 import subprocess
 import tempfile
 import threading
@@ -52,6 +50,8 @@ from urllib.parse import urlsplit
 import webbrowser
 
 from qorqut import account_state
+from qorqut_system import platform as _platform
+from qorqut_system import processes as _processes
 
 PROVIDERS = ("claude", "codex")
 SIGN_IN_TIMEOUT = 600            # seconds a pending sign-in may wait for the owner
@@ -201,7 +201,7 @@ def _keychain_account(environ):
 def _stored_credential_text(environ, config_dir, custom, system, run):
     """The credential text the CLI stored, ``None`` when no store holds one, ``False`` when a store cannot be read.
     On macOS the Keychain wins when it has the item; the file is the CLI's fallback there and its only store elsewhere."""
-    if system == "Darwin":
+    if system == "mac":
         suffix = "-" + hashlib.sha256(config_dir.encode()).hexdigest()[:8] if custom else ""
         # The CLI writes the item with /usr/bin/security, so reading it with the same tool asks the owner nothing.
         done = _run(run, ["/usr/bin/security", "find-generic-password", "-a", _keychain_account(environ), "-w",
@@ -318,12 +318,11 @@ def claude_status(environ=None, cli_path=None, run=subprocess.run, system=None, 
     A variable that signs the CLI in from the environment is answered from the environment. Otherwise the stored
     credential is read. ``claude auth status --json`` runs only when the store gives no usable sign-in, never while a
     Claude sign-in is pending, and at most once at a time (see ``_cli_claude_status``)."""
-    import platform
     env = cli_environment("claude", environ)
     from_environment = _environment_claude_status(env)
     if from_environment is not None:
         return from_environment
-    stored = _stored_claude_sign_in(env, system or platform.system(), run, time.time() if now is None else now)
+    stored = _stored_claude_sign_in(env, system or _platform.family(), run, time.time() if now is None else now)
     if stored is not None:
         return stored
     if sign_in_state("claude")["state"] == "connecting":
@@ -378,23 +377,13 @@ class _Pending:
 
 def _popen(command, **options):
     """The one place a sign-in process is created; tests replace it."""
-    return subprocess.Popen(command, **options)
+    return _processes.start_in_background(command, **options)
 
 
-def _signal_tree(process, number, group=True):
+def _signal_tree(process, gentle=True, group=True):
     """Signal the process and, with ``group``, everything it started. Only a group this module made (the process leads
     it) is signalled as a group."""
-    if group:
-        try:
-            if os.name != "nt" and os.getpgid(process.pid) == process.pid:
-                os.killpg(process.pid, number)
-                return
-        except (OSError, ProcessLookupError):
-            return
-    try:
-        process.terminate() if number != signal.SIGKILL else process.kill()
-    except OSError:
-        pass
+    (_processes.terminate_process if gentle else _processes.kill_process)(process, group=group)
 
 
 def _wait(process, timeout):
@@ -408,9 +397,9 @@ def _wait(process, timeout):
 def _stop_process(process, group=True):
     if process is None or process.poll() is not None:
         return
-    _signal_tree(process, signal.SIGTERM, group)
+    _signal_tree(process, group=group)
     if not _wait(process, STOP_GRACE):
-        _signal_tree(process, signal.SIGKILL, group)
+        _signal_tree(process, gentle=False, group=group)
         _wait(process, STOP_GRACE)
 
 
@@ -441,7 +430,7 @@ def default_method(provider, system=None):
     computer that runs Qorqbot where that is a desktop (macOS, Windows) and uses the device code on Linux, which is a server."""
     if provider != "codex":
         return "browser"
-    return "device_code" if (system or platform.system()) == "Linux" else "browser"
+    return "device_code" if (system or _platform.family()) == "linux" else "browser"
 
 
 def sign_in_state(provider):
@@ -479,7 +468,7 @@ def _account_of(status):
 def _current_account(env):
     """The account Claude's store holds now, read from the files (never by asking the CLI), else None."""
     try:
-        return _account_of(_stored_claude_sign_in(env, platform.system(), subprocess.run, time.time()))
+        return _account_of(_stored_claude_sign_in(env, _platform.family(), subprocess.run, time.time()))
     except Exception:  # noqa: BLE001 - the account is a courtesy in the view; the sign-in itself did complete
         return None
 
@@ -547,11 +536,11 @@ def stop_all(budget=None):
         if pending.server is not None and pending.login_id:
             pending.server.try_send({"id": 0, "method": "account/login/cancel", "params": {"loginId": pending.login_id}})
         if pending.process is not None and pending.process.poll() is None:
-            _signal_tree(pending.process, signal.SIGTERM, pending.group)
+            _signal_tree(pending.process, group=pending.group)
     end = time.monotonic() + budget
     for pending in pendings:
         if pending.process is not None and not _wait(pending.process, end - time.monotonic()):
-            _signal_tree(pending.process, signal.SIGKILL, pending.group)
+            _signal_tree(pending.process, gentle=False, group=pending.group)
             _wait(pending.process, 1)
 
 
@@ -597,7 +586,7 @@ def start_sign_in(provider, *, opener=None, environ=None, method=None, run=subpr
     pending.method = "browser" if provider == "claude" else (method if method in CODEX_METHODS else default_method(provider))
     if provider == "claude":
         pending.previous = _current_account(env)
-        pending.switching = pending.previous is not None or _stored_claude_sign_in(env, platform.system(), run, time.time()) is not None
+        pending.switching = pending.previous is not None or _stored_claude_sign_in(env, _platform.family(), run, time.time()) is not None
     else:
         pending.switching = bool(codex_status(env, cli_path=found["path"], run=run)["signed_in"])
     cwd = env.get("HOME") or "/"
@@ -606,16 +595,17 @@ def start_sign_in(provider, *, opener=None, environ=None, method=None, run=subpr
         if provider == "claude":
             # The CLI opens the browser itself. Its output goes to an unlinked temporary file (not a pipe: a browser it starts
             # inherits the descriptor and would keep a pipe open after the CLI is gone) that ``_watch_claude`` reads in
-            # bounded pieces, so a sign-in page the CLI could not open is still shown. start_new_session keeps the CLI out of the
-            # service's terminal group; stopping it signals only the CLI (see ``_Pending.group``). Its input is a pipe that carries
-            # one thing: the code the sign-in page shows, which the owner pastes into Settings (``submit_code``), for a computer
-            # that has no browser to receive it. A browser the CLI starts may inherit that pipe's read end; it never writes to it.
+            # bounded pieces, so a sign-in page the CLI could not open is still shown. The layer starts the CLI in a session of
+            # its own, out of the service's terminal group; stopping it signals only the CLI (see ``_Pending.group``). Its input
+            # is a pipe that carries one thing: the code the sign-in page shows, which the owner pastes into Settings
+            # (``submit_code``), for a computer that has no browser to receive it. A browser the CLI starts may inherit that
+            # pipe's read end; it never writes to it.
             output = tempfile.TemporaryFile() if hasattr(os, "pread") else None
             sink = output if output is not None else subprocess.DEVNULL
             try:
                 pending.process = _popen([found["path"], "auth", "login", "--claudeai"], stdin=subprocess.PIPE,
                                          stdout=sink, stderr=subprocess.STDOUT if output is not None else subprocess.DEVNULL,
-                                         env=env, cwd=cwd, start_new_session=True)
+                                         env=env, cwd=cwd)
             except BaseException:
                 if output is not None:
                     output.close()
@@ -765,7 +755,7 @@ class _AppServer:
 
     def __init__(self, command, env, cwd):
         self.process = _popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                              env=env, cwd=cwd, text=True, encoding="utf-8", start_new_session=True)
+                              env=env, cwd=cwd, text=True, encoding="utf-8")
         self.messages, self.next_id, self.write_lock = queue.Queue(), 0, threading.Lock()
         threading.Thread(target=self._read, daemon=True, name="codex-app-server-reader").start()
 

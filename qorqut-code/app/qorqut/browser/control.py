@@ -2,10 +2,9 @@
 the system layer only: a browser's supervisor imports this, and must not need the application for it."""
 
 import json
-from pathlib import Path
-import sys
 from urllib.request import ProxyHandler, build_opener
 
+from qorqut_system import platform as _platform
 from qorqut_system import processes as _processes
 
 
@@ -17,11 +16,10 @@ def devtools_json(port, path):
 
 def process_identity(pid):
     """Boot identity and process start time prevent mistaking a reused PID for Chrome."""
-    if sys.platform == 'darwin':
-        from qorqut.process_info import identity
-        return identity(pid)
-    stat = Path(f"/proc/{int(pid)}/stat").read_text().rsplit(")", 1)[1].split()
-    return Path("/proc/sys/kernel/random/boot_id").read_text().strip() + ":" + stat[19]
+    if _platform.family() == "mac":
+        return _processes.identity(pid)
+    fields = _processes.fields(int(pid))
+    return _processes.boot_id_plain() + ":" + fields[19]
 
 
 def owns_listener(pid, port, address=None):

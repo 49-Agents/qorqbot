@@ -6,7 +6,6 @@ import os
 from pathlib import Path
 import queue
 import shutil
-import signal
 import subprocess
 import tempfile
 import threading
@@ -83,62 +82,62 @@ class ClaudeStatusTest(Base):
     def test_stored_credential_is_read_without_running_the_cli(self):
         self.credential(); self.account()
         run = Recorder()
-        status = sign_in.claude_status(self.env, run=run, system="Linux")
+        status = sign_in.claude_status(self.env, run=run, system="linux")
         self.assertEqual(status, {"signed_in": True, "account": {"signed_in": True, "method": "claude.ai", "email": "o@x.y", "plan": "max"}})
         self.assertEqual(run.calls, [])
 
     def test_expired_refresh_token_is_not_signed_in_and_asks_the_cli(self):
         self.credential(refreshTokenExpiresAt=1000)
         run = Recorder({("auth", "status"): done(0, json.dumps({"loggedIn": False}))})
-        self.assertFalse(sign_in.claude_status(self.env, run=run, system="Linux", now=5000)["signed_in"])
+        self.assertFalse(sign_in.claude_status(self.env, run=run, system="linux", now=5000)["signed_in"])
         self.assertTrue(run.ran("/fake/claude", "auth", "status", "--json") or run.calls[0][1:] == ["auth", "status", "--json"])
 
     def test_future_expiry_is_signed_in(self):
         self.credential(refreshTokenExpiresAt=9_000_000_000_000)
-        self.assertTrue(sign_in.claude_status(self.env, run=Recorder(), system="Linux", now=1)["signed_in"])
+        self.assertTrue(sign_in.claude_status(self.env, run=Recorder(), system="linux", now=1)["signed_in"])
 
     def test_api_key_and_token_variables_are_answered_without_the_cli_or_the_store(self):
         self.credential(); self.account()                     # a refresh token the CLI could spend must stay untouched
         for name, method in (("ANTHROPIC_API_KEY", "api_key"), ("ANTHROPIC_AUTH_TOKEN", "api_key"),
                              ("CLAUDE_CODE_OAUTH_TOKEN", "token"), ("ANTHROPIC_IDENTITY_TOKEN_FILE", "token")):
             run = Recorder()
-            status = sign_in.claude_status({**self.env, name: "x"}, run=run, system="Linux")
+            status = sign_in.claude_status({**self.env, name: "x"}, run=run, system="linux")
             self.assertEqual(status, {"signed_in": True, "account": {"signed_in": True, "method": method, "email": None, "plan": None}}, name)
             self.assertEqual(run.calls, [], name)
 
     def test_another_backend_is_answered_without_the_cli(self):
         self.credential()
         run = Recorder()
-        status = sign_in.claude_status({**self.env, "CLAUDE_CODE_USE_BEDROCK": "1"}, run=run, system="Linux")
+        status = sign_in.claude_status({**self.env, "CLAUDE_CODE_USE_BEDROCK": "1"}, run=run, system="linux")
         self.assertEqual((status["signed_in"], status["account"]["method"], run.calls), (True, "third_party", []))
 
     def test_a_moved_store_is_not_read_as_the_default_one_and_the_cli_is_not_run(self):
         self.credential()
         run = Recorder()
-        status = sign_in.claude_status({**self.env, "CLAUDE_CODE_HOST_CREDS_FILE": "/x"}, run=run, system="Linux")
+        status = sign_in.claude_status({**self.env, "CLAUDE_CODE_HOST_CREDS_FILE": "/x"}, run=run, system="linux")
         self.assertEqual((status, run.calls), ({"signed_in": False, "account": None}, []))
 
     def test_an_empty_override_variable_is_not_an_override(self):
         self.credential()
         run = Recorder()
-        self.assertEqual(sign_in.claude_status({**self.env, "ANTHROPIC_API_KEY": ""}, run=run, system="Linux")["account"]["method"], "claude.ai")
+        self.assertEqual(sign_in.claude_status({**self.env, "ANTHROPIC_API_KEY": ""}, run=run, system="linux")["account"]["method"], "claude.ai")
 
     def test_a_timeout_or_a_failure_to_start_is_remembered_not_retried_on_every_read(self):
         for error in (subprocess.TimeoutExpired("claude", 15), OSError("no exec"), None):
             sign_in._cli_status_cache.clear()
             run = Recorder({("auth", "status"): error if error is not None else done(1, "not json")})
             for _ in range(10):
-                self.assertEqual(sign_in.claude_status(self.env, run=run, system="Linux"), {"signed_in": False, "account": None})
+                self.assertEqual(sign_in.claude_status(self.env, run=run, system="linux"), {"signed_in": False, "account": None})
             self.assertEqual(len(run.calls), 1, error)
             self.assertGreaterEqual(sign_in.CLI_STATUS_FAILURE_TTL, 60)
 
     def test_a_remembered_failure_is_tried_again_after_its_window(self):
         run = Recorder({("auth", "status"): subprocess.TimeoutExpired("claude", 15)})
-        sign_in.claude_status(self.env, run=run, system="Linux")
+        sign_in.claude_status(self.env, run=run, system="linux")
         (key, (expires, result)), = sign_in._cli_status_cache.items()
         self.assertGreaterEqual(expires - time.monotonic(), 60)
         sign_in._cli_status_cache[key] = (time.monotonic() - 1, result)
-        sign_in.claude_status(self.env, run=run, system="Linux")
+        sign_in.claude_status(self.env, run=run, system="linux")
         self.assertEqual(len(run.calls), 2)
 
     def test_concurrent_readers_run_one_status_call_and_the_others_get_the_last_value_or_signed_out(self):
@@ -150,15 +149,15 @@ class ClaudeStatusTest(Base):
             release.wait(5)
             return done(0, json.dumps({"loggedIn": True, "authMethod": "claude.ai"}))
         results = []
-        first = threading.Thread(target=lambda: results.append(sign_in.claude_status(self.env, run=slow, system="Linux")))
+        first = threading.Thread(target=lambda: results.append(sign_in.claude_status(self.env, run=slow, system="linux")))
         first.start()
         self.assertTrue(started.wait(3))
-        others = [sign_in.claude_status(self.env, run=slow, system="Linux") for _ in range(5)]
+        others = [sign_in.claude_status(self.env, run=slow, system="linux") for _ in range(5)]
         self.assertEqual(others, [{"signed_in": False, "account": None}] * 5)      # nothing known yet: not signed in, no second run
         self.assertEqual(len(calls), 1)
         release.set(); first.join(3)
         self.assertTrue(results[0]["signed_in"])
-        self.assertTrue(sign_in.claude_status(self.env, run=slow, system="Linux")["signed_in"])      # now remembered
+        self.assertTrue(sign_in.claude_status(self.env, run=slow, system="linux")["signed_in"])      # now remembered
         self.assertEqual(len(calls), 1)
 
     def test_a_reader_during_a_run_gets_the_last_known_answer_even_when_it_has_expired(self):
@@ -168,7 +167,7 @@ class ClaudeStatusTest(Base):
         self.assertTrue(sign_in._cli_status_flight.acquire(blocking=False))
         self.addCleanup(lambda: sign_in._cli_status_flight.locked() and sign_in._cli_status_flight.release())
         run = Recorder()
-        self.assertEqual(sign_in.claude_status(self.env, run=run, system="Linux"), known)
+        self.assertEqual(sign_in.claude_status(self.env, run=run, system="linux"), known)
         self.assertEqual(run.calls, [])
 
     def test_unreadable_store_asks_the_cli_and_the_answer_is_not_polled(self):
@@ -176,53 +175,53 @@ class ClaudeStatusTest(Base):
         (self.home / ".claude/.credentials.json").write_text("not json")
         run = Recorder({("auth", "status"): done(0, json.dumps({"loggedIn": True}))})
         for _ in range(5):
-            self.assertTrue(sign_in.claude_status(self.env, run=run, system="Linux")["signed_in"])
+            self.assertTrue(sign_in.claude_status(self.env, run=run, system="linux")["signed_in"])
         self.assertEqual(len(run.calls), 1)
 
     def test_a_signed_out_store_keeps_cli_calls_to_one_per_window(self):
         run = Recorder({("auth", "status"): done(0, json.dumps({"loggedIn": False}))})
         for _ in range(3):
-            sign_in.claude_status(self.env, run=run, system="Linux")
+            sign_in.claude_status(self.env, run=run, system="linux")
         self.assertEqual(len(run.calls), 1)
         sign_in._cli_status_cache.clear()
-        sign_in.claude_status(self.env, run=run, system="Linux")
+        sign_in.claude_status(self.env, run=run, system="linux")
         self.assertEqual(len(run.calls), 2)
 
     def test_the_cli_is_never_run_while_a_sign_in_is_pending(self):
         run = Recorder()
         with mock.patch.object(sign_in, "sign_in_state", return_value={"state": "connecting", "reason": None}):
-            status = sign_in.claude_status(self.env, run=run, system="Linux")
+            status = sign_in.claude_status(self.env, run=run, system="linux")
         self.assertEqual((status, run.calls), ({"signed_in": False, "account": None}, []))
 
     def test_no_cli_and_no_store_is_signed_out(self):
         self.install.found.pop("claude")
         run = Recorder()
-        self.assertEqual(sign_in.claude_status(self.env, run=run, system="Linux"), {"signed_in": False, "account": None})
+        self.assertEqual(sign_in.claude_status(self.env, run=run, system="linux"), {"signed_in": False, "account": None})
         self.assertEqual(run.calls, [])
 
     def test_keychain_item_is_read_with_security_and_the_account_name(self):
         text = json.dumps({"claudeAiOauth": {"refreshToken": "r", "subscriptionType": "pro"}})
         run = Recorder({"security": done(0, text.encode().hex() + "\n")})      # a value that is not plain text comes back as hex
-        status = sign_in.claude_status(self.env, run=run, system="Darwin")
+        status = sign_in.claude_status(self.env, run=run, system="mac")
         self.assertEqual((status["signed_in"], status["account"]["plan"]), (True, "pro"))
         self.assertEqual(run.calls, [["/usr/bin/security", "find-generic-password", "-a", "owner", "-w", "-s", "Claude Code-credentials"]])
 
     def test_custom_config_dir_uses_the_hashed_item_name(self):
         config = str(self.home / "custom")
         run = Recorder({"security": done(0, json.dumps({"claudeAiOauth": {"refreshToken": "r"}}))})
-        sign_in.claude_status({**self.env, "CLAUDE_CONFIG_DIR": config}, run=run, system="Darwin")
+        sign_in.claude_status({**self.env, "CLAUDE_CONFIG_DIR": config}, run=run, system="mac")
         self.assertEqual(run.calls[0][-1], "Claude Code-credentials-" + hashlib.sha256(config.encode()).hexdigest()[:8])
 
     def test_missing_keychain_item_falls_back_to_the_file(self):
         self.credential()
         run = Recorder({"security": done(44)})
-        self.assertTrue(sign_in.claude_status(self.env, run=run, system="Darwin")["signed_in"])
+        self.assertTrue(sign_in.claude_status(self.env, run=run, system="mac")["signed_in"])
         self.assertEqual(len(run.calls), 1)
 
     def test_locked_keychain_is_not_absence_and_asks_the_cli_not_the_file(self):
         self.credential()                                  # a stale file must not hide an unreadable Keychain
         run = Recorder({"security": done(36), ("auth", "status"): done(0, json.dumps({"loggedIn": False}))})
-        self.assertFalse(sign_in.claude_status(self.env, run=run, system="Darwin")["signed_in"])
+        self.assertFalse(sign_in.claude_status(self.env, run=run, system="mac")["signed_in"])
         self.assertTrue(any(call[1:3] == ["auth", "status"] for call in run.calls))
 
 
@@ -341,9 +340,9 @@ class SignInBase(Base):
         self.commands, self.factory = [], FakeProcess
         self.addCleanup(sign_in.stop_all)        # runs while the fakes are still in place
 
-    def signal_tree(self, process, number, group=True):
+    def signal_tree(self, process, gentle=True, group=True):
         process.groups.append(group)
-        process.terminate() if number == signal.SIGTERM else process.kill()
+        process.terminate() if gentle else process.kill()
 
     def popen(self, command, **options):
         self.commands.append((command, options))
@@ -360,7 +359,7 @@ class ClaudeSignInTest(SignInBase):
         self.assertEqual(command, ["/fake/claude", "auth", "login", "--claudeai"])
         self.assertEqual((options["stdin"], options["stderr"]), (subprocess.PIPE, subprocess.STDOUT))   # stdin carries the pasted code
         self.assertTrue(hasattr(options["stdout"], "fileno"))        # an unlinked temporary file, not a pipe
-        self.assertTrue(options["start_new_session"])
+        self.assertNotIn("start_new_session", options)     # the layer starts it in a session of its own
         sign_in._cli_status_cache["old"] = (0, {})
         self.processes[0].exit(0)
         wait_for(self, lambda: sign_in.sign_in_state("claude")["state"] == "idle")
@@ -498,21 +497,6 @@ class ClaudeOutputTest(SignInBase):
         wait_for(self, lambda: "account/login/start" in self.processes[0].methods())
         sign_in.cancel_sign_in("codex")
         self.assertEqual(self.processes[0].groups, [True])
-
-
-class SignalTreeTest(unittest.TestCase):
-    def test_a_group_is_killed_only_when_asked_and_only_when_the_process_leads_it(self):
-        process = SimpleNamespace(pid=123, terminate=mock.Mock(), kill=mock.Mock())
-        with mock.patch("os.getpgid", return_value=123), mock.patch("os.killpg") as killpg:
-            sign_in._signal_tree(process, signal.SIGTERM, group=False)
-            killpg.assert_not_called()
-            process.terminate.assert_called_once_with()
-            sign_in._signal_tree(process, signal.SIGTERM, group=True)
-            killpg.assert_called_once_with(123, signal.SIGTERM)
-        with mock.patch("os.getpgid", return_value=1), mock.patch("os.killpg") as killpg:
-            sign_in._signal_tree(process, signal.SIGKILL, group=True)      # not ours: never the group
-            killpg.assert_not_called()
-            process.kill.assert_called_once_with()
 
 
 class StopAllTest(SignInBase):
@@ -701,7 +685,7 @@ class SwitchSignInTest(SignInBase):
         sign_in.start_sign_in("claude", environ=self.env)
         details = sign_in.sign_in_details("claude")
         self.assertEqual((details["switching"], details["previous_account"]), (True, {"email": "old@x.y", "plan": "max"}))
-        self.assertEqual(sign_in.claude_status(self.env, cli_path="/fake/claude", run=Recorder(), system="Linux")["account"]["email"], "old@x.y")
+        self.assertEqual(sign_in.claude_status(self.env, cli_path="/fake/claude", run=Recorder(), system="linux")["account"]["email"], "old@x.y")
         sign_in.cancel_sign_in("claude")                          # cancelling changes nothing
         self.assertEqual((self.home / ".claude/.credentials.json").read_text(), before)
         self.assertEqual(sign_in.sign_in_state("claude")["state"], "idle")
@@ -775,7 +759,7 @@ class SwitchSignInTest(SignInBase):
         self.processes[0].exit(1)
         wait_for(self, lambda: sign_in.sign_in_state("claude")["state"] == "failed")
         self.assertIsNone(account_state.switch("claude"))
-        self.assertEqual(sign_in.claude_status(self.env, cli_path="/fake/claude", run=Recorder(), system="Linux")["account"]["email"], "old@x.y")
+        self.assertEqual(sign_in.claude_status(self.env, cli_path="/fake/claude", run=Recorder(), system="linux")["account"]["email"], "old@x.y")
 
     def test_a_completed_switch_records_before_and_after_and_tells_the_handler(self):
         self.credential(); self.account("old@x.y")
@@ -822,9 +806,9 @@ class SwitchSignInTest(SignInBase):
             sign_in.start_sign_in("codex", environ=self.env, method="carrier_pigeon")
 
     def test_the_default_way_is_the_device_code_on_linux_only_for_codex(self):
-        self.assertEqual(REAL_DEFAULT_METHOD("codex", "Linux"), "device_code")
-        self.assertEqual(REAL_DEFAULT_METHOD("codex", "Darwin"), "browser")
-        self.assertEqual(REAL_DEFAULT_METHOD("claude", "Linux"), "browser")
+        self.assertEqual(REAL_DEFAULT_METHOD("codex", "linux"), "device_code")
+        self.assertEqual(REAL_DEFAULT_METHOD("codex", "mac"), "browser")
+        self.assertEqual(REAL_DEFAULT_METHOD("claude", "linux"), "browser")
 
 
 class CodexDeviceCodeTest(SignInBase):

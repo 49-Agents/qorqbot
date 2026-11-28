@@ -5,7 +5,6 @@ the delegated Codex runtime of a session that has one. It does not poll or notif
 nudge dispatcher, which needs nothing on the agent's side."""
 from __future__ import annotations
 import argparse
-import fcntl
 import json
 import os
 from pathlib import Path
@@ -17,6 +16,8 @@ import socket
 from concurrent.futures import ThreadPoolExecutor
 
 from qorqut_operations.contracts import DomainError
+from qorqut_system import locks as _locks
+from qorqut_system import processes as _processes
 from qorqut.installation import installation_config
 from qorqut.release_worker.lifetime import atomic_json, exclusion, identity
 from .client import (BOOTSTRAP_TIMEOUT, REQUEST_TIMEOUT, BootstrapClient,
@@ -87,7 +88,7 @@ class ObservedHelper:
 
 
 class Supervisor:
-    def __init__(self, config, *, spawn=subprocess.Popen, alive=owner_alive, probe=local_probe):
+    def __init__(self, config, *, spawn=_processes.start_in_background, alive=owner_alive, probe=local_probe):
         self.config, self.spawn, self.alive, self.probe = config, spawn, alive, probe
         self.root = Path(config['root'])
         self.children = {}
@@ -335,14 +336,11 @@ class Supervisor:
                 self.children[key] = self.spawn([str(self.root/'bin/agent-helper'),HELPER_MODULE,
                     '--watch',item['registration_path'],'--session',item['session_id'],
                     '--generation',str(item['generation']),'--owner',item['owner'],'--runtime',item['runtime']],
-                    stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
+                    stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
 
     @staticmethod
     def _watcher_process(pid):
-        if sys.platform == 'darwin':
-            from qorqut.process_info import cmdline
-            return 'qorqut.bootstrap.supervisor' in cmdline(pid)
-        return b'qorqut.bootstrap.supervisor' in Path(f'/proc/{pid}/cmdline').read_bytes()
+        return _processes.cmdline_contains(pid, 'qorqut.bootstrap.supervisor')
 
 
 def run_watch(path, session, generation, owner, runtime):
@@ -351,11 +349,11 @@ def run_watch(path, session, generation, owner, runtime):
     not."""
     registration = load_registration(path)
     lock_path = Path(registration['workspace'])/'.qorqut/supervised-watcher.lock'
-    descriptor = os.open(lock_path,os.O_RDWR|os.O_CREAT|os.O_NOFOLLOW,0o600)
+    held = _locks.open_lock(lock_path.parent, lock_path.name)
     try:
-        fcntl.flock(descriptor,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        held.acquire(wait=False)
     except BlockingIOError:
-        os.close(descriptor); return 0
+        held.close(); return 0
     config = installation_config()
     def terminal(code):
         if config:
@@ -384,7 +382,7 @@ def run_watch(path, session, generation, owner, runtime):
     except (KeyboardInterrupt,OSError): return 0
     finally:
         if delegated: delegated.stop()
-        os.close(descriptor)
+        held.close()
 
 
 def main():
@@ -397,8 +395,7 @@ def main():
     if args.watch: return run_watch(args.watch,args.session,args.generation,args.owner,args.runtime)
     config = json.loads(args.config.read_text())
     path = Path(config['root'])/'state'/f'supervisor-{socket.gethostname()}.lock'; path.parent.mkdir(parents=True,exist_ok=True)
-    with path.open('a') as lock:
-        fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+    with path.open('a') as stream, _locks.held(stream, wait=False):
         supervisor = Supervisor(config)
         signal.signal(signal.SIGTERM, lambda *args: (_ for _ in ()).throw(KeyboardInterrupt()))
         try:

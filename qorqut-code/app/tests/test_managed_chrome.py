@@ -610,14 +610,14 @@ class BackgroundTest(ManagedChromeTest):
 
 class PinTest(unittest.TestCase):
     def test_every_packaged_platform_has_a_pinned_archive(self):
-        keys = {mc.platform_key("Linux", "x86_64"), mc.platform_key("Darwin", "arm64"), mc.platform_key("Darwin", "x86_64")}
+        keys = {mc.platform_key("linux", "x86_64"), mc.platform_key("mac", "arm64"), mc.platform_key("mac", "x86_64")}
         self.assertEqual(keys, set(mc.ARCHIVES))
         for digest in mc.ARCHIVES.values():
             self.assertRegex(digest, r"^[0-9a-f]{64}$")
         self.assertRegex(mc.VERSION, r"^\d+\.\d+\.\d+\.\d+$")
 
     def test_other_computers_have_no_build(self):
-        for system, machine in (("Linux", "aarch64"), ("Windows", "AMD64"), ("FreeBSD", "amd64")):
+        for system, machine in (("linux", "aarch64"), ("windows", "AMD64"), ("other", "amd64")):
             self.assertIsNone(mc.platform_key(system, machine))
 
     def test_the_program_is_where_each_archive_puts_it(self):

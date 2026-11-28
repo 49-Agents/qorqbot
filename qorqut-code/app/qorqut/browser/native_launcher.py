@@ -9,6 +9,7 @@ import subprocess
 import sys
 
 from qorqut import native_paths
+from qorqut_system import processes as _processes
 
 
 class NativeLauncher:
@@ -62,9 +63,9 @@ class NativeLauncher:
             path.mkdir(mode=0o700, exist_ok=True)
             env[key] = str(path)
         with (directory / 'supervisor.log').open('ab') as log:
-            subprocess.Popen([sys.executable, '-B', '-m', 'qorqut.browser.agent_supervisor', '--state', str(directory)],
-                             env=env, cwd=directory, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
-                             start_new_session=True, close_fds=True)
+            _processes.start_in_background([sys.executable, '-B', '-m', 'qorqut.browser.agent_supervisor', '--state',
+                                            str(directory)], env=env, cwd=directory, stdin=subprocess.DEVNULL,
+                                           stdout=log, stderr=log, close_fds=True)
         return True
 
     def stop(self, unit):

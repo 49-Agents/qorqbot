@@ -12,14 +12,13 @@ Honesty rules implemented here:
 from __future__ import annotations
 
 import json
-import os
 import shutil
-import socket
 import sqlite3
-import sys
 import uuid
 from pathlib import Path
 from typing import Any
+
+from qorqut_system import processes as _processes
 
 from .catalog import Catalog, Entry, Selection, bundle_digest, load_catalog
 from .changes import normalize_actor
@@ -46,45 +45,12 @@ RECONCILE_RESOLUTIONS = ("effect_confirmed", "no_effect_confirmed")
 
 def _process_token() -> str:
     """Identify this process: host, pid and start time (guards against pid reuse)."""
-    if sys.platform == "darwin":
-        import psutil
-        start = str(int(psutil.Process().create_time() * 1_000_000))
-        return f"{socket.gethostname()}:{os.getpid()}:{start}"
-    start = ""
-    try:
-        with open("/proc/self/stat", "rb") as handle:
-            start = handle.read().rsplit(b")", 1)[1].split()[19].decode()
-    except (OSError, IndexError):
-        pass
-    return f"{socket.gethostname()}:{os.getpid()}:{start}"
+    return _processes.process_token()
 
 
 def _runner_alive(token: str | None) -> bool:
     """False only when the runner is known to be gone (same host, no such process)."""
-    if not token or (sys.platform != "darwin" and not os.path.isdir("/proc/self")):
-        return True
-    try:
-        host, pid_text, start = token.rsplit(":", 2)
-        pid = int(pid_text)
-    except ValueError:
-        return True
-    if host != socket.gethostname():
-        return True
-    if sys.platform == "darwin":
-        import psutil
-        try:
-            current = str(int(psutil.Process(pid).create_time() * 1_000_000))
-        except psutil.NoSuchProcess:
-            return False
-        except psutil.AccessDenied:
-            return True
-        return not start or current == start
-    try:
-        with open(f"/proc/{pid}/stat", "rb") as handle:
-            current = handle.read().rsplit(b")", 1)[1].split()[19].decode()
-    except (OSError, IndexError):
-        return False
-    return not start or current == start
+    return _processes.token_alive(token or "")
 
 
 def _bounded_text(data: bytes, limit: int) -> str:

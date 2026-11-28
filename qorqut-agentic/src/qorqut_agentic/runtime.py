@@ -15,12 +15,13 @@ from __future__ import annotations
 import math
 import os
 import selectors
-import signal
 import subprocess
 import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Protocol
+
+from qorqut_system import processes as _processes
 
 from .errors import InvalidRequestError
 
@@ -71,8 +72,9 @@ class ToolRuntime(Protocol):
 
 
 def _kill_group(pid: int) -> None:
+    """Stop whatever is left of a process group by force; a group that has gone is not an error."""
     try:
-        os.killpg(pid, signal.SIGKILL)
+        _processes.kill_process_group(pid)
     except (ProcessLookupError, PermissionError):
         pass
 
@@ -140,10 +142,9 @@ class LocalProcessRuntime:
         env["QORQUT_AGENTIC_PACKAGE_DIR"] = request.package_dir
         env["QORQUT_AGENTIC_SCRATCH_DIR"] = request.work_dir
         try:
-            proc = subprocess.Popen(  # noqa: S603 - explicit interpreter, no shell
+            proc = _processes.start_in_background(  # noqa: S603 - explicit interpreter, no shell
                 [interpreter, request.code_path], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE, cwd=request.work_dir, env=env, shell=False, close_fds=True,
-                start_new_session=True,
             )
         except OSError as exc:
             return ExecutionResult("spawn_failed", message=f"could not start the interpreter: {exc}", limits=limits)

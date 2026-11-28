@@ -13,12 +13,14 @@ from posixpath import join as posix_join
 import re
 import selectors
 import shutil
-import signal
 import stat
 import subprocess
 import time
 
 import yaml
+
+from qorqut_system import private_files as _private_files
+from qorqut_system import processes as _processes
 
 
 MAX_FILE_BYTES = 16 * 1024 * 1024
@@ -187,8 +189,8 @@ class Source:
                    "-c", "diff.external=",
                    "-C", str(self.root), f"--work-tree={self._git_root}", *args]
         chunks, total = {"stdout": [], "stderr": []}, 0
-        with subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                              env=environment, start_new_session=True) as process:
+        with _processes.start_in_background(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                            stderr=subprocess.PIPE, env=environment) as process:
             deadline = time.monotonic() + GIT_TIMEOUT_SECONDS
             try:
                 with selectors.DefaultSelector() as selector:
@@ -213,7 +215,7 @@ class Source:
                     raise ImportFailure("source_git_timeout", "Source Git inspection timed out") from exc
             except BaseException:
                 try:
-                    os.killpg(process.pid, signal.SIGKILL)
+                    _processes.kill_process_group(process.pid)
                 except ProcessLookupError:
                     pass
                 process.wait()
@@ -233,7 +235,7 @@ class Source:
         parts = rel.split("/")
         try:
             with self._directory(parts[:-1]) as parent:
-                info = os.stat(parts[-1], dir_fd=parent, follow_symlinks=False)
+                info = _private_files.stat_entry(parent, parts[-1])
                 if stat.S_ISLNK(info.st_mode):
                     raise ImportFailure("unsafe_path", "Source symlinks are not allowed", path=rel)
                 return True
@@ -243,27 +245,25 @@ class Source:
     @contextmanager
     def _directory(self, parts=()):
         """Open the root and descendants component by component, never following links."""
-        descriptor = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+        folder = _private_files.open_folder("/")
         try:
             for component in (*self.root.parts[1:], *parts):
-                child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
-                                dir_fd=descriptor)
-                os.close(descriptor)
-                descriptor = child
-            yield descriptor
+                child = _private_files.open_folder(folder, component)
+                folder.close()
+                folder = child
+            yield folder
         except OSError as exc:
             if exc.errno in {errno.ELOOP, errno.ENOTDIR}:
                 raise ImportFailure("unsafe_path", "Source directory is a symlink or not a directory") from exc
             raise
         finally:
-            os.close(descriptor)
+            folder.close()
 
     def read(self, rel):
         parts = relative(rel).split("/")
         try:
             with self._directory(parts[:-1]) as parent:
-                descriptor = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK,
-                                     dir_fd=parent)
+                descriptor = _private_files.open_read(parent, parts[-1], nonblock=True)
                 try:
                     before = os.fstat(descriptor)
                     if not stat.S_ISREG(before.st_mode):
@@ -302,27 +302,26 @@ class Source:
             raise ImportFailure("unsafe_path", "An empty tree path requires an explicit resource root")
         found = []
 
-        def walk(descriptor, prefix):
-            for name in sorted(os.listdir(descriptor)):
+        def walk(folder, prefix):
+            for name in sorted(_private_files.list_entries(folder)):
                 if root_resources and private_resource(name):
                     continue
                 item = relative(posix_join(prefix, name))
-                info = os.stat(name, dir_fd=descriptor, follow_symlinks=False)
+                info = _private_files.stat_entry(folder, name)
                 if stat.S_ISREG(info.st_mode):
                     found.append(item)
                 elif stat.S_ISDIR(info.st_mode):
-                    child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
-                                    dir_fd=descriptor)
+                    child = _private_files.open_folder(folder, name)
                     try:
                         walk(child, item)
                     finally:
-                        os.close(child)
+                        child.close()
                 else:
                     raise ImportFailure("unsafe_path", "Source assets must be ordinary files or directories", path=item)
 
         try:
-            with self._directory(rel.split("/") if rel else ()) as descriptor:
-                walk(descriptor, rel)
+            with self._directory(rel.split("/") if rel else ()) as folder:
+                walk(folder, rel)
         except FileNotFoundError as exc:
             raise ImportFailure("missing_resource", "Required source directory is missing", path=rel) from exc
         except OSError as exc:

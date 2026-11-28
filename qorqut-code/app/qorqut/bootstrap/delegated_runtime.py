@@ -15,7 +15,6 @@ import re
 import selectors
 import shlex
 import shutil
-import signal
 import subprocess
 import threading
 import time
@@ -23,6 +22,7 @@ import uuid
 
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.storage import safe_io
+from qorqut_system import processes as _processes
 from .client import BootstrapClient, load_registration, path_has_symlink
 
 MAX_WORKERS = 3
@@ -265,7 +265,7 @@ class DelegatedRuntime:
     """Poll saved assignments and run at most three isolated worker sessions on the parent session's CLI."""
 
     def __init__(self, registration, consumer_id, *, alive, runtime="codex", client=None, executable=None,
-                 state_root=None, poll_interval=POLL_SECONDS, popen=subprocess.Popen):
+                 state_root=None, poll_interval=POLL_SECONDS, popen=_processes.start_in_background):
         if runtime not in RUNTIME_EXECUTABLES:
             raise DomainError("unsupported_runtime", "Delegated workers support Codex and Claude Code only")
         self.runtime = runtime
@@ -370,7 +370,7 @@ class DelegatedRuntime:
         for process in processes:
             if process.poll() is None:
                 try:
-                    os.killpg(process.pid, signal.SIGTERM)
+                    _processes.terminate_process_group(process.pid)
                 except OSError:
                     pass
         deadline = time.monotonic() + 2
@@ -380,7 +380,7 @@ class DelegatedRuntime:
                 process.wait(timeout=remaining)
             except (OSError, subprocess.TimeoutExpired):
                 try:
-                    os.killpg(process.pid, signal.SIGKILL)
+                    _processes.kill_process_group(process.pid)
                 except OSError:
                     pass
                 try:
@@ -390,22 +390,23 @@ class DelegatedRuntime:
 
     @staticmethod
     def _stop_process(process):
-        if process.poll() is None:
+        if process.poll() is not None:
+            return
+        try:
+            _processes.terminate_process_group(process.pid)
+        except OSError:
+            pass
+        try:
+            process.wait(timeout=2)
+        except (OSError, subprocess.TimeoutExpired):
             try:
-                os.killpg(process.pid, signal.SIGTERM)
+                _processes.kill_process_group(process.pid)
             except OSError:
                 pass
             try:
                 process.wait(timeout=2)
             except (OSError, subprocess.TimeoutExpired):
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except OSError:
-                    pass
-                try:
-                    process.wait(timeout=2)
-                except (OSError, subprocess.TimeoutExpired):
-                    pass
+                pass
 
     def _post(self, route, assignment, generation, **optional):
         body = {"registration_id": self.registration["registration_id"],
@@ -511,7 +512,7 @@ class DelegatedRuntime:
     def _run_turn(self, command, prompt, assignment, generation, deadline, cwd, prior_thread_id, turn_number):
         env = self.environment(cwd)
         process = self.popen(command, cwd=cwd, env=env, stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True, bufsize=0)
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
         diagnostic_tail = bytearray()
         def drain_errors():
             while True:
@@ -644,14 +645,14 @@ class DelegatedRuntime:
                     pass
             if process.poll() is None:
                 try:
-                    os.killpg(process.pid, signal.SIGTERM)
+                    _processes.terminate_process_group(process.pid)
                 except OSError:
                     pass
                 try:
                     process.wait(timeout=2)
                 except (OSError, subprocess.TimeoutExpired):
                     try:
-                        os.killpg(process.pid, signal.SIGKILL)
+                        _processes.kill_process_group(process.pid)
                     except OSError:
                         pass
 

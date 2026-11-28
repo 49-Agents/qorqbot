@@ -24,6 +24,7 @@ from qorqut.composition.assembly import host_assembly
 from qorqut.inbox.service import InboxService
 from qorqut.service.changes import ChangeFeed
 from qorqut.transport.auth import Authentication
+from qorqut_system import processes
 
 
 class ClaudeDispatchIntegration(unittest.TestCase):
@@ -134,7 +135,7 @@ print(json.dumps({'type':'result','subtype':'success','is_error':False,
 
             def launch(command, **kwargs):
                 invoked.extend(command)
-                return subprocess.Popen([sys.executable, '-c', child_code, conversation], **kwargs)
+                return processes.start_in_background([sys.executable, '-c', child_code, conversation], **kwargs)
 
             parent_registration = {'agent_id': parent, 'registration_id': registration,
                 'workspace': str(workspace), 'service_url': endpoint, 'durable_delegation_enabled': True}

@@ -11,6 +11,8 @@ from uuid import uuid4
 from functools import wraps
 import inspect
 
+from qorqut_system import processes as _processes
+
 from ..errors import AgenticError
 from ..history import GitRunner
 from ..runtime import _kill_group
@@ -21,8 +23,8 @@ from .runs import admitted_run
 
 def _command(argv, cwd, env, timeout, maximum):
     try:
-        process = subprocess.Popen(argv, cwd=cwd, env=env, shell=False, stdin=subprocess.DEVNULL,
-                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+        process = _processes.start_in_background(argv, cwd=cwd, env=env, shell=False, stdin=subprocess.DEVNULL,
+                                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     except OSError as exc:
         return None, '', f'could not start command: {exc}'
     selector = selectors.DefaultSelector()
