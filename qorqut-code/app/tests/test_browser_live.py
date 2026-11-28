@@ -358,20 +358,20 @@ class CommandTest(unittest.TestCase):
                 self.assertEqual(live.command(event), expected)
 
     def test_a_command_key_shortcut_names_its_editing_command_for_chrome_on_a_mac(self):
-        def sent(key, code, modifiers, platform):
-            with mock.patch.object(live.sys, "platform", platform):
+        def sent(key, code, modifiers, family):
+            with mock.patch.object(live._platform, "family", lambda: family):
                 return live.command({"type": "key", "action": "down", "key": key, "code": code, "keyCode": 65, "modifiers": modifiers})[1]
         for key, modifiers, name in [("a", 4, "selectAll"), ("A", 4, "selectAll"), ("z", 4, "undo"), ("Z", 12, "redo"), ("x", 4, "cut"),
                                      ("c", 4, "copy"), ("ArrowLeft", 4, "moveToBeginningOfLine"),
                                      ("ArrowRight", 12, "moveToEndOfLineAndModifySelection"), ("Backspace", 4, "deleteToBeginningOfLine")]:
             with self.subTest(key=key, modifiers=modifiers):
-                self.assertEqual(sent(key, "KeyA", modifiers, "darwin")["commands"], [name])
+                self.assertEqual(sent(key, "KeyA", modifiers, "mac")["commands"], [name])
                 self.assertNotIn("commands", sent(key, "KeyA", modifiers, "linux"))      # elsewhere Chrome runs its own shortcut
         # Not a Command shortcut: no modifier, Control or Option with it, or a key with no editing command.
         for key, modifiers in [("ArrowLeft", 0), ("ArrowLeft", 1), ("a", 6), ("a", 5), ("a", 2), ("k", 4), ("v", 4)]:
             with self.subTest(key=key, modifiers=modifiers):
-                self.assertNotIn("commands", sent(key, "KeyA", modifiers, "darwin"))
-        with mock.patch.object(live.sys, "platform", "darwin"):      # a key that types, and a key going up, are left alone
+                self.assertNotIn("commands", sent(key, "KeyA", modifiers, "mac"))
+        with mock.patch.object(live._platform, "family", lambda: "mac"):      # a key that types, and a key going up, are left alone
             self.assertNotIn("commands", live.command({"type": "key", "action": "down", "key": "a", "text": "a", "keyCode": 65})[1])
             self.assertNotIn("commands", live.command({"type": "key", "action": "up", "key": "a", "keyCode": 65, "modifiers": 4})[1])
 

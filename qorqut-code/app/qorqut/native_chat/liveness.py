@@ -15,9 +15,9 @@ Three answers, never two:
 from __future__ import annotations
 
 import os
-import sys
 
 from qorqut.bootstrap import codex_session
+from qorqut_system import platform
 
 ALIVE, DEAD, UNKNOWN = "alive", "dead", "unknown"
 
@@ -29,7 +29,7 @@ def state(pid, started, owner=None) -> str:
         return UNKNOWN
     root = codex_session.PROC_ROOT
     try:
-        if sys.platform == 'darwin':
+        if platform.family() == 'mac':
             from qorqut import process_info
             fields = ['Z' if process_info.is_zombie(pid) else 'S'] + ['0'] * 18 + [process_info.start_token(pid)]
         else:
@@ -45,7 +45,7 @@ def state(pid, started, owner=None) -> str:
         return ALIVE
     if parts[0] != str(pid) or parts[1] != started or not all(part.isascii() and part.isdigit() for part in parts):
         return UNKNOWN
-    if sys.platform == 'darwin':
+    if platform.family() == 'mac':
         return UNKNOWN  # A readable process/open file cannot prove a held per-thread writer lock.
     try:
         descriptor = root / str(pid) / "fd" / parts[2]

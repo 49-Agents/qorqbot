@@ -2,7 +2,8 @@
 import os
 from pathlib import Path
 import shutil
-import sys
+
+from qorqut_system import platform
 
 
 MAC_CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
@@ -33,7 +34,7 @@ def installed_chrome():
                                     override='QORQUT_CHROME_EXECUTABLE')
     if selected is not None:
         return selected
-    if sys.platform == 'darwin' and Path(MAC_CHROME).is_file() and os.access(MAC_CHROME, os.X_OK):
+    if platform.family() == 'mac' and Path(MAC_CHROME).is_file() and os.access(MAC_CHROME, os.X_OK):
         return MAC_CHROME
     return None
 

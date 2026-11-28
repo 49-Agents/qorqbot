@@ -16,13 +16,13 @@ import json
 import logging
 from pathlib import Path
 import re
-import sys
 
 from qorqut_operations.contracts import DomainError
 from qorqut.bootstrap import codex_session
 from qorqut.bootstrap.client import path_has_symlink
 from qorqut.bootstrap.terminal_chat import CODEX_SUFFIX, NATIVE_IDENTITY, process_fields
 from qorqut.bootstrap.transcript_snapshot import SESSION_ID
+from qorqut_system import platform
 
 from .contracts import RUNTIME_PROVIDERS
 
@@ -35,7 +35,7 @@ MAX_MARKER_BYTES = 16384
 
 
 def _process_argv(pid):
-    if sys.platform == 'darwin':
+    if platform.family() == 'mac':
         from qorqut.process_info import cmdline
         return [arg.encode() for arg in cmdline(pid)]
     return (codex_session.PROC_ROOT / str(pid) / 'cmdline').read_bytes().split(b'\0')
@@ -242,7 +242,7 @@ class SessionProbe:
     def _serves_thread(pid: int, session: str) -> bool:
         if not codex_session.runs_app_server(_process_argv(pid)):
             return False
-        return sys.platform == "darwin" or codex_session.thread_owner(pid, session, home=False) is not None
+        return platform.family() == "mac" or codex_session.thread_owner(pid, session, home=False) is not None
 
     def _verify_process(self, profile: dict, marker: dict) -> dict | None:
         pid = int(marker["pid"])
