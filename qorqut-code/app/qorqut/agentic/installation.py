@@ -21,6 +21,7 @@ from qorqut_operations.contracts import DomainError
 from qorqut.source_snapshot import unique_object, validate_export
 from qorqut.private_files import (fsync_directory, read_private_file, require_private_directory,
                                     write_private_file)
+from qorqut_system import private_files
 from .inventory import inventory_sources
 from .plans import apply_import_plan, build_import_plan, _validate_manifest
 from .support import canonical, digest, relative
@@ -214,8 +215,8 @@ def initialize_installation(paths, prepared):
     # The existing private writer supplies ownership, exclusive create and fsync.
     # Publish only its complete bytes under the final name; never replace a binding.
     temp = write_private_file(directory, ".agentic-layer.pending", raw)
-    os.link(temp, directory / RECORD, follow_symlinks=False)
-    os.unlink(temp)
+    private_files.link_entry(directory, temp.name, RECORD)
+    private_files.remove_entry(directory, temp.name)
     fsync_directory(directory)
     return {"path": str(directory / RECORD), "sha256": digest(raw), "instance_id": layer.instance_id, "initial_commit": commit}
 

@@ -24,6 +24,7 @@ from qorqut_agentic.store import Store
 from qorqut_operations.contracts import DomainError
 from qorqut import file_identity
 from qorqut.private_files import read_private_file, require_private_directory
+from qorqut_system import private_files
 from . import layout_files as files
 from .layout_inspection import validate_catalog
 from .layout_intent import _conflict, incomplete_intents
@@ -414,11 +415,11 @@ def _check_operation_locks(root, destination, *, transaction=False, owned_index=
                  'REBASE_HEAD', 'rebase-merge', 'rebase-apply', 'sequencer', 'BISECT_LOG'):
         if os.path.lexists(gitdir / name):
             if name == 'index.lock' and owned_index is not None:
-                info = os.lstat(gitdir / name)
+                info = private_files.stat_folder(gitdir / name)
                 if (stat.S_ISREG(info.st_mode) and file_identity.matches(
-                        owned_index, _stable_index_identity(info), os.stat(gitdir, follow_symlinks=False).st_dev)):
+                        owned_index, _stable_index_identity(info), private_files.stat_folder(gitdir).st_dev)):
                     continue
-            if not transaction or name not in allowed or not stat.S_ISREG(os.lstat(gitdir / name).st_mode):
+            if not transaction or name not in allowed or not stat.S_ISREG(private_files.stat_folder(gitdir / name).st_mode):
                 raise _conflict('Unfinished Git operation: .git/' + name)
             seen.add(name)
     refs = gitdir / 'refs'
@@ -431,11 +432,11 @@ def _check_operation_locks(root, destination, *, transaction=False, owned_index=
             raise _conflict('Unsafe Git refs directory')
         for name in names:
             path = Path(directory) / name
-            if not stat.S_ISREG(os.lstat(path).st_mode):
+            if not stat.S_ISREG(private_files.stat_folder(path).st_mode):
                 raise _conflict('Unsafe Git ref')
             if name.endswith('.lock'):
                 relative = str(path.relative_to(gitdir))
-                if not transaction or relative not in allowed or not stat.S_ISREG(os.lstat(path).st_mode):
+                if not transaction or relative not in allowed or not stat.S_ISREG(private_files.stat_folder(path).st_mode):
                     raise _conflict('Unfinished Git operation: .git/' + relative)
                 seen.add(relative)
     if transaction and seen != allowed:
@@ -652,7 +653,7 @@ def publish_ref(paths, plan, *, attribution):
 
 
 def _stable_index_identity(info):
-    return {'device': info.st_dev, 'inode': info.st_ino, 'mode': stat.S_IMODE(info.st_mode),
+    return {'device': info.st_dev, 'inode': info.st_ino, 'mode': private_files.mode_of(info, mask=0o7777),
             'size': info.st_size, 'mtime_ns': info.st_mtime_ns}
 
 
@@ -662,10 +663,10 @@ def _original_index_identity(info):
 
 def _read_index_at(gitfd, name):
     """Read a bounded regular named index using a retained no-follow handle."""
-    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=gitfd)
+    fd = private_files.open_read(gitfd, name, nonblock=True)
     try:
         before = os.fstat(fd)
-        if (not stat.S_ISREG(before.st_mode) or stat.S_IMODE(before.st_mode) & ~0o777
+        if (not stat.S_ISREG(before.st_mode) or private_files.mode_of(before, mask=0o7777) & ~0o777
                 or before.st_size > 96 * 1024 * 1024):
             raise _conflict('Unsafe or oversized Git index file')
         chunks, size = [], 0
@@ -678,7 +679,7 @@ def _read_index_at(gitfd, name):
                 raise _conflict('Git index exceeds capture bound')
             chunks.append(chunk)
         after = os.fstat(fd)
-        named = os.stat(name, dir_fd=gitfd, follow_symlinks=False)
+        named = private_files.stat_entry(gitfd, name)
         if (_original_index_identity(before) != _original_index_identity(after)
                 or _original_index_identity(after) != _original_index_identity(named)
                 or not stat.S_ISREG(named.st_mode) or size != before.st_size):
@@ -744,7 +745,7 @@ def _link_index(gitfd, pending):
 
 
 def _replace_index(gitfd):
-    os.replace('index.lock', 'index', src_dir_fd=gitfd, dst_dir_fd=gitfd)
+    private_files.rename_entry(gitfd, 'index.lock', 'index')
 
 
 def _index_effect(gitfd, path, journal, original, final, check):
@@ -760,7 +761,7 @@ def _index_effect(gitfd, path, journal, original, final, check):
             raise _conflict('Original Git index required')
         if state == 'final':
             check(None, expected='final')
-            os.fsync(gitfd)
+            private_files.sync_folder(gitfd)
         else:
             if state == 'original':
                 check(None, expected='original')
@@ -774,8 +775,8 @@ def _index_effect(gitfd, path, journal, original, final, check):
                         if count <= 0:
                             raise OSError('short anonymous index write')
                         view = view[count:]
-                    os.fchmod(fd, original_identity['mode'])
-                    os.fsync(fd)
+                    private_files.set_private(fd, mode=original_identity['mode'])
+                    private_files.sync_folder(fd)
                     replacement = {**_stable_index_identity(os.fstat(fd)), 'sha256': digest(final)}
                     if journal['phase'] == 'ref_published':
                         journal['index_publication'] = {'original': original_identity, 'replacement': replacement}
@@ -785,13 +786,13 @@ def _index_effect(gitfd, path, journal, original, final, check):
                     files._journal_write(path, journal)
                     check(None, expected='original')
                     _link_index(gitfd, pending)
-                    os.fsync(gitfd)
+                    private_files.sync_folder(gitfd)
                     lockfd = fd
                     fd = None
                 finally:
                     if fd is not None:
                         posix_files.discard(pending)
-            os.fsync(gitfd)
+            private_files.sync_folder(gitfd)
             check(lockfd, expected='locked')
             oldfd, oldidentity, oldraw = _read_index_at(gitfd, 'index')
             try:
@@ -806,7 +807,7 @@ def _index_effect(gitfd, path, journal, original, final, check):
                 _replace_index(gitfd)
             finally:
                 os.close(oldfd)
-            os.fsync(gitfd)
+            private_files.sync_folder(gitfd)
             check(None, expected='final')
         journal['phase'] = 'git_published'
         files._journal_write(path, journal)
@@ -863,7 +864,7 @@ def publish_index(paths, plan, *, attribution):
         destination = _destination(git, journal)
         rootfd = files._open_root(paths.agentic_root)
         try:
-            gitfd = os.open('.git', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=rootfd)
+            gitfd = private_files.open_child_folder(rootfd, '.git').descriptor
             try:
                 def check(held_lock, *, expected):
                     _reject_filters(git)

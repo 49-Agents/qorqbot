@@ -16,6 +16,7 @@ from qorqut_agentic.store import Store
 from qorqut_operations.contracts import DomainError
 from qorqut import file_identity
 from qorqut.private_files import fsync_directory, read_private_file, require_private_directory
+from qorqut_system import private_files
 from .layout_inspection import inspect_git, inspect_runtime, read_legacy_tree, validate_catalog
 from .layout_intent import _conflict, _read_index, _safe_ancestors, incomplete_intents
 from .support import canonical, digest, relative
@@ -26,19 +27,19 @@ _LIMIT = 512 * 1024 * 1024
 
 
 def _identity(info):
-    return {'device': info.st_dev, 'inode': info.st_ino, 'mode': stat.S_IMODE(info.st_mode)}
+    return {'device': info.st_dev, 'inode': info.st_ino, 'mode': private_files.mode_of(info, mask=0o7777)}
 
 
 def _root_matches(rootfd, root, saved):
     """The open root and the root's name are both still the saved directory (see qorqut.file_identity)."""
     volume = file_identity.fd_parent_volume(rootfd)
     return (file_identity.matches(saved, _identity(os.fstat(rootfd)), volume)
-            and file_identity.matches(saved, _identity(os.stat(root, follow_symlinks=False)), volume))
+            and file_identity.matches(saved, _identity(private_files.stat_folder(root)), volume))
 
 
 def _open_root(root):
     _safe_ancestors(root)
-    return os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    return private_files.open_folder(root).descriptor
 
 
 def _open_dir(rootfd, path, dirs):
@@ -48,7 +49,7 @@ def _open_dir(rootfd, path, dirs):
         for part in path.split('/') if path else ():
             current = current + '/' + part if current else part
             volume = os.fstat(fd).st_dev
-            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+            child = private_files.open_child_folder(fd, part).descriptor
             os.close(fd)
             fd = child
             if current not in dirs or not file_identity.matches(dirs[current], _identity(os.fstat(fd)), volume):
@@ -62,16 +63,15 @@ def _open_dir(rootfd, path, dirs):
 def _directories(rootfd):
     result = {}
     def walk(fd, prefix):
-        with os.scandir(fd) as entries:
-            names = sorted(e.name for e in entries)
+        names = sorted(private_files.list_entries(fd))
         for name in names:
             path = prefix + '/' + name if prefix else name
-            info = os.stat(name, dir_fd=fd, follow_symlinks=False)
+            info = private_files.stat_entry(fd, name)
             if stat.S_ISDIR(info.st_mode):
-                if stat.S_IMODE(info.st_mode) & ~0o777:
+                if private_files.mode_of(info, mask=0o7777) & ~0o777:
                     raise _conflict('Special directory mode is unsupported: ' + path)
                 relative(path)
-                child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                child = private_files.open_child_folder(fd, name).descriptor
                 try:
                     if _identity(os.fstat(child)) != _identity(info):
                         raise _conflict('Directory changed during inspection: ' + path)
@@ -83,14 +83,14 @@ def _directories(rootfd):
                     os.close(child)
     for area in _AREAS:
         try:
-            info = os.stat(area, dir_fd=rootfd, follow_symlinks=False)
+            info = private_files.stat_entry(rootfd, area)
         except FileNotFoundError:
             continue
         if not stat.S_ISDIR(info.st_mode):
             raise _conflict('Unsafe authored directory: ' + area)
-        if stat.S_IMODE(info.st_mode) & ~0o777:
+        if private_files.mode_of(info, mask=0o7777) & ~0o777:
             raise _conflict('Special directory mode is unsupported: ' + area)
-        fd = os.open(area, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=rootfd)
+        fd = private_files.open_child_folder(rootfd, area).descriptor
         try:
             if _identity(os.fstat(fd)) != _identity(info):
                 raise _conflict('Directory changed during inspection: ' + area)
@@ -120,7 +120,7 @@ def _journal_write(path, journal):
         raise _conflict('Relocation journal exceeds bound')
     temp = _write_private_temp(path.parent, raw)
     try:
-        os.replace(temp, path)
+        private_files.rename_entry(path.parent, temp.name, path.name)
         fsync_directory(path.parent)
     finally:
         temp.unlink(missing_ok=True)
@@ -160,9 +160,9 @@ def _journal_read(path):
 
 
 def _head_identity(rootfd):
-    gitfd = os.open('.git', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=rootfd)
+    gitfd = private_files.open_child_folder(rootfd, '.git').descriptor
     try:
-        fd = os.open('HEAD', os.O_RDONLY | os.O_NOFOLLOW, dir_fd=gitfd)
+        fd = private_files.open_read(gitfd, 'HEAD')
         try:
             info = os.fstat(fd)
             if not stat.S_ISREG(info.st_mode) or info.st_size > 4096:
@@ -177,7 +177,7 @@ def _head_identity(rootfd):
 
 def _environment_facts(paths, plan, journal, rootfd):
     _safe_ancestors(paths.agentic_runtime)
-    runtime_info = os.stat(paths.agentic_runtime, follow_symlinks=False)
+    runtime_info = private_files.stat_folder(paths.agentic_runtime)
     if not file_identity.matches(plan['identity']['state'], {'device': runtime_info.st_dev, 'inode': runtime_info.st_ino},
                                  file_identity.parent_volume(paths.agentic_runtime)):
         raise _conflict('Runtime directory identity changed')
@@ -286,7 +286,7 @@ def _verify_tree(paths, rootfd, journal, originals, targets):
 def _expected_file(parent, name, expected, path, *, keep_open=False):
     """Verify a named regular file through a no-follow handle, or report absence."""
     try:
-        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, dir_fd=parent)
+        fd = private_files.open_read(parent, name, nonblock=True)
     except FileNotFoundError:
         return None
     except OSError as exc:
@@ -295,7 +295,7 @@ def _expected_file(parent, name, expected, path, *, keep_open=False):
     try:
         before = os.fstat(fd)
         body, mode = expected
-        if not stat.S_ISREG(before.st_mode) or stat.S_IMODE(before.st_mode) != mode or before.st_size != len(body):
+        if not stat.S_ISREG(before.st_mode) or private_files.mode_of(before, mask=0o7777) != mode or before.st_size != len(body):
             raise _conflict('File type, mode or size changed: ' + path)
         offset = 0
         while offset < len(body):
@@ -306,7 +306,7 @@ def _expected_file(parent, name, expected, path, *, keep_open=False):
         if os.read(fd, 1):
             raise _conflict('File bytes changed: ' + path)
         after = os.fstat(fd)
-        named = os.stat(name, dir_fd=parent, follow_symlinks=False)
+        named = private_files.stat_entry(parent, name)
         def identity(info):
             return (info.st_dev, info.st_ino, info.st_mode, info.st_size,
                     info.st_mtime_ns, info.st_ctime_ns)
@@ -332,7 +332,7 @@ def _apply_file(rootfd, journal, effect, originals, targets):
         if effect['kind'] == 'publish':
             body, mode = targets[path]
             if _expected_file(fd, name, (body, mode), path) is not None:
-                os.fsync(fd)
+                private_files.sync_folder(fd)
                 return
             # Never a named partial file at the destination to adopt or delete after interruption (posix_files).
             from qorqut import posix_files
@@ -341,10 +341,10 @@ def _apply_file(rootfd, journal, effect, originals, targets):
                 view = memoryview(body)
                 while view:
                     view = view[os.write(pending.fd, view):]
-                os.fchmod(pending.fd, mode)
-                os.fsync(pending.fd)
+                private_files.set_private(pending.fd, mode=mode)
+                private_files.sync_folder(pending.fd)
                 posix_files.publish(pending, fd, name)
-                os.fsync(fd)
+                private_files.sync_folder(fd)
             finally:
                 posix_files.discard(pending)
         else:
@@ -359,20 +359,20 @@ def _apply_file(rootfd, journal, effect, originals, targets):
                     os.close(target_fd)
             verified = _expected_file(fd, name, originals[path], path, keep_open=True)
             if verified is None:
-                os.fsync(fd)
+                private_files.sync_folder(fd)
                 return
             source_fd, identity = verified
             try:
                 try:
-                    named = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                    named = private_files.stat_entry(fd, name)
                 except FileNotFoundError as exc:
                     raise _conflict('Source disappeared before removal: ' + path) from exc
                 opened = os.fstat(source_fd)
                 identity_of = lambda s: (s.st_dev, s.st_ino, s.st_mode, s.st_size, s.st_mtime_ns, s.st_ctime_ns)
                 if identity_of(named) != identity or identity_of(opened) != identity:
                     raise _conflict('Source identity changed before removal: ' + path)
-                os.unlink(name, dir_fd=fd)
-                os.fsync(fd)
+                private_files.remove_entry(fd, name)
+                private_files.sync_folder(fd)
             finally:
                 os.close(source_fd)
     finally:
@@ -430,15 +430,15 @@ def relocate(paths, plan, *, attribution):
                     parent, _, name = rel.rpartition('/')
                     fd = _open_dir(rootfd, parent, {**journal['initial_dirs'], **journal['created_dirs']})
                     try:
-                        os.mkdir(name, 0o755, dir_fd=fd)
-                        child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                        private_files.make_folder(fd, name, mode=0o755)
+                        child = private_files.open_child_folder(fd, name).descriptor
                         try:
-                            os.fchmod(child, 0o755)
-                            os.fsync(child)
+                            private_files.set_private(child, mode=0o755)
+                            private_files.sync_folder(child)
                             identity = _identity(os.fstat(child))
                         finally:
                             os.close(child)
-                        os.fsync(fd)
+                        private_files.sync_folder(fd)
                         journal['created_dirs'][rel] = identity
                     finally:
                         os.close(fd)

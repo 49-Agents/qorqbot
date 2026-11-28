@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from qorqut.posix_files import immutable_database_uri
+from qorqut_system import private_files
 
 import json
 import sqlite3
@@ -112,13 +113,13 @@ def read_legacy_tree(root, area='packages', *, metadata=None):
     total, seen = 0, 0
     if not root.is_absolute() or '..' in root.parts:
         return files, [{'code': 'unsafe_root', 'path': str(root)}]
-    descriptor = os.open('/', os.O_RDONLY | os.O_DIRECTORY)
+    descriptor = private_files.open_folder('/', follow_link=True).descriptor       # the filesystem root is never a link
     try:
         try:
             if area not in ('packages', 'roles', 'operations', 'overseer', 'plugins', 'user-preferences'):
                 raise OSError('invalid authored area')
             for part in (*root.parts[1:], area):
-                next_descriptor = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor)
+                next_descriptor = private_files.open_child_folder(descriptor, part).descriptor
                 os.close(descriptor)
                 descriptor = next_descriptor
         except OSError as exc:
@@ -127,23 +128,22 @@ def read_legacy_tree(root, area='packages', *, metadata=None):
         def walk(parent, prefix):
             nonlocal total, seen
             entries = []
-            with os.scandir(parent) as stream:
-                for entry in stream:
-                    seen += 1
-                    if seen > 100000:
-                        conflicts.append({'code': 'file_count_limit_exceeded', 'path': prefix})
-                        return
-                    entries.append(entry)
-            for entry in sorted(entries, key=lambda item: item.name):
-                path = prefix + '/' + entry.name
+            for name in private_files.walk_entries(parent):
+                seen += 1
+                if seen > 100000:
+                    conflicts.append({'code': 'file_count_limit_exceeded', 'path': prefix})
+                    return
+                entries.append(name)
+            for name in sorted(entries):
+                path = prefix + '/' + name
                 try:
                     relative(path)
                     if len(path.split('/')) > 64:
                         conflicts.append({'code': 'path_depth_limit_exceeded', 'path': path})
                         continue
-                    info = entry.stat(follow_symlinks=False)
+                    info = private_files.stat_entry(parent, name)
                     if stat.S_ISDIR(info.st_mode):
-                        child = os.open(entry.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+                        child = private_files.open_child_folder(parent, name).descriptor
                         try:
                             walk(child, path)
                         finally:
@@ -152,7 +152,7 @@ def read_legacy_tree(root, area='packages', *, metadata=None):
                         if info.st_size > MAX_FILE_BYTES or total + info.st_size > 96 * 1024 * 1024:
                             conflicts.append({'code': 'file_limit_exceeded', 'path': path})
                             continue
-                        child = os.open(entry.name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
+                        child = private_files.open_read(parent, name)
                         try:
                             opened = os.fstat(child)
                             if not stat.S_ISREG(opened.st_mode) or (opened.st_dev, opened.st_ino) != (info.st_dev, info.st_ino):
@@ -173,7 +173,7 @@ def read_legacy_tree(root, area='packages', *, metadata=None):
                             if metadata is not None:
                                 import hashlib
                                 metadata[path] = {'sha256': hashlib.sha256(files[path]).hexdigest(),
-                                                  'bytes': count, 'mode': stat.S_IMODE(opened.st_mode)}
+                                                  'bytes': count, 'mode': private_files.mode_of(opened, mask=0o7777)}
                             total += count
                         finally:
                             os.close(child)
@@ -200,16 +200,16 @@ def inspect_runtime(state_dir, root, instance_id):
     if not state_dir.is_absolute() or '..' in state_dir.parts:
         result['conflicts'].append({'code': 'unsafe_state_path', 'path': str(state_dir)})
         return result
-    directory = os.open('/', os.O_RDONLY | os.O_DIRECTORY)
+    directory = private_files.open_folder('/', follow_link=True).descriptor       # the filesystem root is never a link
     db = None
     try:
         for component in state_dir.parts[1:]:
-            next_directory = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+            next_directory = private_files.open_child_folder(directory, component).descriptor
             os.close(directory)
             directory = next_directory
         def state(name):
             try:
-                info = os.stat(name, dir_fd=directory, follow_symlinks=False)
+                info = private_files.stat_entry(directory, name)
             except FileNotFoundError:
                 return None
             if not stat.S_ISREG(info.st_mode):
@@ -222,7 +222,7 @@ def inspect_runtime(state_dir, root, instance_id):
             result['conflicts'].append({'code': 'runtime_wal_present', 'path': 'state.sqlite3-wal',
                 'instruction': 'Complete normal offline shutdown, checkpoint or recovery outside preparation before replanning.'})
             return result
-        db = os.open('state.sqlite3', os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory)
+        db = private_files.open_read(directory, 'state.sqlite3')
         opened = os.fstat(db)
         if (opened.st_dev, opened.st_ino, opened.st_size, opened.st_mtime_ns, opened.st_ctime_ns) != before['state.sqlite3']:
             raise OSError('runtime database changed before inspection')
@@ -439,14 +439,14 @@ def inspect_git(root, *, entire_worktree=False):
                 raise OSError('Git refs contains a symlink')
             for name in names:
                 path = Path(directory) / name
-                if not stat.S_ISREG(os.lstat(path).st_mode):
+                if not stat.S_ISREG(private_files.stat_folder(path).st_mode):
                     raise OSError('Git ref is not a regular file')
                 if name.endswith('.lock'):
                     result['conflicts'].append({'code': 'unfinished_git_operation', 'path': str(path.relative_to(root))})
         if result['conflicts']:
             return result
         index_path = gitdir / 'index'
-        index = os.open(index_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        index = private_files.open_read(index_path.parent, index_path.name, nonblock=True)
         try:
             info = os.fstat(index)
             if not stat.S_ISREG(info.st_mode) or info.st_size > 96 * 1024 * 1024:
@@ -516,7 +516,7 @@ def inspect_git(root, *, entire_worktree=False):
                 result['conflicts'].append({'code': 'git_changed_during_inspection'})
             after_info = os.fstat(index)
             after = (after_info.st_dev, after_info.st_ino, after_info.st_size, after_info.st_mtime_ns, after_info.st_ctime_ns)
-            if before != after or os.stat(index_path, follow_symlinks=False).st_ino != info.st_ino:
+            if before != after or private_files.stat_folder(index_path).st_ino != info.st_ino:
                 result['conflicts'].append({'code': 'git_changed_during_inspection'})
         finally:
             os.close(index)
