@@ -253,9 +253,8 @@
       "system_module": 1
     },
     "qorqut-code/app/qorqut/browser/control.py": {
-      "link": 1,
-      "platform_check": 2,
-      "proc_read": 4
+      "platform_check": 1,
+      "proc_read": 2
     },
     "qorqut-code/app/qorqut/browser/idle_tabs.py": {
       "owner_check": 1
@@ -419,13 +418,6 @@
     },
     "qorqut-code/app/qorqut/overseer/evidence.py": {
       "safe_file_access": 1
-    },
-    "qorqut-code/app/qorqut/process_info.py": {
-      "link": 3,
-      "owner_check": 1,
-      "platform_check": 1,
-      "proc_read": 9,
-      "process_control": 1
     },
     "qorqut-code/app/qorqut/release_worker/adapters.py": {
       "file_lock": 1,
