@@ -12,6 +12,7 @@ from unittest import mock
 from qorqut_operations.contracts import DomainError
 
 from qorqut import posix_files
+from qorqut_system import publication_unix
 
 
 @unittest.skipUnless(posix_files.publication_supported(), "exclusive publication needs Linux O_TMPFILE or macOS")
@@ -98,7 +99,7 @@ class DarwinStagingTest(unittest.TestCase):
             posix_files.prepare_publication(staging)
 
     def test_unprepared_staging_fails_closed(self):
-        posix_files._staging.pop("fd", None)
+        publication_unix._staging.pop("fd", None)
         fd = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY)
         try:
             with self.assertRaises(DomainError):
@@ -141,24 +142,24 @@ class SimulatedDarwinTest(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.root)
-        self.previous = dict(posix_files._staging)
-        posix_files._staging.clear()  # Isolate the fixture without closing another test's staging fd.
+        self.previous = dict(publication_unix._staging)
+        publication_unix._staging.clear()  # Isolate the fixture without closing another test's staging fd.
         self.addCleanup(self.restore_staging)
-        simulated = mock.patch.object(posix_files, "_darwin", return_value=True)
+        simulated = mock.patch.object(publication_unix, "_darwin", return_value=True)
         simulated.start()
         self.addCleanup(simulated.stop)
         self.staging = self.root / "staging"
         posix_files.prepare_publication(self.staging)
-        self.registered = posix_files._staging["fd"]
+        self.registered = publication_unix._staging["fd"]
         self.destination = self.root / "destination"
         self.destination.mkdir(mode=0o700)
 
     def restore_staging(self):
-        current = posix_files._staging.get("fd")
+        current = publication_unix._staging.get("fd")
         if current is not None and current != self.previous.get("fd"):
             os.close(current)
-        posix_files._staging.clear()
-        posix_files._staging.update(self.previous)
+        publication_unix._staging.clear()
+        publication_unix._staging.update(self.previous)
 
     def assertClosed(self, descriptors):
         for fd in descriptors:
@@ -216,7 +217,7 @@ class SimulatedDarwinTest(unittest.TestCase):
         self.assertEqual(raised.exception.errno, errno.EXDEV)
 
     def test_unprepared_staging_fails_closed(self):
-        posix_files._staging.pop("fd")
+        publication_unix._staging.pop("fd")
         with tracked_opens() as opened:
             with self.assertRaises(DomainError):
                 posix_files.require_same_device(self.destination)
@@ -228,7 +229,7 @@ class SimulatedDarwinTest(unittest.TestCase):
                 posix_files.prepare_publication(self.root / "second")
         self.assertEqual(len(opened), 1)
         self.assertClosed(opened)
-        self.assertEqual(posix_files._staging["fd"], self.registered)
+        self.assertEqual(publication_unix._staging["fd"], self.registered)
         os.fstat(self.registered)
 
     def test_a_failed_removal_closes_the_new_descriptor_and_keeps_the_previous_staging(self):
@@ -240,7 +241,7 @@ class SimulatedDarwinTest(unittest.TestCase):
                 posix_files.prepare_publication(second)
         self.assertEqual(len(opened), 1)
         self.assertClosed(opened)
-        self.assertEqual(posix_files._staging["fd"], self.registered)
+        self.assertEqual(publication_unix._staging["fd"], self.registered)
         os.fstat(self.registered)
         self.assertEqual(os.listdir(second), [".publish-stale"])
 
@@ -252,14 +253,14 @@ class SimulatedDarwinTest(unittest.TestCase):
             with self.assertRaises(DomainError):
                 posix_files.prepare_publication(shared)
         self.assertClosed(opened)
-        self.assertEqual(posix_files._staging["fd"], self.registered)
+        self.assertEqual(publication_unix._staging["fd"], self.registered)
 
     def test_a_successful_preparation_replaces_and_closes_the_previous_staging(self):
         (self.staging / ".publish-stale").write_bytes(b"partial")
         posix_files.prepare_publication(self.root / "second")
-        self.assertNotEqual(posix_files._staging["fd"], self.registered)
+        self.assertNotEqual(publication_unix._staging["fd"], self.registered)
         self.assertClosed([self.registered])
-        os.fstat(posix_files._staging["fd"])
+        os.fstat(publication_unix._staging["fd"])
 
 
 @unittest.skipUnless(sys.platform.startswith("linux"), "Linux publication path")
@@ -267,25 +268,25 @@ class LinuxUnchangedTest(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.root)
-        self.previous = dict(posix_files._staging)
-        self.addCleanup(lambda: (posix_files._staging.clear(), posix_files._staging.update(self.previous)))
+        self.previous = dict(publication_unix._staging)
+        self.addCleanup(lambda: (publication_unix._staging.clear(), publication_unix._staging.update(self.previous)))
 
     def test_the_preflight_is_a_no_op_without_staging_or_directories(self):
-        posix_files._staging.pop("fd", None)
+        publication_unix._staging.pop("fd", None)
         missing = self.root / "missing"
         with tracked_opens() as opened, foreign_device(self.root):
             posix_files.require_same_device(self.root, missing)
         self.assertEqual(opened, [])
 
     def test_preparation_is_a_no_op(self):
-        posix_files._staging.pop("fd", None)
+        publication_unix._staging.pop("fd", None)
         posix_files.prepare_publication(self.root / "staging")
         self.assertFalse((self.root / "staging").exists())
-        self.assertNotIn("fd", posix_files._staging)
+        self.assertNotIn("fd", publication_unix._staging)
 
     @unittest.skipUnless(hasattr(os, "O_TMPFILE"), "needs O_TMPFILE")
     def test_publication_does_not_use_or_require_staging(self):
-        posix_files._staging.pop("fd", None)
+        publication_unix._staging.pop("fd", None)
         fd = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY)
         self.addCleanup(os.close, fd)
         with foreign_device(self.root):

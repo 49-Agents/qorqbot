@@ -131,9 +131,6 @@
     "qorqut-code/app/qorqut/agents/attention_delivery.py": {
       "permission_bits": 1
     },
-    "qorqut-code/app/qorqut/atomic_write.py": {
-      "permission_bits": 1
-    },
     "qorqut-code/app/qorqut/attention_queue.py": {
       "file_lock": 1,
       "safe_file_access": 1,
@@ -307,9 +304,6 @@
     "qorqut-code/app/qorqut/extension_contract.py": {
       "permission_bits": 1
     },
-    "qorqut-code/app/qorqut/file_identity.py": {
-      "safe_file_access": 1
-    },
     "qorqut-code/app/qorqut/file_viewer/files.py": {
       "safe_file_access": 7
     },
@@ -425,17 +419,6 @@
     },
     "qorqut-code/app/qorqut/overseer/evidence.py": {
       "safe_file_access": 1
-    },
-    "qorqut-code/app/qorqut/posix_files.py": {
-      "owner_check": 2,
-      "platform_check": 7,
-      "proc_read": 2,
-      "safe_file_access": 14
-    },
-    "qorqut-code/app/qorqut/private_files.py": {
-      "owner_check": 4,
-      "permission_bits": 4,
-      "safe_file_access": 3
     },
     "qorqut-code/app/qorqut/process_info.py": {
       "link": 3,
