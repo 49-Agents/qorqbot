@@ -1,12 +1,15 @@
 """Shared launch/build/switch/prune exclusion and PID/start lifetime references."""
 from contextlib import contextmanager
-import fcntl
 import json
 import os
 from pathlib import Path
 import tempfile
 import socket
-import sys
+
+from qorqut_system import locks as _locks
+from qorqut_system import platform as _platform
+from qorqut_system import private_files as _private_files
+from qorqut_system import processes as _processes
 
 
 def atomic_json(path, value):
@@ -24,9 +27,7 @@ def atomic_json(path, value):
         os.replace(temporary, path)
         # Persist both the renamed file and any newly created directory entries.
         for directory in dict.fromkeys([path.parent,*[item.parent for item in missing]]):
-            descriptor=os.open(directory,os.O_RDONLY|os.O_DIRECTORY)
-            try:os.fsync(descriptor)
-            finally:os.close(descriptor)
+            _private_files.fsync_directory(directory)
     finally:
         Path(temporary).unlink(missing_ok=True)
 
@@ -35,18 +36,15 @@ def atomic_json(path, value):
 def exclusion(root, *, shared=False, blocking=True):
     path = Path(root) / "state/deployment.lock"
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a") as stream:
-        mode = fcntl.LOCK_SH if shared else fcntl.LOCK_EX
-        fcntl.flock(stream, mode if blocking else mode | fcntl.LOCK_NB)
+    with path.open("a") as stream, _locks.held(stream, exclusive=not shared, wait=blocking):
         yield
 
 
 def identity(pid):
     try:
-        if sys.platform == 'darwin':
-            from qorqut import process_info
-            return None if process_info.is_zombie(pid) else process_info.start_token(pid)
-        fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+        if _platform.family() == "mac":
+            return None if _processes.is_zombie(pid) else _processes.start_token(pid)
+        fields = _processes.fields_as_given(pid)
         return fields[19] if fields[0] != "Z" else None
     except (OSError, IndexError):
         return None
@@ -54,25 +52,16 @@ def identity(pid):
 
 def exited_process(pid):
     try:
-        if sys.platform == 'darwin':
-            from qorqut import process_info
-            return process_info.is_zombie(pid)
-        return Path(f'/proc/{pid}/stat').read_text().rsplit(')',1)[1].split()[0] in {'Z','X'}
+        return _processes.is_zombie_as_given(pid)
     except (FileNotFoundError, ProcessLookupError):return True
     except (OSError,IndexError):return False
 
 
 def local_instance():
     """Target identity, boot and PID namespace are separate observations."""
-    if sys.platform == 'darwin':
-        from qorqut import process_info
-        return {'host': socket.gethostname(), 'target': 'local',
-                'target_instance': process_info.machine_id(), 'boot_id': process_info.boot_id(),
-                'pid_namespace': process_info.namespace_id()}
     return {'host': socket.gethostname(), 'target': 'local',
-            'target_instance': Path('/etc/machine-id').read_text().strip(),
-            'boot_id': Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
-            'pid_namespace': str(Path('/proc/self/ns/pid').readlink())}
+            'target_instance': _processes.machine_id(), 'boot_id': _processes.boot_id_plain(),
+            'pid_namespace': _processes.namespace_id()}
 
 
 @contextmanager
@@ -80,8 +69,7 @@ def reference_lock(root):
     """Serialize reference union/attestation; shared deployment locks do not."""
     path = Path(root) / 'state/reference-records.lock'
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open('a') as stream:
-        fcntl.flock(stream, fcntl.LOCK_EX)
+    with path.open('a') as stream, _locks.held(stream):
         yield
 
 

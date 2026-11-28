@@ -42,6 +42,14 @@ class Matches(unittest.TestCase):
                          [("system_module", 1), ("file_lock", 3)])
         self.assertEqual(found[1][3:], ("locks", "qorqut_system.locks"))
 
+    def test_a_host_table_read_points_at_the_host_service(self):
+        found = system_calls.findings("table = open('/proc/self/mountinfo').read()\n")
+        self.assertEqual(found[0][3:], ("the host", "qorqut_system.host"))
+
+    def test_a_process_file_read_still_points_at_the_processes_service(self):
+        found = system_calls.findings("state = open('/proc/self/stat').read()\n")
+        self.assertEqual(found[0][3:], ("processes", "qorqut_system.processes"))
+
     def test_a_system_test_is_found(self):
         found = system_calls.findings("import os\nif os.name == 'nt':\n    pass\n")
         self.assertEqual([(kind, line) for kind, line, *_ in found], [("platform_check", 2)])

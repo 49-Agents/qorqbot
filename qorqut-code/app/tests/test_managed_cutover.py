@@ -97,13 +97,16 @@ class FakeMachine(cutover.Machine):
                 self.kill_tree(child)
         self.procs.pop(pid, None)
 
-    def signal(self, pid, number):
+    def terminate(self, pid):
         self._proc(pid)
-        self.signals.append((pid, number))
-        if number == signal.SIGKILL:
-            self.kill_tree(pid)
-        elif number == signal.SIGTERM and pid not in self.stubborn:
+        self.signals.append((pid, signal.SIGTERM))
+        if pid not in self.stubborn:
             self.later.append((self.clock + self.term_delay, pid))
+
+    def kill(self, pid):
+        self._proc(pid)
+        self.signals.append((pid, signal.SIGKILL))
+        self.kill_tree(pid)
 
     def sleep(self, seconds):
         self.clock += seconds
@@ -385,18 +388,18 @@ class Apply(Installation):
     def test_the_client_is_ended_before_its_session_and_its_exit_is_verified_by_start_time(self):
         self.live('agent-a', 'claude')
         order = []
-        real_signal, real_kill = self.machine.signal, self.server.runner
+        real_terminate, real_kill = self.machine.terminate, self.server.runner
 
-        def noting_signal(pid, number):
+        def noting_terminate(pid):
             order.append('signal')
-            real_signal(pid, number)
+            real_terminate(pid)
 
         def noting_runner(argv, env):
             if 'kill-session' in argv:
                 order.append('kill-session')
                 self.assertNotIn(501, self.machine.procs, 'the session was ended while the client still ran')
             return real_kill(argv, env)
-        self.machine.signal, self.server.runner = noting_signal, noting_runner
+        self.machine.terminate, self.server.runner = noting_terminate, noting_runner
         self.apply(only='agent-a')
         self.assertEqual(order, ['signal', 'kill-session'])
 

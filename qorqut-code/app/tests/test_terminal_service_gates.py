@@ -139,7 +139,7 @@ class StartAgentTest(Fixture):
         backend.snapshot = lambda row, client=None: seen.pop(0) if len(seen) > 1 else seen[0]
         backend.opened_snapshot = lambda row, attempts=50: SHELL
         backend.wait_ready = lambda row, client="claude": None
-        for target, value in (("qorqut.process_info.cwd", lambda pid: self.workspace), ("qorqut.agent_trust.ensure", mock.Mock())):
+        for target, value in (("qorqut_system.processes.cwd", lambda pid: self.workspace), ("qorqut.agent_trust.ensure", mock.Mock())):
             patched = mock.patch(target, value)
             patched.start()
             self.addCleanup(patched.stop)

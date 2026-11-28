@@ -10,6 +10,7 @@ import uuid
 
 from .errors import ReleaseError
 from .io import atomic_json
+from qorqut_system import host as _host
 
 
 def _sha256_file(path):
@@ -24,31 +25,15 @@ def read_json(path):
     return json.loads(Path(path).read_text(encoding='utf-8'))
 
 
-def _unescape(value):
-    return re.sub(r'\\([0-7]{3})', lambda m: chr(int(m[1], 8)), value)
-
-
 def mount_observations():
-    result = []
-    with open('/proc/self/mountinfo', encoding='utf-8') as stream:
-        for line in stream:
-            pre, post = line.rstrip().split(' - ', 1)
-            a, b = pre.split(), post.split()
-            result.append({'mount_id': a[0], 'root': _unescape(a[3]), 'mountpoint': _unescape(a[4]),
-                           'options': a[5].split(',') + b[2].split(','), 'filesystem': b[0],
-                           'source': _unescape(b[1])})
-    return result
+    """Every mount of this machine, with its options, read through the system layer."""
+    return _host.mounts()
 
 
 def local_addresses():
     """All Linux interface addresses, including non-loopback IP aliases of this host."""
     try:
-        lines = Path('/proc/net/fib_trie').read_text().splitlines()
-        addresses = {str(ipaddress.ip_address(lines[i - 1].split()[-1]))
-                     for i, line in enumerate(lines) if i and '/32 host LOCAL' in line}
-        addresses.update(str(ipaddress.IPv6Address(int(line.split()[0], 16)))
-                         for line in Path('/proc/net/if_inet6').read_text().splitlines())
-        return addresses
+        return _host.local_addresses()
     except (OSError, ValueError, IndexError):
         raise ReleaseError('local network identity is unavailable; cannot verify independent backup') from None
 

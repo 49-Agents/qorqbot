@@ -47,18 +47,19 @@ import os
 from pathlib import Path
 import re
 import shutil
-import signal
 import sqlite3
 import subprocess
 import sys
 import time
 
-from qorqut import process_info
 from qorqut.managed_runtime import mode as runtime_mode
 from qorqut.composition.locations import agent_workspace_of
 from qorqut.service.instance_arguments import add_instance_arguments, instance_paths_from_arguments
 from qorqut.service.ownership import InstanceOwnership
 from qorqut_operations.contracts import DomainError
+from qorqut_system import platform as _platform
+from qorqut_system import private_files as _private_files
+from qorqut_system import processes as _processes
 
 DEFAULT_SOCKET = 'qorqut'
 LEGACY_SOCKET = 'bazarlyk'
@@ -98,57 +99,54 @@ class CutoverError(Exception):
 # Processes: every observation and signal goes through one object so tests can stand in for the machine.
 # ----------------------------------------------------------------------------------------------------------------------
 class Machine:
-    """Process facts and signals of this machine (Linux and macOS through ``process_info``)."""
+    """Process facts and signals of this machine (Linux and macOS through the system layer)."""
 
     def pids(self):
-        return process_info.pids()
+        return _processes.pids()
 
     def parent(self, pid):
-        return process_info.parent_pid(pid)
+        return _processes.parent_pid(pid)
 
     def argv(self, pid):
-        return process_info.cmdline(pid)
+        return _processes.cmdline(pid)
 
     def comm(self, pid):
-        return process_info.name(pid)
+        return _processes.name(pid)
 
     def exe(self, pid):
-        return process_info.exe(pid).name
+        return _processes.exe(pid).name
 
     def cwd(self, pid):
-        return str(process_info.cwd(pid))
+        return str(_processes.cwd(pid))
 
     def environ(self, pid):
-        return process_info.environ(pid)
+        return _processes.environ(pid)
 
     def start(self, pid):
-        return process_info.start_token(pid)
+        return _processes.start_token(pid)
 
     def zombie(self, pid):
-        return process_info.is_zombie(pid)
+        return _processes.is_zombie(pid)
 
     def session(self, pid):
         """The terminal session id of the process (a child whose parent ended keeps it; a daemon that made its own session has another)."""
         return os.getsid(int(pid))
 
     def owner(self, pid):
-        return process_info.uids(pid)[0]
+        return _processes.uids(pid)[0]
 
     def open_files(self, pid):
         """Paths this process has open; a platform that cannot say returns an empty list."""
-        if sys.platform != 'darwin':
-            found = []
-            for entry in Path(f'/proc/{int(pid)}/fd').iterdir():
-                try:
-                    found.append(os.readlink(entry))
-                except OSError:
-                    continue
-            return found
-        import psutil
-        return [item.path for item in psutil.Process(int(pid)).open_files()]
+        if _platform.family() == 'mac':
+            import psutil
+            return [item.path for item in psutil.Process(int(pid)).open_files()]
+        return _processes.open_links(pid)
 
-    def signal(self, pid, number):
-        os.kill(int(pid), number)
+    def terminate(self, pid):
+        _processes.terminate_pid(int(pid))
+
+    def kill(self, pid):
+        _processes.kill_pid(int(pid))
 
     def alive(self, pid, start):
         """The process with this pid AND this start token still runs (a reused pid is not the same process)."""
@@ -192,7 +190,7 @@ def tmux_folder(instance_root, env, explicit=None):
     if env.get('TMUX_TMPDIR'):
         return env['TMUX_TMPDIR']
     root = Path(instance_root)
-    if root.name == 'instance' and (root.parent / '.run' / f'tmux-{os.getuid()}').is_dir():
+    if root.name == 'instance' and (root.parent / '.run' / f'tmux-{_processes.user_id()}').is_dir():
         return str(root.parent / '.run')
     return None
 
@@ -694,7 +692,7 @@ def shared_processes(machine):
     """Codex's app-server daemon pair (the daemon and its ``pid-update-loop``), if running for this user. The interactive Codex client
     starts it detached (its parent is init), so it belongs to no agent's session; it is shared by everything that uses the same Codex
     home and so is reported, never ended."""
-    me = os.getuid() if hasattr(os, 'getuid') else None
+    me = _processes.user_id()
     found = []
     for pid in _try(machine.pids, default=[]):
         argv = _try(machine.argv, pid, default=None) or []
@@ -855,7 +853,7 @@ def end_orphans(machine, view, done, *, force, poll, term_wait=TERM_WAIT, kill_w
     names = {item: _try(machine.comm, item, default='?') or '?' for item in members}
     for item, token in members.items():
         if machine.alive(item, token):
-            _try(machine.signal, item, signal.SIGTERM)
+            _try(machine.terminate, item)
     done.append(f'SIGTERM to {len(members)} leftover process(es) of the client: ' + ', '.join(f'pid {item} ({names[item]})' for item in members))
     deadline = machine.now() + term_wait
     while any(machine.alive(item, token) for item, token in members.items()) and machine.now() < deadline:
@@ -866,7 +864,7 @@ def end_orphans(machine, view, done, *, force, poll, term_wait=TERM_WAIT, kill_w
             raise CutoverError('client_did_not_end', f'leftover process(es) of the client {stuck} did not end within {term_wait:g} s of SIGTERM; '
                                're-run with --force to kill them')
         for item in stuck:
-            _try(machine.signal, item, signal.SIGKILL)
+            _try(machine.kill, item)
         done.append(f'SIGKILL to {stuck} (--force)')
         deadline = machine.now() + kill_wait
         while any(machine.alive(item, members[item]) for item in stuck) and machine.now() < deadline:
@@ -897,7 +895,7 @@ def end_client(machine, view, done, *, force, wait_seconds, poll, term_wait=TERM
     elif view['turn'] == 'running':
         done.append('turn in progress cut off (--force)')
     _reverify(machine, pid, start, client)
-    machine.signal(pid, signal.SIGTERM)
+    machine.terminate(pid)
     done.append(f'SIGTERM to pid {pid}')
     deadline = machine.now() + term_wait
     asked, names, client_gone_at = [], {}, None
@@ -921,7 +919,7 @@ def end_client(machine, view, done, *, force, wait_seconds, poll, term_wait=TERM
                     if item not in asked:
                         asked.append(item)
                         names[item] = _try(machine.comm, item, default='?') or '?'
-                        _try(machine.signal, item, signal.SIGTERM)
+                        _try(machine.terminate, item)
         machine.sleep(poll)
     if asked:
         done.append('SIGTERM to ' + str(len(asked)) + ' leftover process(es) of the client: '
@@ -933,7 +931,7 @@ def end_client(machine, view, done, *, force, wait_seconds, poll, term_wait=TERM
                                f'(still running: {stuck}); re-run with --force to kill it')
         tokens = {pid: start, **members}
         for item in stuck:
-            _try(machine.signal, item, signal.SIGKILL)
+            _try(machine.kill, item)
         done.append(f'SIGKILL to {stuck} (--force)')
         deadline = machine.now() + kill_wait
         while (machine.alive(pid, start) or remaining()) and machine.now() < deadline:

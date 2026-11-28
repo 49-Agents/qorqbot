@@ -47,7 +47,6 @@ import json
 import os
 import re
 import shutil
-import signal
 import subprocess
 import sys
 import threading
@@ -55,6 +54,9 @@ import time
 import uuid
 from pathlib import Path
 from urllib.parse import urlsplit
+
+from qorqut_system import platform as _platform
+from qorqut_system import processes as _processes
 
 from . import account_errors
 
@@ -308,7 +310,7 @@ class _ProcessTransport:
         """The argv to execute: the CLI's own, behind the PDEATHSIG shim on Linux when the CLI can be resolved here (a CLI that
         cannot be found is left to ``Popen`` to refuse with the usual ``FileNotFoundError``)."""
         argv = list(self._argv)
-        if not (self.DIE_WITH_PARENT and sys.platform == "linux" and sys.executable and argv):
+        if not (self.DIE_WITH_PARENT and _platform.family() == "linux" and sys.executable and argv):
             return argv
         executable = argv[0]
         resolved = executable if os.sep in executable else shutil.which(executable, path=self._env.get("PATH") or os.defpath)
@@ -317,10 +319,9 @@ class _ProcessTransport:
         return [sys.executable, "-I", "-S", "-c", _PDEATHSIG_SHIM, str(os.getpid()), resolved, *argv[1:]]
 
     def start(self):
-        kwargs = {"start_new_session": True} if os.name == "posix" else {}
-        self._process = subprocess.Popen(
+        self._process = _processes.start_in_background(
             self._spawn_argv(), cwd=self._cwd, env=self._env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, **kwargs)
+            stderr=subprocess.PIPE)
         for name, target in (("read", self._read_stdout), ("stderr", self._read_stderr), ("write", self._write_stdin),
                              ("wait", self._wait_exit)):
             thread = threading.Thread(target=target, name="claude-driver-" + name, daemon=True)
@@ -366,11 +367,11 @@ class _ProcessTransport:
             return
         self.close_input()
         if not self._exited.wait(grace):
-            self._signal(signal.SIGTERM)
+            self._signal()
             if not self._exited.wait(term_grace):
-                self._signal(signal.SIGKILL)
+                self._signal(gentle=False)
                 self._exited.wait(2.0)
-        self._signal(signal.SIGKILL, group_only=True)
+        self._signal(gentle=False, group_only=True)
         deadline = time.monotonic() + 2.0
         for thread in self._threads:
             if thread is not threading.current_thread():
@@ -385,7 +386,7 @@ class _ProcessTransport:
     def alive_threads(self):
         return [thread for thread in self._threads if thread.is_alive()]
 
-    def _signal(self, sig, group_only=False):
+    def _signal(self, *, gentle=True, group_only=False):
         """Signal the CLI's process group (it leads its own session), or just the CLI. Only while the leader has not been
         reaped: after that its pid may belong to an unrelated process, so nothing is signalled by number any more."""
         process = self._process
@@ -394,9 +395,12 @@ class _ProcessTransport:
         with self._reap_lock:
             if self._reaped:
                 return
-            if os.name == "posix":
+            if _platform.family() in ("linux", "mac"):
                 try:
-                    os.killpg(process.pid, sig)
+                    if gentle:
+                        _processes.terminate_process_group(process.pid)
+                    else:
+                        _processes.kill_process_group(process.pid)
                     return
                 except (ProcessLookupError, PermissionError):
                     if group_only:
@@ -406,7 +410,10 @@ class _ProcessTransport:
             if group_only:
                 return
             try:
-                os.kill(process.pid, sig)
+                if gentle:
+                    _processes.terminate_pid(process.pid)
+                else:
+                    _processes.kill_pid(process.pid)
             except OSError:
                 pass
 
@@ -489,31 +496,14 @@ class _ProcessTransport:
     def _wait_for_exit_without_reaping(self):
         """Block until the CLI has exited but leave it unreaped (a zombie still owns its pid, so the pid and its process group
         number cannot be reused). ``False`` when this platform cannot do that here."""
-        pid = self._process.pid
-        if hasattr(os, "waitid"):
-            try:
-                os.waitid(os.P_PID, pid, os.WEXITED | os.WNOWAIT)
-                return True
-            except OSError:
-                return False
-        try:                                    # macOS: kqueue reports the exit without reaping (not run on a Mac here)
-            import select
-            queue = select.kqueue()
-            try:
-                event = select.kevent(pid, select.KQ_FILTER_PROC, select.KQ_EV_ADD | select.KQ_EV_ONESHOT, select.KQ_NOTE_EXIT)
-                queue.control([event], 1, None)
-                return True
-            finally:
-                queue.close()
-        except (AttributeError, OSError, ValueError):
-            return False
+        return _processes.wait_for_exit_without_reaping(self._process.pid)
 
     def _wait_exit(self):
-        if os.name == "posix" and self._wait_for_exit_without_reaping():
+        if self._wait_for_exit_without_reaping():
             with self._reap_lock:
                 # anything the CLI started and left behind is removed now, while the leader's pid is still ours
                 try:
-                    os.killpg(self._process.pid, signal.SIGKILL)
+                    _processes.kill_process_group(self._process.pid)
                 except OSError:
                     pass
                 code = self._process.wait()

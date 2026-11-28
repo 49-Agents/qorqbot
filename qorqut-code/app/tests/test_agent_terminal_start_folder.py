@@ -112,7 +112,7 @@ class Fixture(unittest.TestCase):
             if isinstance(item, Exception):
                 raise item
             return Path(item)
-        self.process_cwd = mock.patch("qorqut.process_info.cwd", cwd)
+        self.process_cwd = mock.patch("qorqut_system.processes.cwd", cwd)
         self.process_cwd.start()
         self.addCleanup(self.process_cwd.stop)
         self.row = row or {"agent_id": "ordubashy", "profile_json": json.dumps({"runtime": "claude-code", "role": {"id": "ordubashy"}})}

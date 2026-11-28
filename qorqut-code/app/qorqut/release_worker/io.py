@@ -11,13 +11,13 @@ from pathlib import Path
 import re
 import shutil
 import socket
-import sys
 import threading
 import time
 from typing import Any, Iterator
 import uuid
 
 from .errors import ReleaseError, UncertainRemoteEffect
+from qorqut_system import private_files, processes
 
 _SECRET_KEY = re.compile(
     r"(?:token|secret|password|passwd|credential|private[_-]?key|api[_-]?key|bearer|cookie)",
@@ -135,11 +135,7 @@ def checked_path(value: Any, root: Path | None = None) -> Path:
 
 
 def fsync_directory(path: Path) -> None:
-    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
+    private_files.fsync_directory(path)
 
 
 def durable_makedirs(path: Path, *, anchor: Path | None = None, mode: int = 0o700) -> None:
@@ -180,20 +176,15 @@ def atomic_write(path: Path, data: bytes, *, mode: int = 0o600) -> None:
 
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW
-    descriptor = os.open(temporary, flags, mode)
+    descriptor = private_files.open_entry(path.parent, temporary.name, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode=mode)
     try:
         with os.fdopen(descriptor, "wb") as stream:
             stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)
-        os.chmod(path, mode)
-        directory = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        private_files.set_private(path, mode=mode)
+        private_files.fsync_directory(path.parent)
     finally:
         if temporary.exists():
             temporary.unlink()
@@ -211,11 +202,7 @@ _LOCK_ACTIVE_GRACE_SECONDS = 600.0
 
 def _process_start(pid: int) -> str | None:
     try:
-        if sys.platform == 'darwin':
-            from qorqut.process_info import start_token
-            return start_token(pid)
-        fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
-        return fields[19]
+        return processes.start_token(pid)
     except (OSError, IndexError):
         return None
 

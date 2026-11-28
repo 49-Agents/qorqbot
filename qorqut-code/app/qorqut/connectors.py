@@ -14,6 +14,8 @@ import os
 from pathlib import Path
 import shutil
 
+from qorqut_system import platform as _platform
+
 # Standard locations a GUI-launched service may be missing from PATH; Node itself must be findable by npx's shebang.
 SYSTEM_PATH = ("/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin")
 CATALOG = (
@@ -69,15 +71,9 @@ def _whatsapp_status(runtime) -> dict:
     return {"status": view["state"], "note": view["note"], "send_ready": view["send_ready"]}
 
 
-def host_platform(proc_version="/proc/version") -> str:
+def host_platform(proc_version=_platform.KERNEL_RELEASE) -> str:
     """"darwin", "wsl" (Windows through WSL2) or "linux"."""
-    if os.uname().sysname == "Darwin":
-        return "darwin"
-    try:
-        with open(proc_version) as source:
-            return "wsl" if "microsoft" in source.read().lower() else "linux"
-    except OSError:
-        return "linux"
+    return _platform.host_kind(proc_version)
 
 
 def _contract_items(runtime) -> tuple[list, set]:

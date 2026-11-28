@@ -17,6 +17,9 @@ import threading
 import time
 from typing import Protocol
 
+from qorqut_system import private_files as _private_files
+from qorqut_system import processes as _processes
+
 from .engine import atomic_write
 from .schema import ContextError, digest, encode
 from .usage import Usage, TOKEN_FIELDS, count_ok
@@ -132,7 +135,7 @@ class PrivateLog:
     def __init__(self, directory, limit):
         self.directory, self.limit, self.written = Path(directory), limit, 0
         self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-        self.directory.chmod(0o700)
+        _private_files.set_private(self.directory, mode=0o700)
         self.path = self.directory / "protocol.jsonl"
         self.handle = os.fdopen(os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb")
 
@@ -183,9 +186,8 @@ class AppServerRunner:
         # Retain authentication environment; do not copy credentials or inherit an actor identity.
         environment = {k: v for k, v in os.environ.items()
                        if k not in ("CODEX_THREAD_ID", "CODEX_TURN_ID") and not k.startswith("ACLA_")}
-        process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                   stderr=subprocess.PIPE, cwd=scratch, env=environment,
-                                   start_new_session=True)
+        process = _processes.start_in_background(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                                 stderr=subprocess.PIPE, cwd=scratch, env=environment)
         events = queue.Queue(maxsize=256)
         stopped = threading.Event()
         stderr = bytearray()
@@ -507,7 +509,7 @@ class AppServerRunner:
             # This new process group belongs only to this invocation, including its code host.
             stopped.set()
             try:
-                os.killpg(process.pid, signal.SIGTERM)
+                _processes.terminate_process_group(process.pid)
             except ProcessLookupError:
                 pass
             try:
@@ -515,7 +517,7 @@ class AppServerRunner:
             except subprocess.TimeoutExpired:
                 pass
             try:
-                os.killpg(process.pid, signal.SIGKILL)
+                _processes.kill_process_group(process.pid)
             except ProcessLookupError:
                 pass
             process.wait()

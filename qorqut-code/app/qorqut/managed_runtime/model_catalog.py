@@ -26,6 +26,8 @@ import tempfile
 import threading
 import time
 
+from qorqut_system import processes as _processes
+
 CLAUDE, CODEX = "claude", "codex"
 TTL_SECONDS = 30 * 60
 RETRY_SECONDS = 60
@@ -124,8 +126,8 @@ class _Lines:
 
 
 def _start(command, env, cwd):
-    return subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env, cwd=cwd,
-                            start_new_session=True)
+    return _processes.start_in_background(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                          stderr=subprocess.DEVNULL, env=env, cwd=cwd)
 
 
 def _stop(process):
@@ -134,14 +136,14 @@ def _stop(process):
     except OSError:
         pass
     try:
-        os.killpg(process.pid, 15)
+        _processes.terminate_process_group(process.pid)
     except OSError:
         pass
     try:
         process.wait(timeout=3)
     except subprocess.TimeoutExpired:
         try:
-            os.killpg(process.pid, 9)
+            _processes.kill_process_group(process.pid)
         except OSError:
             pass
         process.wait(timeout=3)
