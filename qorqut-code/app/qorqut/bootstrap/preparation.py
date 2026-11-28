@@ -14,7 +14,6 @@ import json
 from pathlib import Path
 import re
 import secrets
-import shlex
 import sys
 import subprocess
 import tomllib
@@ -26,6 +25,8 @@ from qorqut_agentic.behavior import instructions as runtime_instructions
 from qorqut.catalog.packages import content_hash, files_digest, relative_path
 from qorqut_operations.contracts import DomainError, Principal, new_id, utc_now
 from qorqut_operations.storage import safe_io
+from qorqut_system import private_files as _private_files
+from qorqut_system import programs as _programs
 from .client import STARTUP_INSTRUCTIONS, auth_headers, path_has_symlink, service_url
 from . import email_guidance
 from qorqut import agent_cli_install
@@ -378,10 +379,12 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
     available = interpreter_validator(executable) if interpreter_validator is not None else Path(executable).is_file()
     if not isinstance(available, bool) or not available:
         raise DomainError("preparation_error", "The installed Python interpreter is unavailable")
-    command = shlex.join(helper('qorqut.bootstrap.claude_session', '--registration', str(registration_path)))
-    header_command = shlex.join(helper('qorqut.bootstrap.mcp_headers', '--registration', str(registration_path)))
-    mcp_command = ['/bin/sh', str(workspace / '.qorqut/mcp-bridge')]
-    mcp_launcher = '#!/bin/sh\nexec ' + shlex.join(helper('qorqut.bootstrap.mcp_reconnect', '--registration', str(registration_path))) + '\n'
+    command = _programs.hook_command('claude-code', helper('qorqut.bootstrap.claude_session', '--registration', str(registration_path)))
+    header_command = _programs.command(helper('qorqut.bootstrap.mcp_headers', '--registration', str(registration_path)))
+    mcp_program = helper('qorqut.bootstrap.mcp_reconnect', '--registration', str(registration_path))
+    mcp_launcher_path = workspace / '.qorqut/mcp-bridge'
+    mcp_command = _programs.client_command(mcp_program[0], mcp_program[1:], launcher=mcp_launcher_path)
+    mcp_launcher = _programs.launcher_text(mcp_program)
     endpoint = service_url(endpoint)
     native = getattr(resolver, "native_connections", None) or {}
     connection_status, extension_connections = {}, {}
@@ -467,7 +470,8 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
     local["permissions"]["deny"] = []
     local["permissions"]["deny"] = [*local["permissions"]["deny"], *connector_gate_guard(workspace)]
     if capture_transcripts:
-        snapshot_command = shlex.join(helper('qorqut.bootstrap.transcript_snapshot', '--registration', str(registration_path)))
+        snapshot_command = _programs.hook_command(
+            'claude-code', helper('qorqut.bootstrap.transcript_snapshot', '--registration', str(registration_path)))
         for event in ("Stop", "SessionEnd"):
             local["hooks"][event] = [{"hooks": [{"type": "command", "command": snapshot_command, "timeout": 3}]}]
     # Claude bounds initial stdio startup separately from per-server tool execution.
@@ -481,9 +485,9 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
     # paths inside the protected prepared helper, not in the hook command: a
     # routine deployment must not invalidate every previously reviewed hook.
     codex_helper = workspace / '.qorqut/codex-hook'
-    codex_entry = shlex.join(['/bin/sh', str(codex_helper)])
-    codex_command = codex_entry + ' bootstrap'
-    codex_lifecycle = codex_entry + ' lifecycle'
+    codex_launcher_command = _programs.launcher_command(codex_helper)
+    codex_command = _programs.hook_command('codex', [*codex_launcher_command, 'bootstrap'])
+    codex_lifecycle = _programs.hook_command('codex', [*codex_launcher_command, 'lifecycle'])
     codex_config, codex_hooks = configuration(workspace=workspace, endpoint=endpoint,
         header_command=header_command, command=codex_command, snapshot_command=codex_lifecycle, mcp_command=mcp_command,
         protected=protected, read_denied=[resolver.paths.runtime, workspace / ".qorqut/credential"],
@@ -493,11 +497,13 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
     # A standalone stdlib hook avoids loading the full application on every action.
     activity_script = str(workspace / '.qorqut/activity-hook.py')
     for runtime, hooks in (('claude-code',local['hooks']),('codex',codex_hooks)):
-        activity_command = shlex.join([executable,'-I',activity_script,'--registration',str(registration_path),'--runtime',runtime])
+        activity_command = _programs.hook_command(
+            runtime, [executable,'-I',activity_script,'--registration',str(registration_path),'--runtime',runtime])
         if stable_helper:
-            activity_command = shlex.join(helper('qorqut.bootstrap.activity_hook', '--registration', str(registration_path), '--runtime', runtime))
+            activity_command = _programs.hook_command(
+                runtime, helper('qorqut.bootstrap.activity_hook', '--registration', str(registration_path), '--runtime', runtime))
         if runtime == 'codex':
-            activity_command = codex_entry + ' activity'
+            activity_command = _programs.hook_command('codex', [*codex_launcher_command, 'activity'])
         add_activity_hooks(hooks, activity_command, runtime)
         if runtime == 'claude-code':
             # Longer than the gate's own request timeout: Claude Code lets a call continue when a hook times out.
@@ -526,26 +532,23 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
         ordubashy=ordubashy, code_roots=code_roots, delegate_operations=delegate_operations,
         inbox_available=any(tool['canonical_operation'] == 'inbox_list' and tool['available'] for tool in data['tools']))
     codex_targets = {
-        'bootstrap': shlex.join([executable, '-I', '-m', 'qorqut.bootstrap.claude_session',
-                                '--registration', str(registration_path), '--runtime', 'codex']),
-        'lifecycle': shlex.join([executable, '-I', '-m', 'qorqut.bootstrap.codex_session',
-                               '--registration', str(registration_path)]),
-        'activity': shlex.join([executable, '-I', activity_script, '--registration', str(registration_path),
-                              '--runtime', 'codex']),
+        'bootstrap': [executable, '-I', '-m', 'qorqut.bootstrap.claude_session',
+                      '--registration', str(registration_path), '--runtime', 'codex'],
+        'lifecycle': [executable, '-I', '-m', 'qorqut.bootstrap.codex_session',
+                      '--registration', str(registration_path)],
+        'activity': [executable, '-I', activity_script, '--registration', str(registration_path), '--runtime', 'codex'],
     }
     if stable_helper:
-        codex_targets = {mode: shlex.join(helper(module, '--registration', str(registration_path), *extra))
+        codex_targets = {mode: helper(module, '--registration', str(registration_path), *extra)
             for mode, module, extra in (
                 ('bootstrap', 'qorqut.bootstrap.claude_session', ('--runtime', 'codex')),
                 ('lifecycle', 'qorqut.bootstrap.codex_session', ()),
                 ('activity', 'qorqut.bootstrap.activity_hook', ('--runtime', 'codex')))}
     if always_skills:
-        codex_targets['skills'] = shlex.join([executable, '-I', skills_script, '--registration', str(registration_path),
-                                              '--runtime', 'codex'])
-    codex_launcher = '#!/bin/sh\n# Generated by trusted agent preparation. No model or watcher starts during preparation.\n'
-    codex_launcher += '[ "$#" -eq 1 ] || exit 64\ncase "$1" in\n'
-    codex_launcher += ''.join(f'  {mode}) exec {target} ;;\n' for mode, target in codex_targets.items())
-    codex_launcher += '  *) exit 64 ;;\nesac\n'
+        codex_targets['skills'] = [executable, '-I', skills_script, '--registration', str(registration_path),
+                                   '--runtime', 'codex']
+    codex_launcher = _programs.mode_launcher(
+        codex_targets, header="# Generated by trusted agent preparation. No model or watcher starts during preparation.\n")
     registration_document = {"durable_delegation_enabled": durable_delegation, "operational_intake_enabled": always_skills}
     # The stop hook's dirty-turn watermark ignores these exposed read tools.
     kinds = {entry.name: entry.effect_kind for entry in resolver.registry.entries()}
@@ -558,8 +561,8 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
         '.qorqut/codex-hook': codex_launcher.encode(),
         **({'.qorqut/always-skills.py': Path(__file__).with_name('always_skills.py').read_bytes()} if always_skills else {}),
         '.qorqut/activity-hook.py': Path(__file__).with_name('activity_hook.py').read_bytes(),
-        '.qorqut/agentic': ('#!/bin/sh\nexec ' + shlex.join(helper(
-            'qorqut.agentic.client', '--registration', str(registration_path))) + '\n').encode(),
+        '.qorqut/agentic': _programs.launcher_text(helper(
+            'qorqut.agentic.client', '--registration', str(registration_path))).encode(),
         "agent.yaml": yaml.safe_dump(profile, sort_keys=False, allow_unicode=False).encode(),
         "CLAUDE.md": instruction_documents['CLAUDE.md'],
         "AGENTS.md": instruction_documents['AGENTS.md'],
@@ -587,11 +590,11 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
     if terminal:
         # The prepared shell exists only while terminals are the mode, so a managed projection (and its hash) is untouched.
         from qorqut.agent_trust import marker_path
-        launch_settings = shlex.quote(str(workspace / ".qorqut/claude-launch-settings.json"))
-        consent_marker = shlex.quote(str(marker_path(resolver.paths.runtime)))
-        trust_command = " ".join(shlex.quote(part) for part in (
+        launch_settings = _programs.quote(str(workspace / ".qorqut/claude-launch-settings.json"))
+        consent_marker = _programs.quote(str(marker_path(resolver.paths.runtime)))
+        trust_command = _programs.command((
             executable, "-I", "-m", "qorqut.agent_trust", "ensure", "--runtime", str(resolver.paths.runtime), "--folder", str(workspace)))
-        workspace_root = shlex.quote(str(workspace))
+        workspace_root = _programs.quote(str(workspace))
         files[".qorqut/agent-shell.bash"] = agent_shell(launch_settings, consent_marker, workspace_root, trust_command).encode()
         files[".qorqut/zsh/.zshenv"] = ZSH_ENV.encode()
         files[".qorqut/zsh/.zshrc"] = agent_zshrc(launch_settings, consent_marker, workspace_root, trust_command).encode()
@@ -611,10 +614,11 @@ def build_projection(resolver, config, *, registration_id: str, endpoint: str, i
         # A native command, discovered only inside the selected skill. Runtime
         # target configuration is operator-owned and survives re-preparation.
         script = ("from qorqut.bootstrap.browser import main; raise SystemExit(main(" + repr(str(workspace)) + "))")
-        files[".qorqut/browser"] = ("#!/bin/sh\nexec " + shlex.join([executable, "-I", "-c", script]) + ' "$@"\n').encode()
+        files[".qorqut/browser"] = _programs.launcher_text(
+            [executable, "-I", "-c", script], forward_arguments=True).encode()
         if stable_helper:
-            files['.qorqut/browser'] = ('#!/bin/sh\nexec ' + shlex.join(helper(
-                'qorqut.bootstrap.browser_entry', '--workspace', str(workspace))) + ' "$@"\n').encode()
+            files['.qorqut/browser'] = _programs.launcher_text(helper(
+                'qorqut.bootstrap.browser_entry', '--workspace', str(workspace)), forward_arguments=True).encode()
     metadata = {"schema_version": 1, "helper_runtime":{"executable":stable_helper or executable,"stable":bool(stable_helper)}, "codex_permission_mode": codex_permission_mode or "scoped",
                 "native_guidance_digest": data["native_guidance_digest"],
                 "project_code_roots": [str(path) for path in code_roots],
@@ -646,7 +650,7 @@ def inspect_projection(workspace: Path, projection: dict, *, runtime="claude-cod
             continue
         path = workspace / relative_path(name)
         if (path_has_symlink(path) or not path.is_file() or content_hash(safe_io.read_bytes(path)) != digest
-                or name == ".qorqut/agentic" and not path.stat().st_mode & 0o100):
+                or name == ".qorqut/agentic" and not _private_files.mode_of(path.stat()) & 0o100):
             drift.append(name)
     skill_directory = ".agents/skills" if runtime == "codex" else ".claude/skills"
     skills = workspace / skill_directory

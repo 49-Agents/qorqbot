@@ -16,10 +16,6 @@
       "permission_bits": 1,
       "platform_check": 1
     },
-    "qorqut-code/app/qorqut/agent_cli_launch.py": {
-      "permission_bits": 2,
-      "shell_script": 1
-    },
     "qorqut-code/app/qorqut/agentic/copy_identity.py": {
       "owner_check": 2
     },
@@ -132,13 +128,6 @@
       "link": 4,
       "platform_check": 18,
       "proc_read": 16
-    },
-    "qorqut-code/app/qorqut/bootstrap/owner_prepare.py": {
-      "shell_script": 1
-    },
-    "qorqut-code/app/qorqut/bootstrap/preparation.py": {
-      "permission_bits": 1,
-      "shell_script": 7
     },
     "qorqut-code/app/qorqut/browser/agent_browsers.py": {
       "file_lock": 3,
