@@ -88,7 +88,13 @@ AUTH_OVERRIDE_VARIABLES = API_KEY_VARIABLES + TOKEN_VARIABLES + BACKEND_VARIABLE
 
 # Where a sign-in page may be sent to the browser from the CLI's output.
 SIGN_IN_HOSTS = ("claude.ai", "claude.com", "anthropic.com")
-_URL = re.compile(r"https://[^\s\"'<>]+")
+_URL = re.compile(r"https://[^\s\"'<>\x00-\x1f\x7f-\x9f]+")
+# The CLI prints the page as a terminal hyperlink when it believes the terminal can show one (Windows Terminal under WSL): the
+# address then comes twice, wrapped in control characters. Each line is read as the terminal would show it (``_visible``), and
+# a hyperlink's target is kept as a word of its own, since the text it shows need not be the address.
+_TERMINAL_SEQUENCE = re.compile(r"\x1b\](?:8;[^;\x07\x1b]*;([^\x07\x1b]*)|[^\x07\x1b]*)(?:\x07|\x1b\\)"   # a hyperlink, a title
+                                r"|\x1b\[[0-?]*[ -/]*[@-~]")                                          # colours and the like
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 # "could not open the browser" and the like; "if the browser didn't open" (the CLI's usual hint) does not match.
 _BROWSER_FAILED = re.compile(r"(?:could\s*n[o']t|can\s*n[o']t|can't|unable to|failed to|did\s*n[o']t|didn't)\s+"
                              r"(?:automatically\s+)?(?:open|launch|start)\s+(?:a |an |the |your |any |default )?(?:web\s*)?browser"
@@ -640,6 +646,18 @@ def start_sign_in(provider, *, opener=None, environ=None, method=None, run=subpr
     return sign_in_state(provider)
 
 
+def _visible(text):
+    """A line of terminal output as the terminal shows it: colours and other terminal sequences are taken out, a hyperlink's
+    target is kept between spaces, and any other control character but tab and newline (also the start of a sequence cut off
+    at the line limit) becomes a space."""
+    def replace(match):
+        target = match.group(1)
+        if target is None:
+            return ""
+        return f" {target} " if target else " "        # the end of a hyperlink has no target
+    return _CONTROL.sub(" ", _TERMINAL_SEQUENCE.sub(replace, text))
+
+
 def _sign_in_page(text):
     """The https sign-in page of an Anthropic/Claude domain named in a line of the CLI's output, else None."""
     for match in _URL.finditer(text):
@@ -664,7 +682,7 @@ def _read_claude_output(pending, opener):
     seen = {"offset": 0, "line": b"", "url": None, "failed": False, "opened": False}
 
     def look(raw):
-        text = raw[:OUTPUT_LINE_LIMIT].decode("utf-8", "replace")
+        text = _visible(raw[:OUTPUT_LINE_LIMIT].decode("utf-8", "replace"))
         seen["url"] = seen["url"] or _sign_in_page(text)
         if seen["url"] and pending.page_url is None:
             with _lock:
