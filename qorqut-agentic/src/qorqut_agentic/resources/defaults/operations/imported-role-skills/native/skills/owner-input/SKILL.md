@@ -108,7 +108,7 @@ an optional question can still be skipped entirely. Each written answer allows
 8000 characters, with 32000 combined and a 64 KiB normalized answer limit. The
 normalized form also has a 64 KiB limit. Put only related questions in one request.
 
-The owner edits everything locally, then clicks one **Done** button. There is no
+The owner edits everything locally, then clicks one **Send** button. There is no
 saved partial response, no automatic submission, and no per-question notification.
 Local edits survive polling and switching dashboard surfaces, but not a full
 browser reload. Until the whole submission succeeds, the Signoff and its linked
