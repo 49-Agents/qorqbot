@@ -69,8 +69,8 @@ The first `ensure` creates the Shared browser, a **headless managed browser**:
   `/Applications/Google Chrome.app`). Nothing else: Chromium and [Qorqbot's own Chrome](#qorqbots-own-chrome) are never
   chosen for a new browser. Without Google Chrome no browser is created: `status` reports `unsupported` with the advice
   to tell the owner, `ensure` returns `google_chrome_needed`, Settings and a dashboard notice ask the owner to install
-  Google Chrome, and the automatic setup loop looks for it on every pass (a file lookup, no Chrome started, no growing
-  wait) and creates the browser on the first pass that finds it. The choice is saved in the browser's ownership record;
+  Google Chrome, and the automatic setup loop looks for it every 10 seconds instead of every two minutes (a file
+  lookup, no Chrome started, no growing wait) and creates the browser on the first pass that finds it. The choice is saved in the browser's ownership record;
 * the user agent of a visible Chrome. Left alone, a headless Chrome writes `HeadlessChrome` where a visible one writes
   `Chrome`, and websites refuse it for that word: sign-up pages that turned this browser away on 2026-11-22 opened in the
   same browser without it. The supervisor asks the Chrome it is about to start for its version

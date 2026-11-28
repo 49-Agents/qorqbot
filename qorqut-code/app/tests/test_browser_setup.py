@@ -517,3 +517,12 @@ class OwnerAuthorizationTest(unittest.TestCase):
 
     def test_the_owner_without_owner_control_is_not_ordubashy(self):
         self.assertEqual(self.refused(), 'forbidden')
+
+
+class LoopWaitTest(unittest.TestCase):
+    def test_the_loop_looks_again_soon_only_while_google_chrome_is_awaited(self):
+        self.assertEqual(setup.loop_wait({'chrome_installed': False, 'state': 'unsupported'}), setup.CHROME_WAIT)
+        self.assertEqual(setup.loop_wait({'chrome_installed': True, 'state': 'missing'}), setup.LOOP_WAIT)
+        self.assertEqual(setup.loop_wait({'state': 'unavailable'}), setup.LOOP_WAIT)
+        self.assertEqual(setup.loop_wait(None), setup.LOOP_WAIT)             # the pass itself failed
+        self.assertLess(setup.CHROME_WAIT, setup.LOOP_WAIT)

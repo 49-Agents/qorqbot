@@ -267,8 +267,11 @@ const connectorsPanel = (() => {
       } finally {
         if (live()) button.disabled = false;
         clearTimeout(browserTimer);
-        // A download takes minutes on a slow connection, so the card keeps checking for as long as it runs.
-        if (live() && !browserView?.ready && (chromeDownloading() || browserChecks++ < 12))
+        // The card keeps checking while Chrome is awaited (the owner installing Google Chrome, or a download that takes
+        // minutes on a slow connection), and for a minute after it is there, while the browser sets itself up.
+        const awaited = !!browserView && !browserView.chrome_installed;
+        if (awaited) browserChecks = 0;
+        if (live() && !browserView?.ready && (awaited || browserChecks++ < 12))
           browserTimer = setTimeout(() => loadBrowser(), 5000);
       }
     }

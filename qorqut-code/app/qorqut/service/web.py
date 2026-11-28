@@ -244,14 +244,15 @@ def create_app(runtime, *, origins, bootstrap_token="", dashboard_root=None,
                     await stack.enter_async_context(owner_mcp.manager.run())
                 if manage_lifecycle:
                     async def prepare_agent_browsers():
-                        from qorqut.browser.setup import ensure_all
+                        from qorqut.browser.setup import ensure_all, loop_wait
                         backoff = {}
                         while True:
+                            card = None
                             try:
-                                await anyio.to_thread.run_sync(ensure_all, runtime, backoff, abandon_on_cancel=True)
+                                card = await anyio.to_thread.run_sync(ensure_all, runtime, backoff, abandon_on_cancel=True)
                             except Exception:
                                 logger.exception("Automatic agent browser setup failed")
-                            await anyio.sleep(120)
+                            await anyio.sleep(loop_wait(card))
 
                     browser_tasks = await stack.enter_async_context(anyio.create_task_group())
                     browser_tasks.start_soon(prepare_agent_browsers)

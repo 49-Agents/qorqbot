@@ -137,6 +137,15 @@ def _failure_code(state, chrome):
     return None if code == GOOGLE_CHROME_NEEDED and chrome else code
 
 
+LOOP_WAIT, CHROME_WAIT = 120, 10
+
+
+def loop_wait(card):
+    """Seconds until the background loop's next pass, from the card ``ensure_all`` returned: short while Google Chrome is
+    awaited (such a pass only looks for the file), so the browser is set up moments after the owner installs it."""
+    return CHROME_WAIT if isinstance(card, dict) and card.get("chrome_installed") is False else LOOP_WAIT
+
+
 def _wait_longer(backoff, key, clock):
     """Record one more failure for ``key`` and when it may be tried again."""
     failures = backoff.get(key, {}).get("failures", 0) + 1
