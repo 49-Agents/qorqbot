@@ -105,7 +105,8 @@ class SupervisorSessions(unittest.TestCase):
     @unittest.skipUnless(__import__("sys").platform == "linux", "user service units are a Linux feature")
     def test_the_service_unit_is_handed_the_applications_session_directories(self):
         from types import SimpleNamespace
-        from qorqut.browser.agent_browsers import SYSTEMD_RUN, UserUnitLauncher
+        from qorqut.browser.agent_browsers import UserUnitLauncher
+        from qorqut_system.places import SYSTEMD_RUN
         calls = []
 
         def runner(argv, **_kwargs):

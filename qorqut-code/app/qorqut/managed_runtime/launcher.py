@@ -8,10 +8,10 @@ small allow-listed environment of its own. ``-I`` is not used because it would i
 the application's code. Under systemd only variables that cannot carry credentials are passed as ``--setenv=`` (visible in
 ``ps``); the others (proxy URLs may embed a user and password) go to the host as ``host_env`` in ``launch.json``:
 
-* ``DetachedLauncher``: ``subprocess.Popen(..., start_new_session=True)``, for folder installs and macOS (the
+* ``DetachedLauncher``: a detached child in a session of its own, for folder installs and macOS (the
   ``browser/native_launcher.py`` pattern).
-* ``UserUnitLauncher``: a transient ``systemd-run --user --unit=qorqut-managed-<installation hash>-<agent>.service --collect``
-  for Linux service installs, because ``start_new_session`` alone does not survive a service restart (the service's cgroup is
+* ``UserUnitLauncher``: a transient user service (``qorqut-managed-<installation hash>-<agent>.service``) for Linux
+  service installs, because a session of the child's own does not survive a service restart (the service's cgroup is
   killed). It follows ``agent_browsers.UserUnitLauncher``: fixed argv, derived unit name, paths taken through
   ``outside_private_mounts``.
   A service that sees its instance through a private bind mount is the exception (``default_launcher``): its host starts
@@ -37,10 +37,15 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from qorqut_system import places as _places
+from qorqut_system import platform as _platform
+from qorqut_system import private_files as _private_files
+from qorqut_system import processes as _processes
+from qorqut_system.errors import UnsupportedSystem
+
 from . import state as layout
 from .client import HostClient, HostUnavailable
 
-SYSTEMCTL, SYSTEMD_RUN = "/usr/bin/systemctl", "/usr/bin/systemd-run"
 UNIT = re.compile(r"[A-Za-z0-9][A-Za-z0-9:_.@-]{0,150}\.service")
 UNIT_RUNNING = {"active", "activating", "reloading"}
 START_TIMEOUT = 45.0
@@ -53,7 +58,7 @@ ENVIRONMENT_ALLOWLIST = (
     "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "no_proxy", "all_proxy")
 
 
-# Variables whose values cannot carry a credential: the only ones that may appear in a command line (``systemd-run --setenv``).
+# Variables whose values cannot carry a credential: the only ones that may appear in a command line (``--setenv``).
 ARGV_SAFE_ENVIRONMENT = frozenset({
     "HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL", "TMPDIR", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME",
     "XDG_RUNTIME_DIR", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "PYTHONPATH",
@@ -163,9 +168,10 @@ class DetachedLauncher:
         state_dir = Path(state_dir)
         if self.active(state_dir):
             return False
-        with open(os.open(state_dir / layout.LOG_FILE, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600), "ab") as log:
-            process = subprocess.Popen(host_argv(state_dir), env=host_environment(self.extra_environment), cwd=NEUTRAL_DIRECTORY,
-                                       stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True, close_fds=True)
+        with _private_files.open_private_file(state_dir, layout.LOG_FILE, append=True) as log:
+            process = _processes.start_in_background(host_argv(state_dir), env=host_environment(self.extra_environment),
+                                                     cwd=NEUTRAL_DIRECTORY, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+                                                     close_fds=True)
         # The service lives on, so the child must be reaped when it exits; after a service restart init does it.
         threading.Thread(target=self._reap, args=(process, str(state_dir)), name="managed-host-reaper", daemon=True).start()
         return True
@@ -184,15 +190,12 @@ def unit_name(state_dir) -> str:
 
 
 def _outside_private_mounts(path):
-    try:
-        from qorqut.browser.agent_browsers import outside_private_mounts
-    except ImportError:                      # the browser package needs the operations library; without it nothing is remapped
-        return Path(path)
-    return outside_private_mounts(path)
+    """The same path by one the user manager's namespace also has; today's resolution, now in the layer."""
+    return _places.outside_private_mounts(path)
 
 
 class UserUnitLauncher:
-    """Linux service installs: the host runs as one transient ``systemd-run --user`` service, outside the application's cgroup.
+    """Linux service installs: the host runs as one transient user service, outside the application's cgroup.
 
     A unit that is already running is reused, never duplicated. The application user needs a running user manager (lingering).
     Not run against a real service install here: tests inject ``runner``."""
@@ -202,32 +205,23 @@ class UserUnitLauncher:
         self.extra_environment = dict(extra_environment or {})
 
     @staticmethod
-    def _user_environment():
-        env = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"}
-        runtime = "/run/user/%d" % os.getuid()
-        env["XDG_RUNTIME_DIR"] = runtime
-        if Path(runtime, "bus").exists():
-            env["DBUS_SESSION_BUS_ADDRESS"] = "unix:path=%s/bus" % runtime
-        return env
-
-    def _run(self, argv, timeout):
-        if sys.platform != "linux":
+    def _require_service_manager():
+        """Refuse where no session host runs under the user's service manager; today's own message for that."""
+        if _platform.family() != "linux":
             raise LaunchError("systemd_unavailable", "systemd services are supported only on Linux")
-        try:
-            return self.runner(argv, env=self._user_environment(), stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                               timeout=timeout, check=False)
-        except (OSError, subprocess.SubprocessError) as error:
-            raise LaunchError("systemd_unavailable", "systemctl could not be run: " + type(error).__name__) from None
 
     def state(self, unit) -> str:
         if not UNIT.fullmatch(unit):
             raise LaunchError("invalid_launch", "the host unit name is invalid")
-        done = self._run([SYSTEMCTL, "--user", "show", unit, "--property=LoadState,ActiveState"], 10)
-        if done.returncode != 0:
+        self._require_service_manager()
+        try:
+            return _places.session_host_state(unit, runner=self.runner)
+        except UnsupportedSystem:
             raise LaunchError("systemd_unavailable", "the application user's systemd manager is not reachable (enable lingering "
-                              "for that user and check its user manager)")
-        values = dict(line.split("=", 1) for line in done.stdout.splitlines() if "=" in line)
-        return values.get("ActiveState", "inactive") if values.get("LoadState") == "loaded" else "inactive"
+                              "for that user and check its user manager)") from None
+        except (OSError, subprocess.SubprocessError) as error:
+            raise LaunchError("systemd_unavailable", _places.SYSTEMCTL_NAME + " could not be run: "
+                              + type(error).__name__) from error
 
     def active(self, state_dir) -> bool:
         return self.state(unit_name(state_dir)) in UNIT_RUNNING
@@ -248,23 +242,31 @@ class UserUnitLauncher:
             _add_host_environment(Path(state_dir), private)
         python = str(self.outside(sys.executable))
         flags = ["-B", "-P"] if sys.version_info >= (3, 11) else ["-B"]
-        argv = [SYSTEMD_RUN, "--user", "--unit=" + unit, "--collect", "--quiet", "--description=Qorqut managed agent host",
-                "--working-directory=" + NEUTRAL_DIRECTORY, "--property=TimeoutStopSec=40",
-                "--property=StandardOutput=append:%s/%s" % (directory, layout.LOG_FILE),
-                "--property=StandardError=append:%s/%s" % (directory, layout.LOG_FILE),
-                *("--setenv=%s=%s" % item for item in argv_safe.items()),
-                "--", python, *flags, "-m", layout.HOST_MODULE, "--state", str(directory)]
-        done = self._run(argv, 30)
+        self._require_service_manager()
+        try:
+            done = _places.run_session_host(unit=unit, description="Qorqut managed agent host",
+                                            working_directory=NEUTRAL_DIRECTORY, stop_timeout=40,
+                                            command=[python, *flags, "-m", layout.HOST_MODULE, "--state", str(directory)],
+                                            log_directory=directory, log_name=layout.LOG_FILE, environment=argv_safe,
+                                            runner=self.runner)
+        except (OSError, subprocess.SubprocessError) as error:
+            raise LaunchError("systemd_unavailable", _places.SYSTEMCTL_NAME + " could not be run: "
+                              + type(error).__name__) from error
         if done.returncode != 0:
             if self.state(unit) in UNIT_RUNNING:  # raced with another start of the same unit
                 return False
             first = (done.stderr.strip().splitlines() or ["no detail"])[0]
-            raise LaunchError("systemd_unavailable", "systemd-run could not start the host: " + first[:200])
+            raise LaunchError("systemd_unavailable", _places.SYSTEMD_RUN_NAME + " could not start the host: " + first[:200])
         return True
 
     def stop(self, state_dir):
         """Stop exactly this host's unit; only after a verified host ignored its own close request."""
-        self._run([SYSTEMCTL, "--user", "stop", unit_name(state_dir)], 60)
+        self._require_service_manager()
+        try:
+            _places.stop_session_host(unit_name(state_dir), runner=self.runner)
+        except (OSError, subprocess.SubprocessError) as error:
+            raise LaunchError("systemd_unavailable", _places.SYSTEMCTL_NAME + " could not be run: "
+                              + type(error).__name__) from error
 
 
 def _add_host_environment(state_dir: Path, private: dict) -> None:
@@ -295,7 +297,7 @@ def default_launcher(extra_environment=None, state_dir=None):
     could be translated. Such a host lives as long as the unit lets a child live: across a restart with ``KillMode=process``
     (as agent terminals did), otherwise it ends with the service and the session opens again at the next input."""
     from qorqut import native_paths
-    if native_paths.root() is not None or native_paths.folder_root() is not None or sys.platform == "darwin":
+    if native_paths.root() is not None or native_paths.folder_root() is not None or _platform.family() == "mac":
         return DetachedLauncher(extra_environment)
     if state_dir is not None and behind_private_mount(state_dir):
         return DetachedLauncher(extra_environment)

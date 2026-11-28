@@ -57,30 +57,12 @@
       "platform_check": 18,
       "proc_read": 16
     },
-    "qorqut-code/app/qorqut/browser/agent_browsers.py": {
-      "file_lock": 3,
-      "owner_check": 3,
-      "permission_bits": 1,
-      "platform_check": 5,
-      "proc_read": 2,
-      "process_control": 3,
-      "safe_file_access": 2,
-      "service_manager": 6,
-      "system_module": 1
-    },
     "qorqut-code/app/qorqut/connectors.py": {
       "proc_read": 1
     },
     "qorqut-code/app/qorqut/managed_runtime/claude_driver.py": {
       "platform_check": 4,
       "process_control": 8
-    },
-    "qorqut-code/app/qorqut/managed_runtime/launcher.py": {
-      "owner_check": 1,
-      "platform_check": 2,
-      "process_control": 3,
-      "safe_file_access": 1,
-      "service_manager": 7
     },
     "qorqut-code/app/qorqut/managed_runtime/model_catalog.py": {
       "process_control": 3
@@ -97,10 +79,6 @@
       "link": 9,
       "permission_bits": 1,
       "proc_read": 1
-    },
-    "qorqut-code/app/qorqut/release_worker/adoption_runtime.py": {
-      "proc_read": 2,
-      "service_manager": 1
     },
     "qorqut-code/app/qorqut/release_worker/io.py": {
       "file_lock": 7,

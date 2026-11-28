@@ -12,22 +12,20 @@ An agent is connected by the ``shared.json`` record in its own state directory a
 names the Shared browser; ``ensure``, ``repair`` and ``restart`` write both for every permanent agent. A small supervisor
 (``agent_supervisor``) owns the one headless Chrome with its profile and a loopback CDP port reserved here. Folder
 installations and macOS use a detached supervisor; existing Linux service installations use a deterministic transient
-*user* service (``systemd-run --user``).
+*user* service.
 """
 
 from __future__ import annotations
 
 from contextlib import contextmanager, nullcontext
-import fcntl
 import hashlib
 from http.client import HTTPConnection, HTTPException
 import json
 import os
 from pathlib import Path
 import re
-import signal
-import stat
 import subprocess
+import stat
 import sys
 import time
 from types import SimpleNamespace
@@ -39,6 +37,12 @@ from qorqut_operations.storage import safe_io
 from qorqut.bootstrap import browser
 from qorqut.bootstrap.client import path_has_symlink, write_json_private
 from qorqut.composition.locations import agent_workspace_of
+from qorqut_system import locks as _locks
+from qorqut_system import places as _places
+from qorqut_system import platform as _platform
+from qorqut_system import private_files as _private_files
+from qorqut_system import processes as _processes
+from qorqut_system.errors import UnsupportedSystem
 from .agent_supervisor import port_free
 from .control import owns_listener, process_identity
 
@@ -49,7 +53,7 @@ SHARED_ID = "da69c2a4-cd9c-5aa7-9a94-176338b13618"
 MEMBERSHIP_FILE = "shared.json"
 PORTS = range(20400, 21400)          # reserved for managed browsers
 CHROME = "/usr/bin/google-chrome-stable"
-SYSTEMCTL, SUDO, SYSTEMD_RUN = "/usr/bin/systemctl", "/usr/bin/sudo", "/usr/bin/systemd-run"
+SUDO = "/usr/bin/sudo"
 UNIT_RUNNING = {"active", "activating", "reloading"}
 DEPLOYMENT_DIRECTORIES = (Path("/etc/qorqut-browser-desktops"),)
 UNIT = re.compile(r"[A-Za-z0-9][A-Za-z0-9:_.@-]{0,150}\.service")
@@ -107,9 +111,9 @@ def shared_target(paths):
 def _private_directory(path):
     if path_has_symlink(path):
         raise DomainError("invalid_configuration", "Browser state paths cannot follow symlinks")
-    path.mkdir(parents=True, exist_ok=True, mode=0o700)
-    info = path.lstat()
-    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+    _private_files.make_folder_path(path, mode=0o700, parents=True)
+    info = _private_files.stat_folder(path)
+    if not stat.S_ISDIR(info.st_mode) or not _private_files.is_mine(info) or not _private_files.is_private(info):
         raise DomainError("invalid_configuration", "Browser state directory is not private to the application user")
     return path
 
@@ -119,21 +123,21 @@ def _lock_file(paths, agent_id, kind):
 
 
 def _open_lock(path):
-    return os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    return _locks.open_lock(path.parent, path.name)
 
 
 @contextmanager
 def _nonblocking(path, *, exclusive=True, busy):
     """A try-lock on a private lock file; ``busy`` is the DomainError raised when someone else holds it."""
-    descriptor = _open_lock(path)
+    held = _open_lock(path)
     try:
         try:
-            fcntl.flock(descriptor, (fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH) | fcntl.LOCK_NB)
+            held.acquire(exclusive=exclusive, wait=False)
         except BlockingIOError:
             raise busy from None
         yield
     finally:
-        os.close(descriptor)
+        held.close()
 
 
 def lifecycle_lock(paths, agent_id):
@@ -150,12 +154,12 @@ def allocation_lock(paths, sleep=time.sleep, wait=5.0):
     locks = _private_directory(_private_directory(state_root(paths)) / "locks")
     deadline = time.monotonic() + wait
     while True:
-        descriptor = _open_lock(locks / "allocation.lock")
+        held = _open_lock(locks / "allocation.lock")
         try:
-            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            held.acquire(wait=False)
             break
         except BlockingIOError:
-            os.close(descriptor)
+            held.close()
             if time.monotonic() >= deadline:
                 raise DomainError("browser_management_busy", "Another browser port allocation is in progress",
                                   retryable=True) from None
@@ -163,22 +167,22 @@ def allocation_lock(paths, sleep=time.sleep, wait=5.0):
     try:
         yield
     finally:
-        os.close(descriptor)
+        held.close()
 
 
 def _lock_free(path):
     """Whether nobody holds ``path`` (a missing file is free); it never creates the file."""
     try:
-        descriptor = os.open(path, os.O_RDWR | os.O_NOFOLLOW)
+        held = _locks.open_lock(path.parent, path.name, create=False)
     except FileNotFoundError:
         return True
     try:
-        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        held.acquire(wait=False)
         return True
     except BlockingIOError:
         return False
     finally:
-        os.close(descriptor)
+        held.close()
 
 
 @contextmanager
@@ -238,10 +242,9 @@ def _alive(pid, identity):
     try:
         if process_identity(pid) != identity:
             return False
-        if sys.platform == 'darwin':
-            from qorqut.process_info import is_zombie
-            return not is_zombie(pid) and process_identity(pid) == identity
-        return Path(f"/proc/{int(pid)}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z"
+        if _platform.family() == "mac":
+            return not _processes.is_zombie(pid) and process_identity(pid) == identity
+        return _processes.fields(pid)[0] != "Z"
     except (OSError, ValueError, IndexError, TypeError):
         return False
 
@@ -328,96 +331,68 @@ def supervisor_state(directory, meta):
 
 
 class SystemctlAdapter:
-    """The only way the supervisor's user service reaches systemd: fixed argv, a validated unit name, no shell."""
+    """The only way the supervisor's user service reaches the system's service manager: the layer's operations, one runner
+    and this module's error code and wording."""
 
     def __init__(self, runner=subprocess.run):
         self.runner = runner
 
     @staticmethod
-    def _environment(scope):
-        env = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"}
-        if scope == "user":
-            runtime = f"/run/user/{os.getuid()}"
-            env["XDG_RUNTIME_DIR"] = runtime
-            if Path(runtime, "bus").exists():
-                env["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={runtime}/bus"
-        return env
-
-    def _run(self, scope, argv, timeout):
-        if sys.platform != 'linux':
+    def _require_service_manager():
+        """Refuse where no supervisor runs under the user's service manager; today's own message for that."""
+        if _platform.family() != "linux":
             raise DomainError("browser_service_unavailable", "Systemd browser services are supported only on Linux; "
                               "this platform uses a detached supervisor")
+
+    def state(self, unit):
+        """One supervisor unit's state; today's own message when the user's manager cannot be reached."""
+        self._require_service_manager()
         try:
-            done = self.runner(argv, env=self._environment(scope), stdin=subprocess.DEVNULL, capture_output=True,
-                               text=True, timeout=timeout, check=False)
+            return _places.session_host_state(unit, runner=self.runner)
+        except UnsupportedSystem:
+            raise DomainError("browser_service_unavailable", "The application user's systemd manager is not reachable, so "
+                              "the browser supervisor cannot be started outside the application (enable lingering for "
+                              "that user and check its user manager)") from None
         except (OSError, subprocess.SubprocessError) as exc:
-            raise DomainError("browser_service_unavailable", "systemctl could not be run: " + type(exc).__name__) from None
-        return done
+            raise DomainError("browser_service_unavailable", _places.SYSTEMCTL_NAME + " could not be run: "
+                              + type(exc).__name__) from exc
 
+    def start(self, unit, command, *, working_directory, stop_timeout, environment):
+        """Start one supervisor unit and return the finished call."""
+        self._require_service_manager()
+        try:
+            return _places.run_session_host(unit=unit, description="Qorqut agent browser supervisor",
+                                            working_directory=working_directory, stop_timeout=stop_timeout,
+                                            command=command, environment=environment, runner=self.runner)
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise DomainError("browser_service_unavailable", _places.SYSTEMCTL_NAME + " could not be run: "
+                              + type(exc).__name__) from exc
 
-_MOUNT_ESCAPE = re.compile(r"\\([0-7]{3})")
-
-
-def _mounts(table):
-    """``(device, root, mount point)`` for each line of a ``mountinfo`` table, in table order."""
-    mounts = []
-    for line in table.splitlines():
-        fields = line.split(" ")
-        if len(fields) >= 5:
-            root, point = (_MOUNT_ESCAPE.sub(lambda match: chr(int(match.group(1), 8)), value) for value in fields[3:5])
-            mounts.append((fields[2], root, point))
-    return mounts
-
-
-def _below(path, parent):
-    """``path`` relative to ``parent`` (empty for the directory itself), or ``None`` when it is not inside it."""
-    if path == parent:
-        return ""
-    prefix = parent if parent.endswith("/") else parent + "/"
-    return path[len(prefix):] if path.startswith(prefix) else None
+    def stop(self, unit):
+        """Ask the service manager to stop exactly one supervisor unit."""
+        self._require_service_manager()
+        try:
+            return _places.stop_session_host(unit, runner=self.runner)
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise DomainError("browser_service_unavailable", _places.SYSTEMCTL_NAME + " could not be run: "
+                              + type(exc).__name__) from exc
 
 
 def outside_private_mounts(path, table=None, same=os.path.samefile):
     """The same file or directory by a path that is also valid outside this process's private bind mounts.
 
     A service unit with ``BindPaths=`` sees its instance at a path that exists only in its own mount namespace. A transient
-    user service starts in the user manager's namespace, where that path is missing or is a different directory. When ``path``
-    lies under such a bind mount, this returns the path it has on the same filesystem's own mount point, confirmed to be the
-    same file. Every other path, and one that cannot be resolved this way, is returned unchanged."""
-    path = Path(path)
-    if sys.platform != "linux":
-        return path
-    try:
-        mounts = _mounts(Path("/proc/self/mountinfo").read_text() if table is None else table)
-    except OSError:
-        return path
-    text, over = str(path), None
-    for mount in mounts:                 # the deepest mount point holds the path; of equal ones the later mount is on top
-        if _below(text, mount[2]) is not None and (over is None or len(mount[2]) >= len(over[2])):
-            over = mount
-    if over is None or over[1] == "/":   # not below a mount of a subdirectory
-        return path
-    rest = _below(text, over[2])
-    inside = over[1].rstrip("/") + "/" + rest if rest else over[1]
-    for device, root, point in sorted(mounts, key=lambda mount: len(mount[1])):
-        rest = _below(inside, root)
-        if device != over[0] or rest is None or (root, point) == over[1:]:
-            continue
-        candidate = Path(point) / rest if rest else Path(point)
-        try:
-            if str(candidate) != text and same(candidate, path):
-                return candidate
-        except OSError:
-            continue
-    return path
+    user service starts in the user manager's namespace, where that path is missing or is a different directory. The layer
+    translates such a path and returns every other path unchanged; ``table`` and ``same`` are its own arguments."""
+    return _places.outside_private_mounts(path, table, same)
 
 
 class UserUnitLauncher:
     """Runs a managed browser's supervisor as one transient user service, outside the application's own cgroup.
 
-    ``systemd-run --user --unit=<derived name>`` with a fixed argv and environment; the unit name is derived from this
-    installation and the agent, never supplied. A unit that is already running is reused, never duplicated. An unreachable user
-    manager is reported precisely (the application user needs a running user manager, i.e. lingering).
+    A derived unit name and a fixed argv and environment; the unit name comes from this installation and the agent, never
+    from a caller. A unit that is already running is reused, never duplicated. An unreachable user manager is reported
+    precisely (the application user needs a running user manager, i.e. lingering).
 
     The user manager does not share the application service's mount namespace, so every path handed to it is first taken
     through ``outside_private_mounts``. The supervisor is also given the path its ownership record names when that differs."""
@@ -428,13 +403,7 @@ class UserUnitLauncher:
     def state(self, unit):
         if not UNIT.fullmatch(unit):
             raise DomainError("browser_binding_invalid", "The supervisor service identity is invalid")
-        done = self.adapter._run("user", [SYSTEMCTL, "--user", "show", unit, "--property=LoadState,ActiveState"], 10)
-        if done.returncode != 0:
-            raise DomainError("browser_service_unavailable", "The application user's systemd manager is not reachable, so "
-                              "the browser supervisor cannot be started outside the application (enable lingering for "
-                              "that user and check its user manager)")
-        values = dict(line.split("=", 1) for line in done.stdout.splitlines() if "=" in line)
-        return values.get("ActiveState", "inactive") if values.get("LoadState") == "loaded" else "inactive"
+        return self.adapter.state(unit)
 
     def active(self, unit):
         return self.state(unit) in UNIT_RUNNING
@@ -450,23 +419,22 @@ class UserUnitLauncher:
             return False
         import qorqut
         from . import idle_tabs
-        state = outside_private_mounts(directory)
+        outside = outside_private_mounts(directory)
         package = outside_private_mounts(Path(qorqut.__file__).resolve().parent.parent)
         # The last entry: where this application's browser commands record that a tab is in use (idle_tabs).
-        environment = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "HOME": str(state), "PYTHONDONTWRITEBYTECODE": "1",
+        environment = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "HOME": str(outside), "PYTHONDONTWRITEBYTECODE": "1",
                        "PYTHONPATH": os.pathsep.join(filter(None, [str(package), os.environ.get("PYTHONPATH", "")])),
                        idle_tabs.SESSIONS: os.pathsep.join(str(outside_private_mounts(place))
                                                            for place in idle_tabs.session_directories())}
-        argv = [SYSTEMD_RUN, "--user", f"--unit={unit}", "--collect", "--quiet",
-                "--description=Qorqut agent browser supervisor", f"--working-directory={state}",
-                "--property=TimeoutStopSec=30", *(f"--setenv={key}={value}" for key, value in environment.items()),
-                "--", str(outside_private_mounts(sys.executable)), "-m", "qorqut.browser.agent_supervisor", "--state", str(state),
-                *(["--recorded-state", str(directory)] if state != Path(directory) else [])]
-        done = self.adapter._run("user", argv, 30)
+        done = self.adapter.start(unit, [str(outside_private_mounts(sys.executable)), "-m", "qorqut.browser.agent_supervisor",
+                                         "--state", str(outside),
+                                         *(["--recorded-state", str(directory)] if outside != Path(directory) else [])],
+                                  working_directory=outside, stop_timeout=30, environment=environment)
         if done.returncode != 0:
             if self.state(unit) in UNIT_RUNNING:        # raced with another start of the same unit
                 return False
-            raise DomainError("browser_service_unavailable", _bound("systemd-run could not start the browser supervisor: "
+            raise DomainError("browser_service_unavailable", _bound(_places.SYSTEMD_RUN_NAME
+                                                                   + " could not start the browser supervisor: "
                                                                    + (done.stderr.strip().splitlines() or ["no detail"])[0]))
         return True
 
@@ -474,7 +442,7 @@ class UserUnitLauncher:
         """Stop exactly this supervisor unit (used only after a verified supervisor ignored its own stop request)."""
         if not UNIT.fullmatch(unit):
             raise DomainError("browser_binding_invalid", "The supervisor service identity is invalid")
-        self.adapter._run("user", [SYSTEMCTL, "--user", "stop", unit], 60)
+        self.adapter.stop(unit)
 
 
 class AgentBrowserManager:
@@ -484,11 +452,11 @@ class AgentBrowserManager:
         self.probe = probe or cdp_healthy
         from qorqut import native_paths
         native, folder = native_paths.root(), native_paths.folder_root()
-        if native is not None or folder is not None or sys.platform == 'darwin':
+        if native is not None or folder is not None or _platform.family() == 'mac':
             if chrome == CHROME:
                 chrome = (native_paths.executable("chrome") if native is not None else
                           native_paths.installed_chrome() or
-                          (native_paths.MAC_CHROME if sys.platform == 'darwin' else CHROME))
+                          (native_paths.MAC_CHROME if _platform.family() == 'mac' else CHROME))
             if deployments == DEPLOYMENT_DIRECTORIES:
                 deployments = (runtime.paths.instance_root / "config/browser-desktops",)
             if launcher is None:
@@ -762,7 +730,7 @@ class AgentBrowserManager:
         ctx.effect = True
         pid, identity = state["pid"], state["identity"]
         if _alive(pid, identity):
-            os.kill(pid, signal.SIGTERM)
+            _processes.terminate_pid(pid)
         deadline = time.monotonic() + self.stop_timeout
         while time.monotonic() < deadline:
             if _lock_free(directory / "supervisor.lock") and not _alive(pid, identity):
@@ -770,9 +738,9 @@ class AgentBrowserManager:
             self.sleep(0.2)
         # Escalate only against the two processes whose exact identity the supervisor recorded.
         if _alive(pid, identity):
-            os.kill(pid, signal.SIGKILL)
+            _processes.kill_pid(pid)
         if state.get("chrome_pid") and _alive(state["chrome_pid"], state["chrome_identity"]):
-            os.killpg(state["chrome_pid"], signal.SIGKILL)
+            _processes.kill_process_group(state["chrome_pid"])
         try:
             self.launcher.stop(meta["managed"]["unit"])        # clears only this exact supervisor service
         except DomainError:

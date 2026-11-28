@@ -3,16 +3,16 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import subprocess
+
+from qorqut_system import places, processes
 
 from .errors import ReleaseError
 
 
 def resolve(plan, recipe, runtime_path):
     runtime_path = Path(runtime_path).resolve(strict=True)
-    pid = int(subprocess.check_output([
-        'systemctl', 'show', plan['installation']['service'], '-p', 'MainPID', '--value']))
-    argv = Path(f'/proc/{pid}/cmdline').read_bytes().decode().split('\0')
+    pid = places.service_main_pid(plan['installation']['service'])
+    argv = processes.cmdline_parts(pid)
     selection = recipe.get('persistent_installation')
     if selection is None:
         intended = Path(plan['installation']['release_root']) / plan['release_id']
@@ -42,8 +42,7 @@ def resolve(plan, recipe, runtime_path):
         manifest = json.loads(manifest_raw)
         interpreter = Path(manifest['python'])
         sources = Path(config['package_sources'])
-        live_env = dict(v.split('=', 1) for v in
-                        Path(f'/proc/{pid}/environ').read_bytes().decode().split('\0') if '=' in v)
+        live_env = processes.environ_strict(pid)
         if (argv[0] != str(interpreter)
                 or manifest['components']['core']['path'] not in argv
                 or live_env.get('QORQUT_PACKAGE_SOURCES') != str(sources)):
