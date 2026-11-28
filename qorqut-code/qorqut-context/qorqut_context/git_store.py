@@ -13,6 +13,8 @@ import subprocess
 import tempfile
 import threading
 
+from qorqut_system import private_files
+
 from . import controlled
 from .input_modes import ACTION, GENERAL
 from .schema import (Conflict, ContextError, GRAPH_KINDS, RECORD_KINDS, identifier, note_record,
@@ -93,7 +95,7 @@ def _stat_key(path, follow=False):
         found = os.stat(path) if follow else os.lstat(path)
     except FileNotFoundError:
         return None
-    return (found.st_dev, found.st_ino, found.st_mode, found.st_uid, found.st_size, found.st_mtime_ns)
+    return (found.st_dev, found.st_ino, found.st_mode, private_files.owner_of(found), found.st_size, found.st_mtime_ns)
 
 
 def _read_small(path):
@@ -130,8 +132,8 @@ def published_ref_signature(root) -> tuple | None:
         if any(text is not None and b"include" in text.lower() for text in texts):
             return None
         executable = shutil.which("git")
-        return ((top.st_dev, top.st_ino, top.st_mode, top.st_uid),
-                (directory.st_dev, directory.st_ino, directory.st_mode, directory.st_uid),
+        return ((top.st_dev, top.st_ino, top.st_mode, private_files.owner_of(top)),
+                (directory.st_dev, directory.st_ino, directory.st_mode, private_files.owner_of(directory)),
                 _stat_key(dot_git / "HEAD"), branch, _stat_key(dot_git / "packed-refs"), texts,
                 executable, _stat_key(executable, follow=True) if executable else None)
     except OSError:

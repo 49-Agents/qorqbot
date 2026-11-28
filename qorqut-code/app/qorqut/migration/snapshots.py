@@ -11,6 +11,7 @@ import tarfile
 from typing import Any
 
 from qorqut_operations.contracts import canonical_hash, freeze, plain
+from qorqut_system import private_files
 from .authority import AuthorityError
 
 
@@ -123,11 +124,7 @@ def verify_snapshot(snapshot: str | Path) -> SourceManifest:
 
 
 def _fsync_directory(path):
-    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
+    private_files.fsync_directory(path)
 
 
 def restore_snapshot(snapshot: str | Path, destination: str | Path) -> SourceManifest:
@@ -149,7 +146,7 @@ def restore_snapshot(snapshot: str | Path, destination: str | Path) -> SourceMan
                     output.write(block)
                 output.flush()
                 os.fsync(output.fileno())
-            os.chmod(target, member.mode & 0o777)
+            private_files.set_private(target, mode=member.mode & 0o777)
     for entry in manifest.data["files"]:
         if _digest(destination / entry["path"]) != entry["sha256"]:
             raise AuthorityError("snapshot_invalid", "Restored file does not match the source snapshot.")

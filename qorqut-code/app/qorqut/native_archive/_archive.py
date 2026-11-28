@@ -24,6 +24,7 @@ import os
 from typing import Callable
 
 from qorqut import file_identity
+from qorqut_system import private_files
 
 from . import _files, _format as fmt, _providers, _relocation
 from ._proven import PROOFS
@@ -886,7 +887,7 @@ class TranscriptArchive:
     def _stage_suffix(self, staging: int, source: _files.Source, start: int, stop: int, hasher, scan: _Scan) -> _Staged:
         """Copy only ``source[start:stop]`` to a private staging file while hashing and framing it."""
         name = f"{os.urandom(8).hex()}.suffix"
-        fd = os.open(name, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=staging)
+        fd = private_files.open_entry(staging, name, os.O_RDWR | os.O_CREAT | os.O_EXCL, mode=0o600)
         staged = _Staged(staging, name, fd)
         try:
             position = start

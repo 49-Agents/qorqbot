@@ -16,6 +16,8 @@ import re
 import stat
 from typing import Any
 
+from qorqut_system import private_files
+
 from .errors import ReleaseError
 from .io import checked_path
 
@@ -50,7 +52,7 @@ def _verify_release_root(release_root: Path) -> None:
     metadata = _lstat(release_root, "release root")
     if not stat.S_ISDIR(metadata.st_mode):
         raise ReleaseError(f"release root must be an existing normal directory: {release_root}")
-    if metadata.st_uid != ROOT_UID or metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+    if private_files.owner_of(metadata) != ROOT_UID or metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
         raise ReleaseError(f"release root must be root-owned and not group/world writable: {release_root}")
 
 

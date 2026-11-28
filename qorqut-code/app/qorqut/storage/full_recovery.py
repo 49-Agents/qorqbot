@@ -26,6 +26,7 @@ from typing import Protocol
 from uuid import UUID
 
 from qorqut_operations.contracts import DomainError, utc_now
+from qorqut_system import private_files
 from qorqut.migration.snapshots import _fsync_directory, restore_snapshot, verify_snapshot
 from qorqut_context.integration.recovery import CAPTURE_DIRECTORY, ContextRecovery
 from qorqut.storage.recovery import BackupStore, require_target_projects, snapshot_database
@@ -86,7 +87,7 @@ def _git_metadata_line(path: Path, *, description: str) -> str:
     try:
         if not stat.S_ISREG(path.lstat().st_mode):
             raise ValueError
-        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        descriptor = private_files.open_read(path.parent, path.name)
     except (OSError, ValueError) as exc:
         raise DomainError("backup_incomplete", f"{description} cannot be read") from exc
     try:
@@ -441,9 +442,9 @@ class FullRecoveryStore:
             return FullRecoveryGeneration(generation_id, existing["short_id"], existing.get("time", ""), str(self.root),
                                           tuple(existing.get("paths", ()))).to_dict()
         self.repository.mkdir(mode=0o700, parents=True, exist_ok=True)
-        self.repository.chmod(0o700)
+        private_files.set_private(self.repository, mode=0o700)
         self.authority_staging.mkdir(mode=0o700, parents=True, exist_ok=True)
-        self.authority_staging.chmod(0o700)
+        private_files.set_private(self.authority_staging, mode=0o700)
         authority = self._authority_source(generation_id)
         if authority.exists():
             raise DomainError("invalid_backup", "Unverified authority staging already exists for this generation")

@@ -7,11 +7,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 from pathlib import Path
 import shutil
 import subprocess
 
+from qorqut_system import private_files
 from qorqut.release_worker.adapters import _tree_digest
 from qorqut.release_worker.errors import ReleaseError
 from qorqut.release_worker.io import atomic_json
@@ -128,7 +128,7 @@ def adopt(plan_path, component_id, artifact_path, runtime_path, receipt_path):
                     destination = backup / relative
                     destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
                     shutil.copy2(source, destination)
-                    destination.chmod(0o600)
+                    private_files.set_private(destination)
             updated = runtime.application.invoke_or_raise(owner_ctx, "agents_update",
                 {"agent_id": agent_id, "changes": changes, "rationale": "Owner-approved plugin release"},
                 InvocationOptions(expected_revision=row["revision"], idempotency_key=f"{plan['release_id']}:plugin:{component_id}:{agent_id}"))

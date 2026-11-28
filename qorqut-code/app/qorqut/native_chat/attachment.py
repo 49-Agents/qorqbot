@@ -12,13 +12,13 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
-import sys
 import re
 import subprocess
 import time
 from pathlib import Path
 
 from qorqut_operations.contracts import DomainError
+from qorqut_system import platform as _platform, private_files
 from qorqut.bootstrap import features
 from qorqut.managed_runtime import mode
 from qorqut.transport.agent_terminal_control import NATIVE_ONLY, TERMINAL_MODE_OFF, start_flags
@@ -69,7 +69,7 @@ def effective_executable(client: str, shell_pid: int) -> str:
     root = PROC_ROOT / str(shell_pid)
     unsupported = DomainError("unsupported_runtime", "The terminal's launcher for this client cannot be established")
     try:
-        if sys.platform == 'darwin':
+        if _platform.family() == 'mac':
             from qorqut import process_info
             before = process_info.start_token(shell_pid)
             argv, environment = process_info.cmdline(shell_pid), process_info.environ(shell_pid)
@@ -79,7 +79,7 @@ def effective_executable(client: str, shell_pid: int) -> str:
         else:
             argv = [item.decode("utf-8") for item in (root / "cmdline").read_bytes().split(b"\0") if item]
             environment = dict(item.split("=", 1) for item in (root / "environ").read_bytes().decode("utf-8").split("\0") if "=" in item)
-            executable, cwd = os.readlink(root / "exe"), os.readlink(root / "cwd")
+            executable, cwd = private_files.read_link(root / "exe"), private_files.read_link(root / "cwd")
     except (OSError, ValueError):
         raise unsupported from None
     if Path(executable).name != "bash" or "--rcfile" not in argv or "-i" not in argv:

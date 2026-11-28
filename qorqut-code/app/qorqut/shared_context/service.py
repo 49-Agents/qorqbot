@@ -15,6 +15,7 @@ from dataclasses import fields, replace
 from pathlib import Path
 import stat
 
+from qorqut_system import private_files
 from qorqut_context.integration import service as integration
 from qorqut_context.integration.service import ContextLocations, ContextSettings
 from qorqut_context.runner import AppServerRunner, RunnerConfig
@@ -43,7 +44,7 @@ def runner_config_from_file(path) -> RunnerConfig:
     if not path.is_absolute() or ".." in path.parts:
         raise DomainError("invalid_configuration", "The Context runner configuration needs an absolute path")
     try:
-        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        descriptor = private_files.open_read(path.parent, path.name)
     except OSError as error:
         raise DomainError("invalid_configuration", "The Context runner configuration cannot be read") from error
     try:

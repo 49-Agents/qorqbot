@@ -14,6 +14,7 @@ from uuid import UUID
 
 from qorqut.catalog.packages import content_hash, files_digest
 from qorqut_operations.contracts import DomainError, canonical_bytes, canonical_hash, utc_now
+from qorqut_system import private_files
 from qorqut.migration.snapshots import (SourceManifest, _digest, _fsync_directory,
     restore_snapshot, verify_snapshot)
 from qorqut_operations.storage.paths import registered_path
@@ -181,7 +182,7 @@ def _capture_authored(manifest, destination, check):
     destination.mkdir(mode=0o700)
     atomic_write(destination / "manifest.json", canonical_bytes(manifest.data) + b"\n")
     with (destination / "sources.tar").open("xb") as stream:
-        os.chmod(stream.name, 0o600)
+        private_files.set_private(stream.name)
         with tarfile.open(fileobj=stream, mode="w:", format=tarfile.PAX_FORMAT) as archive:
             for item in manifest.data["files"]:
                 check()
@@ -276,7 +277,7 @@ class BackupStore:
             self._remember(generation_id, "complete", metadata=metadata)
             return metadata
         self.destination.mkdir(mode=0o700, parents=True, exist_ok=True)
-        self.destination.chmod(0o700)
+        private_files.set_private(self.destination, mode=0o700)
         temporary = Path(tempfile.mkdtemp(prefix=".incomplete-", dir=self.destination))
         try:
             check()

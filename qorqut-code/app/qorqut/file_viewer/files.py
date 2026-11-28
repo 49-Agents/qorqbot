@@ -1,7 +1,7 @@
 """Descriptor-anchored reads of one regular file beneath the operations root.
 
-Every path component is opened with ``O_NOFOLLOW`` relative to its parent
-descriptor, starting from the root directory, so a symlink anywhere below the
+Every path component is opened without following a link relative to its parent
+folder, starting from the root directory, so a symlink anywhere below the
 root is refused (the documented policy) and a component swapped for a symlink
 while walking cannot redirect the open outside the root. The final file is
 checked with ``lstat`` before it is opened (so a device or FIFO is never
@@ -20,10 +20,11 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 
 from qorqut_operations.contracts import DomainError
+from qorqut_system import private_files
 
 CHUNK = 64 * 1024
-_DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
-_FILE = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_NOCTTY | os.O_CLOEXEC
+_FOLDER = object()       # what ``_open`` takes for "open a folder, refusing a link"
+_FILE = os.O_RDONLY | os.O_NONBLOCK | os.O_NOCTTY | os.O_CLOEXEC
 
 
 def missing():
@@ -51,7 +52,9 @@ def _describe(mode):
 
 def _lstat(parent, name):
     try:
-        return os.stat(name, dir_fd=parent, follow_symlinks=False)
+        if parent is None:
+            return private_files.stat_folder(name)
+        return private_files.stat_entry(parent, name)
     except (FileNotFoundError, NotADirectoryError):
         raise missing() from None
     except OSError as exc:
@@ -63,8 +66,13 @@ def _lstat(parent, name):
 
 
 def _open(parent, name, flags):
+    """Open ``name`` beneath the opened folder ``parent``: a folder for ``_FOLDER``, else a file with ``flags``."""
     try:
-        return os.open(name, flags, dir_fd=parent)
+        if flags is _FOLDER:
+            if parent is None:
+                return private_files.open_folder(name)
+            return private_files.open_child_folder(parent, name)
+        return private_files.open_entry(parent, name, flags)
     except OSError as exc:
         if exc.errno in {errno.EACCES, errno.EPERM}:
             raise unreadable() from None
@@ -85,15 +93,15 @@ def iso(timestamp):
 @contextmanager
 def open_directory(root, relative):
     """Hold a normalized directory path open, refusing links at every component."""
-    parent = _open(None, root, _DIRECTORY)
+    folder = _open(None, root, _FOLDER)
     try:
         for name in relative.split("/") if relative else ():
-            child = _open(parent, name, _DIRECTORY)
-            os.close(parent)
-            parent = child
-        yield parent
+            child = _open(folder, name, _FOLDER)
+            folder.close()
+            folder = child
+        yield folder.descriptor
     finally:
-        os.close(parent)
+        folder.close()
 
 
 class OpenedFile:
@@ -145,11 +153,12 @@ class OpenedFile:
 def open_regular(root, relative):
     """Open ``relative`` (a normalized root-relative POSIX path) beneath ``root`` without following symlinks."""
     names = relative.split("/")
-    parent = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    # The root itself is the folder the caller holds, so its own final link is followed; every name below it is refused.
+    parent = private_files.open_folder(root, follow_link=True)
     try:
         for name in names[:-1]:
-            child = _open(parent, name, _DIRECTORY)
-            os.close(parent)
+            child = _open(parent, name, _FOLDER)
+            parent.close()
             parent = child
         info = _lstat(parent, names[-1])
         if stat.S_ISLNK(info.st_mode):
@@ -158,7 +167,7 @@ def open_regular(root, relative):
             raise not_regular(_describe(info.st_mode))
         descriptor = _open(parent, names[-1], _FILE)
     finally:
-        os.close(parent)
+        parent.close()
     try:
         opened = os.fstat(descriptor)
         if not stat.S_ISREG(opened.st_mode):

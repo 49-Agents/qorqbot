@@ -9,6 +9,7 @@ from typing import Mapping, Protocol
 
 from qorqut_operations.contracts import DomainError
 from qorqut_docs_versioning import HistoryStore, NotFound
+from qorqut_system import private_files
 
 MAX_THREAD_PAGES = 1
 MAX_THREAD_PAGE_NOTES = 20
@@ -307,7 +308,6 @@ class CaptureJournal:
     captured bytes. A missing or failed coverage provider suppresses nothing.
     """
     def __init__(self, root, access, coverage=None, *, overseer_ids):
-        import os
         import sqlite3
         from .archive import PrivateArchive
         self.access, self.coverage = _access(access), coverage
@@ -319,8 +319,7 @@ class CaptureJournal:
             raise DomainError("invalid_configuration", "Current Overseer identities are required for source exclusion")
         self.archive = PrivateArchive(root, self._authorize, getattr(self.access, "authorize_retention", None))
         self.path = self.archive.root / "capture-index.sqlite3"
-        fd = os.open(self.path, os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o600)
-        os.close(fd)
+        private_files.ensure_entry(self.path.parent, self.path.name)
         with sqlite3.connect(self.path) as db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS captures (
