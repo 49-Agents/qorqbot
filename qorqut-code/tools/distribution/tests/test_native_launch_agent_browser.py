@@ -162,6 +162,11 @@ class ChromeTests(unittest.TestCase):
         directory = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, directory)
         self.assertFalse(native_launch.chrome_installed(str(directory), system='Linux'))
+        for name in ('chromium', 'chromium-browser'):
+            chromium = directory / name
+            chromium.write_text('#!/bin/sh\n')
+            chromium.chmod(0o755)
+        self.assertFalse(native_launch.chrome_installed(str(directory), system='Linux'), 'Chromium is not Google Chrome')
         chrome = directory / 'google-chrome'
         chrome.write_text('#!/bin/sh\n')
         chrome.chmod(0o755)

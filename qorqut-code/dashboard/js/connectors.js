@@ -239,8 +239,9 @@ const connectorsPanel = (() => {
       const retry = root.querySelector('[data-cx-browser-retry]');
       if (!browserView) return;
       const ready = browserView.ready;
-      // Qorqbot downloads its own Chrome. Until it is there (and no Chrome is installed) the card says what the download
-      // is doing; "Chrome needed" is left for a computer where Qorqbot's own Chrome cannot be used.
+      // The agents' browser runs on the installed Google Chrome; without it the card says "Chrome needed" (the server's text
+      // says Qorqbot carries on by itself once it is installed). "Downloading" is only for a browser that already runs on
+      // Qorqbot's own build while that build is fetched again.
       const ownChrome = browserView.managed_chrome || {};
       const downloading = chromeDownloading();
       status.textContent = ready ? 'Ready' : !browserView.tool_installed ? 'Tool missing' :
@@ -249,7 +250,7 @@ const connectorsPanel = (() => {
       const agents = browserView.agents || [];
       detail.textContent = ready ? `Ready for ${agents.map(agent => agent.name).join(', ')}.` :
         !browserView.tool_installed ? 'The tool agents use to control their browser isn’t installed. Quit and reopen Qorqbot to install it again.' :
-        !browserView.chrome_installed ? ownChrome.explanation || 'Agents need Google Chrome to browse, and it isn’t installed on this computer. Install it from google.com/chrome, then press Retry setup.' :
+        !browserView.chrome_installed ? ownChrome.explanation || 'Qorqbot needs Google Chrome so your agents can work on the web, and it isn’t installed on this computer. Install it from google.com/chrome. Qorqbot carries on by itself once it is installed.' :
         browserView.explanation || 'Preparing the agent browser…';
       retry.hidden = ready || !browserView.tool_installed;
       retry.disabled = downloading || (!browserView.chrome_installed && !ownChrome.state);
@@ -266,8 +267,11 @@ const connectorsPanel = (() => {
       } finally {
         if (live()) button.disabled = false;
         clearTimeout(browserTimer);
-        // A download takes minutes on a slow connection, so the card keeps checking for as long as it runs.
-        if (live() && !browserView?.ready && (chromeDownloading() || browserChecks++ < 12))
+        // The card keeps checking while Chrome is awaited (the owner installing Google Chrome, or a download that takes
+        // minutes on a slow connection), and for a minute after it is there, while the browser sets itself up.
+        const awaited = !!browserView && !browserView.chrome_installed;
+        if (awaited) browserChecks = 0;
+        if (live() && !browserView?.ready && (awaited || browserChecks++ < 12))
           browserTimer = setTimeout(() => loadBrowser(), 5000);
       }
     }

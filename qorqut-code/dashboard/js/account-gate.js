@@ -72,8 +72,9 @@ const accountGate = (() => {
       root.className = 'account-gate';
       root.innerHTML = '<section class="onboarding-card account-gate-card" role="dialog" aria-modal="true" aria-labelledby="account-gate-title"></section>';
       document.body.append(root);
-      // Nothing behind the screen can be reached, by mouse or keyboard, until it is gone.
-      blocked = [...document.body.children].filter(el => el !== root && !el.inert);
+      // Nothing behind the screen can be reached, by mouse or keyboard, until it is gone. The dashboard notices
+      // (js/setup-notice.js) stand above it and stay usable.
+      blocked = [...document.body.children].filter(el => el !== root && !el.inert && el.className !== 'setup-notices');
       blocked.forEach(el => { el.inert = true; });
     }
     const section = root.querySelector('section');

@@ -498,8 +498,9 @@ const agentClients = (() => {
             <button type="button" data-ac-continue aria-describedby="ac-gate-hint" disabled>Continue</button></div>
         </section>`;
         document.body.append(gate);
-        // Nothing behind the screen can be reached, by mouse or keyboard, until it is gone.
-        blocked = [...document.body.children].filter(el => el !== gate && !el.inert);
+        // Nothing behind the screen can be reached, by mouse or keyboard, until it is gone. The dashboard notices
+        // (js/setup-notice.js) stand above it and stay usable.
+        blocked = [...document.body.children].filter(el => el !== gate && !el.inert && el.className !== 'setup-notices');
         blocked.forEach(el => { el.inert = true; });
         const next = gate.querySelector('[data-ac-continue]'), later = gate.querySelector('[data-ac-later]'), hint = gate.querySelector('[data-ac-gate-hint]');
         let last = first;

@@ -665,6 +665,9 @@ class BrowserAccess:
             try:
                 endpoint, executable = browser.load_target(workspace)
             except browser.BrowserNotConfigured:
+                from . import managed_chrome
+                if not managed_chrome.chrome_available(self.runtime.paths.runtime):
+                    raise DomainError("google_chrome_needed", managed_chrome.GOOGLE_CHROME_NEEDED_FOR_AGENT) from None
                 raise DomainError("browser_not_configured", self.runtime.resolver.require_agentic_view().runtime_instructions().render('browser-worker-unconfigured')) from None
             except browser.BrowserError as exc:
                 raise DomainError("browser_configuration_invalid", "Your configured browser is unusable (" + str(exc) +

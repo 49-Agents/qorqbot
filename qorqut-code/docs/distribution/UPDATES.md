@@ -23,7 +23,7 @@ It replaces only `runtime/` and the `qorqbot` launcher. It never replaces
 `instance/`, restores a database, replays provider work or starts an agent. The
 browser tool ships inside `runtime/` and is replaced with it. Qorqbot's own
 Chrome (`instance/operations/.runtime/chrome/`) stays in place; a release that
-pins a newer Chrome downloads it after the next start.
+pins a newer Chrome downloads it after the next start, for a browser that runs on it.
 
 The first updater supports unchanged database schemas and unchanged managed
 instruction contents with core, the bundled Google Calendar provider and the

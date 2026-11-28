@@ -1,9 +1,12 @@
-// A notice at the top of the dashboard when the owner has to install Google Chrome: none is installed and the Chrome
-// Qorqbot downloads for itself cannot be used on this computer. Facts come from /root/about (owner only).
+// A notice on the dashboard when the owner has to install Google Chrome: the agents' browser has no Chrome it may run on
+// (/root/about `chrome_installed`, owner only). While it shows, /root/about is read again every few seconds and the notice
+// goes by itself once Chrome is there. It stands above the welcome tour and the first-run screens, which leave it usable.
 // `setupNotice.message` is pure (tested with node --test); `setupNotice.show` paints it.
 const setupNotice = (() => {
   const CHROME_URL = 'https://www.google.com/chrome/';
   const DISMISSED = 'qorqbot:setup-notice-dismissed';
+  const RECHECK_MS = 8000;
+  let timer = null;
   // What to tell the owner, or null when nothing is missing.
   function message(about) {
     if (!about || about.chrome_installed !== false) return null;
@@ -30,12 +33,13 @@ const setupNotice = (() => {
     move();
   }
   function dismissed() { try { return sessionStorage.getItem(DISMISSED) === '1'; } catch (_) { return false; } }
+  const current = () => document.querySelector('.chrome-notice');
   function show(about) {
-    document.querySelector('.setup-notice')?.remove();
     const notice = message(about);
-    if (!notice || dismissed()) return;
+    if (!notice || dismissed()) { current()?.remove(); return; }
+    if (current()) return;                     // already up: not painted (and announced) again on every check
     const bar = document.createElement('div');
-    bar.className = 'setup-notice'; bar.setAttribute('role', 'alert');
+    bar.className = 'setup-notice chrome-notice'; bar.setAttribute('role', 'alert');
     bar.innerHTML = `<span>${esc(notice.text)}</span>
       <a href="${esc(notice.url)}" target="_blank" rel="noopener noreferrer">${esc(notice.action)}</a>
       <button type="button" class="setup-notice-close" aria-label="Dismiss">×</button>`;
@@ -45,12 +49,14 @@ const setupNotice = (() => {
     };
     stack().append(bar);
   }
-  // Checked once per page load; a non-owner simply sees nothing.
+  // Checked on page load, and again while the notice is up; a non-owner simply sees nothing.
   async function check() {
     if (typeof api !== 'function') return;
-    try { show(coreData(await api('/root/about'))); } catch (_) { /* Not the owner, or the server is starting. */ }
+    clearTimeout(timer);
+    try { show(coreData(await api('/root/about'))); } catch (_) { /* Not the owner, or the server is restarting. */ }
+    if (current()) timer = setTimeout(check, RECHECK_MS);
   }
-  return {message, show, check, gather, CHROME_URL};
+  return {message, show, check, gather, CHROME_URL, RECHECK_MS};
 })();
 if (typeof module !== 'undefined') module.exports = setupNotice;
 else if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => { setupNotice.gather(); setupNotice.check(); });

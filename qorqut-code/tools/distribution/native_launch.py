@@ -426,10 +426,11 @@ def agent_cli_path(root, provider):
 
 
 def chrome_installed(path=None, system=None):
-    """Google Chrome, which the agents' browsers run on. Qorqbot cannot install it; the owner is told when it is missing."""
+    """Google Chrome, which the agents' browsers run on (Chromium does not count, as in ``qorqut.native_paths``). Qorqbot
+    cannot install it; the owner is told when it is missing."""
     if (system or platform.system()) == 'Darwin' and os.access(MAC_CHROME, os.X_OK):
         return True
-    return any(shutil.which(name, path=path) for name in ('google-chrome-stable', 'google-chrome', 'chromium', 'chromium-browser'))
+    return any(shutil.which(name, path=path) for name in ('google-chrome-stable', 'google-chrome'))
 
 
 def readiness_notes(path, system=None):

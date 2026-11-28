@@ -6,6 +6,9 @@ import sys
 
 
 MAC_CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+# Google Chrome's program names on PATH (Linux). Chromium is not among them: it is no closer to Google Chrome than Qorqbot's
+# own downloaded build.
+GOOGLE_CHROME_NAMES = ('google-chrome-stable', 'google-chrome')
 
 
 def folder_root():
@@ -33,6 +36,16 @@ def installed_chrome():
                                     override='QORQUT_CHROME_EXECUTABLE')
     if selected is not None:
         return selected
+    return _mac_chrome()
+
+
+def installed_google_chrome():
+    """The installed Google Chrome itself, or None: never Chromium, and never ``QORQUT_CHROME_EXECUTABLE`` (an explicit
+    choice is the caller's to honour first)."""
+    return installed_executable(*GOOGLE_CHROME_NAMES) or _mac_chrome()
+
+
+def _mac_chrome():
     if sys.platform == 'darwin' and Path(MAC_CHROME).is_file() and os.access(MAC_CHROME, os.X_OK):
         return MAC_CHROME
     return None
