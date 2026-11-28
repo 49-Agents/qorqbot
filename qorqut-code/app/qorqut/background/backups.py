@@ -20,6 +20,7 @@ import httpx
 from qorqut_operations.contracts import DomainError
 from qorqut_operations.application.plans import schema
 from qorqut_operations.background.programs import ProgramResult
+from qorqut_system import private_files
 
 ENV = {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,99}$"}
 ARGUMENTS = schema({"endpoint_env": ENV, "token_env": ENV, "keep": {"type": "integer", "minimum": 1, "maximum": 365}},
@@ -104,7 +105,7 @@ class BackupPullProgram:
         final = folder/name
         if not final.exists():  # A recovered job that already kept its copy does not download again.
             incoming = folder/(".incoming-" + job)
-            descriptor = os.open(incoming, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+            descriptor = private_files.open_entry(folder, incoming.name, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode=0o600)
             try:
                 with os.fdopen(descriptor, "wb") as stream:
                     self.downloader(control.project_id, args["endpoint_env"], args["token_env"], stream,
@@ -113,12 +114,8 @@ class BackupPullProgram:
                     os.fsync(stream.fileno())
                 control.check()
                 verify(incoming, folder/(".verify-" + job))
-                os.replace(incoming, final)
-                directory = os.open(folder, os.O_RDONLY)
-                try:
-                    os.fsync(directory)
-                finally:
-                    os.close(directory)
+                private_files.rename_entry(folder, incoming.name, final.name)
+                private_files.sync_folder(folder)
             finally:
                 incoming.unlink(missing_ok=True)
         size = final.stat().st_size

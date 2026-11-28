@@ -59,6 +59,7 @@ from qorqut.service.changes import ChangeFeed
 from qorqut.service.instance_arguments import add_instance_arguments, instance_paths_from_arguments
 from qorqut.service.ownership import LOCK_NAME, InstanceOwnership
 from qorqut.private_files import fsync_directory, read_private_file, require_private_directory, write_private_file
+from qorqut_system import private_files
 
 TRANSITION_ID = "v1.3-agentic-overseer-1"
 PLAN_FORMAT = 1
@@ -473,7 +474,7 @@ def _require_store_file(path: Path) -> None:
         raise DomainError("invalid_database", "The existing Operations database is missing") from exc
     if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
         raise DomainError("invalid_database", "The existing Operations database is not a plain regular file")
-    if info.st_uid != os.geteuid():
+    if not private_files.is_mine(info):
         raise DomainError("invalid_configuration", "The existing Operations database is not owned by this user")
 
 
@@ -502,7 +503,7 @@ def _readonly_uri(database: Path) -> str:
             info = os.lstat(sidecar)
         except OSError as exc:
             raise DomainError("invalid_database", "A SQLite sidecar of the Operations store is unavailable") from exc
-        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid():
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode) or not private_files.is_mine(info):
             raise DomainError("invalid_database", "A SQLite sidecar of the Operations store is not a plain file owned "
                               "by this user")
     return Path(database).resolve().as_uri() + "?mode=ro"
@@ -678,12 +679,13 @@ def _publish_backup(connection, destination, transition: _Transition) -> dict:
             digest = hashlib.file_digest(handle, "sha256").hexdigest()
         written = os.lstat(temporary)
         try:
-            os.link(temporary, destination)
+            private_files.link_entry(temporary.parent, temporary.name, destination.name,
+                                     target_folder=destination.parent, follow_symlinks=True)
         except FileExistsError as exc:
             raise DomainError("backup_exists", "The backup destination already exists; a backup is never replaced") from exc
         fsync_directory(destination.parent)
         published = os.lstat(destination)
-        if (not stat.S_ISREG(published.st_mode) or published.st_uid != os.geteuid() or published.st_mode & 0o077
+        if (not stat.S_ISREG(published.st_mode) or not private_files.is_private_and_mine(published)
                 or (published.st_dev, published.st_ino) != (written.st_dev, written.st_ino)):
             raise DomainError("invalid_backup", "The published backup is not the private file this transition wrote")
         return {"path": str(destination), "sha256": digest}

@@ -53,6 +53,7 @@ from qorqut.bootstrap.history_repository import provision_history_repository
 from qorqut.instance_paths import InstancePaths
 from qorqut.service.instance_arguments import instance_arguments
 from qorqut.private_files import DIRECTORY_MODE, require_private_directory, write_private_file
+from qorqut_system import private_files
 
 RECEIPT = "PREPARATION-RECEIPT.json"
 MANIFEST = "SOURCE-MANIFEST.json"
@@ -88,7 +89,7 @@ def _inside(path: Path, base: Path) -> bool:
 
 def _read_json(path: Path, label: str):
     try:
-        with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC), "rb") as stream:
+        with os.fdopen(private_files.open_read(path.parent, path.name), "rb") as stream:
             if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
                 raise ValueError
             data = stream.read(MAX_JSON + 1)
@@ -303,9 +304,9 @@ def seed_instance(paths: InstancePaths, workspace: Path, selection, owner_name: 
 def _make_private(root: Path) -> None:
     """Drop every group/other permission under ``root``: the primitives write the packaged instructions as 0644."""
     for path in sorted(root.rglob("*")):
-        mode = path.lstat().st_mode
-        if not stat.S_ISLNK(mode) and mode & 0o077:
-            os.chmod(path, stat.S_IMODE(mode) & ~0o077)
+        info = path.lstat()
+        if not stat.S_ISLNK(info.st_mode) and not private_files.is_private(info):
+            private_files.set_private(path, mode=private_files.mode_of(info, mask=0o7777) & ~0o077)
 
 
 def initialize(prepared_root, instance_root, *, owner_name="Owner", extensions_config=None) -> dict:
@@ -330,41 +331,39 @@ def initialize(prepared_root, instance_root, *, owner_name="Owner", extensions_c
 
     # The first write: every check above has passed. A later failure leaves this directory for inspection. The umask keeps
     # the history repository and agent folders owner-only too; _make_private covers the packaged instructions.
-    previous_umask = os.umask(0o077)
-    try:
-        if not instance.exists():
-            os.mkdir(instance, DIRECTORY_MODE)
-        os.chmod(instance, DIRECTORY_MODE)
-        config = require_private_directory(instance / "config", create=True)
-        write_private_file(config, "extensions.json", json.dumps(configuration, indent=2, sort_keys=True).encode() + b"\n")
-        write_private_file(config, "owner-token", secrets.token_urlsafe(32).encode())
-        agentic = initialize_installation(paths, agentic_prepared)
-        created = seed_instance(paths, workspace, selection, owner_name.strip())
-        # Explicit offline provisioning of the private Overseer archive and application-executor roots. Open, chat
-        # admission, reads and scheduled jobs never create them.
-        from qorqut.agentic.provisioning import apply as provision_private_roots
-        provision_private_roots(paths)
-        history = provision_history_repository(paths.operations)     # the one explicit creation of the operations-root repository
-        from qorqut.bootstrap.context_repository import provision_context_repository
-        context_store = provision_context_repository(paths)           # explicit: reads and startup never create the Context store
-        _make_private(instance)
-        record = {"format": 1, "state": "initialized", "initialized_at": utc_now(), "owner_name": owner_name.strip(), **created,
-                  "agentic_layer": agentic,
-                  "extensions": list(selection.ids), "instance_root": str(instance), "workspace": str(workspace),
-                  "history_repository": {"path": str(history.path), "created": history.created, "branch": history.branch,
-                                         "bootstrap_commit": history.commit},
-                  "context_repository": {"path": str(context_store.path), "runtime": str(context_store.runtime),
-                                         "created": context_store.created, "revision": context_store.revision},
-                  "components": {name: str(location) for name, location in components.items()},
-                  "files": {"extensions_config": str(config / "extensions.json"), "token_file": str(config / "owner-token"),
-                            "database": str(paths.database)},
-                  "preparation": {"root": str(prepared), "receipt": str(prepared / RECEIPT), "receipt_sha256": digests["receipt"],
-                                  "source_manifest_sha256": digests["manifest"], "prepared_at": receipt.get("prepared_at")}}
-        write_private_file(config, "initialization-receipt.json", json.dumps(record, indent=2, sort_keys=True).encode() + b"\n")
-    except Exception as exc:
-        raise InstanceIncomplete(f"{type(exc).__name__}: {exc}") from exc
-    finally:
-        os.umask(previous_umask)
+    with private_files.private_umask():
+        try:
+            if not instance.exists():
+                os.mkdir(instance, DIRECTORY_MODE)
+            private_files.set_private(instance, mode=DIRECTORY_MODE)
+            config = require_private_directory(instance / "config", create=True)
+            write_private_file(config, "extensions.json", json.dumps(configuration, indent=2, sort_keys=True).encode() + b"\n")
+            write_private_file(config, "owner-token", secrets.token_urlsafe(32).encode())
+            agentic = initialize_installation(paths, agentic_prepared)
+            created = seed_instance(paths, workspace, selection, owner_name.strip())
+            # Explicit offline provisioning of the private Overseer archive and application-executor roots. Open, chat
+            # admission, reads and scheduled jobs never create them.
+            from qorqut.agentic.provisioning import apply as provision_private_roots
+            provision_private_roots(paths)
+            history = provision_history_repository(paths.operations)     # the one explicit creation of the operations-root repository
+            from qorqut.bootstrap.context_repository import provision_context_repository
+            context_store = provision_context_repository(paths)           # explicit: reads and startup never create the Context store
+            _make_private(instance)
+            record = {"format": 1, "state": "initialized", "initialized_at": utc_now(), "owner_name": owner_name.strip(), **created,
+                      "agentic_layer": agentic,
+                      "extensions": list(selection.ids), "instance_root": str(instance), "workspace": str(workspace),
+                      "history_repository": {"path": str(history.path), "created": history.created, "branch": history.branch,
+                                             "bootstrap_commit": history.commit},
+                      "context_repository": {"path": str(context_store.path), "runtime": str(context_store.runtime),
+                                             "created": context_store.created, "revision": context_store.revision},
+                      "components": {name: str(location) for name, location in components.items()},
+                      "files": {"extensions_config": str(config / "extensions.json"), "token_file": str(config / "owner-token"),
+                                "database": str(paths.database)},
+                      "preparation": {"root": str(prepared), "receipt": str(prepared / RECEIPT), "receipt_sha256": digests["receipt"],
+                                      "source_manifest_sha256": digests["manifest"], "prepared_at": receipt.get("prepared_at")}}
+            write_private_file(config, "initialization-receipt.json", json.dumps(record, indent=2, sort_keys=True).encode() + b"\n")
+        except Exception as exc:
+            raise InstanceIncomplete(f"{type(exc).__name__}: {exc}") from exc
     record["receipt_file"] = str(config / "initialization-receipt.json")
     record["service_command"] = service_command(prepared, paths, config)
     return record

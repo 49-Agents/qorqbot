@@ -35,7 +35,6 @@ import errno
 import hashlib
 import os
 from pathlib import Path
-import platform
 import re
 import shutil
 import subprocess
@@ -43,6 +42,8 @@ import tarfile
 import threading
 import time
 import urllib.request
+
+from qorqut_system import platform, private_files
 
 PROVIDERS = ('claude', 'codex')
 VERSIONS = {'claude': '2.1.327', 'codex': '0.170.0'}
@@ -112,7 +113,7 @@ def _check(provider):
 
 def target_name(system=None, machine=None):
     """``darwin-arm64``, ``darwin-x64`` or ``linux-x64``, or None where Qorqbot has no native package."""
-    system, machine = (system or platform.system()), (machine or platform.machine()).lower()
+    system, machine = (system or platform.system_name()), (machine or platform.machine()).lower()
     if system == 'Darwin' and machine in ('arm64', 'aarch64'):
         return 'darwin-arm64'
     if system == 'Darwin' and machine in ('x86_64', 'amd64'):
@@ -191,7 +192,7 @@ def _point_current(provider, root):
     try:
         target = install_directory(provider, root)
         link = current_directory(provider, root)
-        if os.path.islink(link) and os.readlink(link) == target.name:
+        if os.path.islink(link) and private_files.read_link(link) == target.name:
             return True
         if not installed(provider, root):
             return False
@@ -200,7 +201,7 @@ def _point_current(provider, root):
             os.unlink(fresh)
         except FileNotFoundError:
             pass
-        os.symlink(target.name, fresh)
+        private_files.make_link(target.name, fresh)
         try:
             os.replace(fresh, link)  # fails when something that is not a link sits there; it is left alone
         except OSError:
@@ -353,7 +354,7 @@ def _extract(archive, root, only, staged, cancelled=None):
             destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             with package_file.extractfile(member) as source, destination.open('wb') as output:
                 shutil.copyfileobj(source, output)
-            destination.chmod(0o755 if member.mode & 0o111 else 0o644)
+            private_files.set_private(destination, mode=0o755 if member.mode & 0o111 else 0o644)
             count += 1
     return count
 

@@ -11,6 +11,7 @@ import logging
 from uuid import uuid4
 
 from qorqut_operations.contracts import DomainError
+from qorqut_system import private_files
 
 
 def _time(value):
@@ -342,7 +343,7 @@ class AttentionRuntime:
                 occurrence, token = str(UUID(claim['id'])), str(UUID(claim['claim_token']))
                 workspace = agent_workspace_of(self.runtime.paths, agent_id)
                 path = Path(workspace) / '.qorqut' / 'attention-receipts' / (occurrence + '-' + token + '.json')
-                if not safe_path(path) or not path.is_file() or path.stat().st_mode & 0o077 or path.stat().st_size > 4096:
+                if not safe_path(path) or not path.is_file() or not private_files.is_private(path.stat()) or path.stat().st_size > 4096:
                     return False
                 receipt = json.loads(path.read_text())
                 if receipt.get('registration_id') != registration_id or any(receipt.get(key) != claim.get(key) for key in
