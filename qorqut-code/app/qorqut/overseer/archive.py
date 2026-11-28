@@ -1,15 +1,14 @@
 """Private immutable source snapshots and separately authorized Overseer retention."""
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import os
 from pathlib import Path
 import stat
-import tempfile
 
 from qorqut_operations.contracts import DomainError
+from qorqut_system import locks, private_files
 
 
 def _bytes(value):
@@ -35,7 +34,7 @@ class PrivateArchive:
             info = self.root.stat()
         except OSError as exc:
             raise DomainError("invalid_configuration", "Private archive root is unavailable") from exc
-        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+        if not stat.S_ISDIR(info.st_mode) or not private_files.is_private_and_mine(info):
             raise DomainError("invalid_configuration", "Private archive root must be owner-private")
         self.authorize, self.authorize_retention = authorize, authorize_retention
 
@@ -87,16 +86,7 @@ class PrivateArchive:
             if self._read(path) != data:
                 raise DomainError("operation_conflict", "Archive operation was reused with different material")
             return
-        fd, temporary = tempfile.mkstemp(prefix=".capture-", dir=self.root)
-        try:
-            with os.fdopen(fd, "wb") as output:
-                output.write(data)
-                output.flush()
-                os.fsync(output.fileno())
-            os.replace(temporary, path)
-        finally:
-            if os.path.exists(temporary):
-                os.unlink(temporary)
+        private_files.replace_entry(self.root, path.name, data, prefix=".capture-", chmod=False)
 
     def _put(self, manifest, records, operation_id):
         if not isinstance(operation_id, str) or not operation_id or len(operation_id) > 200:
@@ -105,25 +95,18 @@ class PrivateArchive:
         manifest = {**manifest, "body_hash": _digest(body)}
         data = _bytes(manifest)
         key = _digest(operation_id.encode("utf-8"))
-        lock_path = self.root / ".lock"
-        flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
-        with os.fdopen(os.open(lock_path, flags, 0o600), "a+b") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
+        with locks.lock(self.root, ".lock"):
             # If interrupted after body but before the manifest, an exact retry
             # finishes the immutable publication; a conflicting retry refuses.
             self._write_new(self._path(key, ".body"), body)
             self._write_new(self._path(key), data)
-            directory = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY)
-            try:
-                os.fsync(directory)
-            finally:
-                os.close(directory)
+            private_files.sync_folder(self.root)
         return {"provider": "overseer_archive", "id": key, "content_hash": _digest(data)}
 
     @staticmethod
     def _read(path):
         try:
-            fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+            fd = private_files.open_read(path.parent, path.name)
             with os.fdopen(fd, "rb") as stream:
                 return stream.read()
         except OSError as exc:

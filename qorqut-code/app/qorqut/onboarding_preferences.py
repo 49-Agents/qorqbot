@@ -1,12 +1,10 @@
 """Installation-local walkthrough progress, separate from operational records."""
-import fcntl
 import hashlib
 import json
-import os
 from pathlib import Path
-import tempfile
 
 from qorqut_operations.contracts import DomainError
+from qorqut_system import locks, private_files
 
 # Saved step ids, in walkthrough order. Removing an id makes saved progress unreadable, so ids are not removed. "terminal" and
 # "start" belong to steps the walkthrough no longer has; they stay so progress saved earlier still loads (the dashboard resumes
@@ -39,20 +37,7 @@ def progress(runtime_directory, owner_id, change=None):
     saved = {"version": 1, **change}
     directory.mkdir(parents=True, exist_ok=True)
     with path.with_suffix(".lock").open("a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        fd, temporary = tempfile.mkstemp(dir=directory, prefix=".onboarding-")
-        try:
-            with os.fdopen(fd, "w") as stream:
-                json.dump(saved, stream)
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(temporary, path)
-            descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
-            try:
-                os.fsync(descriptor)
-            finally:
-                os.close(descriptor)
-        finally:
-            if os.path.exists(temporary):
-                os.unlink(temporary)
+        locks.acquire(lock)
+        private_files.replace_entry(directory, path.name, json.dumps(saved).encode(), prefix=".onboarding-", chmod=False)
+        private_files.sync_folder(directory)
     return saved

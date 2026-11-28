@@ -72,9 +72,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
-import fcntl
 import hashlib
-import os
 import re
 import secrets
 import string
@@ -89,6 +87,7 @@ from qorqut_context.integration.queue import transitions
 from qorqut_context.integration.queue.queue import ACTION_METADATA
 from qorqut_context.integration.queue.outcomes import require_outcomes
 from qorqut_operations.contracts import DomainError
+from qorqut_system import locks
 
 LOCK_NAME = "context-queue-driver.lock"
 _EVENT_ID = re.compile(r"[a-z0-9]{5}")
@@ -268,19 +267,19 @@ class ContextQueueDriver:
         """One driver per Context across processes; yields False when another holds it."""
         runtime = self.context.runtime
         runtime.mkdir(mode=0o700, parents=True, exist_ok=True)
-        descriptor = os.open(runtime / LOCK_NAME, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        handle = locks.open_lock(runtime, LOCK_NAME)
         try:
             try:
-                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                handle.acquire(exclusive=True, wait=False)
             except BlockingIOError:
                 yield False
                 return
             try:
                 yield True
             finally:
-                fcntl.flock(descriptor, fcntl.LOCK_UN)
+                handle.release()
         finally:
-            os.close(descriptor)
+            handle.close()
 
     def process_next(self) -> dict:
         """Advance the oldest unfinished input by one step, never holding a database transaction over Context.

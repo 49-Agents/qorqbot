@@ -21,7 +21,6 @@ never touched here. Every outside effect goes through a seam of the constructor 
 
 from __future__ import annotations
 
-import fcntl
 import logging
 import os
 import threading
@@ -30,6 +29,7 @@ from contextlib import ExitStack, contextmanager, nullcontext
 from datetime import datetime, timezone
 
 from qorqut_operations.contracts import DomainError
+from qorqut_system import locks
 
 from qorqut import terminal_support
 from qorqut.management.identity import installation_owner
@@ -309,24 +309,24 @@ class RuntimeSwitch:
         try:
             folder = mode.mode_file(self.paths).parent
             folder.mkdir(parents=True, exist_ok=True, mode=0o700)
-            descriptor = os.open(folder / LOCK_FILE, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+            handle = locks.open_lock(folder, LOCK_FILE)
         except (OSError, AttributeError, TypeError) as error:
             raise DomainError("operation_unavailable", "Qorqbot could not start the switch. Try again in a few minutes.") from error
         try:
-            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            handle.acquire(exclusive=True, wait=False)
         except OSError:
-            os.close(descriptor)
+            handle.close()
             raise DomainError("switch_running", SWITCH_RUNNING, retryable=True) from None
-        return descriptor
+        return handle
 
     @staticmethod
-    def _close_flock(descriptor) -> None:
-        if descriptor is None:
+    def _close_flock(handle) -> None:
+        if handle is None:
             return
         try:
-            fcntl.flock(descriptor, fcntl.LOCK_UN)
+            handle.release()
         finally:
-            os.close(descriptor)
+            handle.close()
 
     # ----- the checks, before anything is touched ----------------------------------------------------------------------
 

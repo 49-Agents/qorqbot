@@ -231,12 +231,6 @@
     "qorqut-code/app/qorqut/native_archive/_archive.py": {
       "safe_file_access": 2
     },
-    "qorqut-code/app/qorqut/native_archive/_files.py": {
-      "file_lock": 1,
-      "link": 1,
-      "safe_file_access": 24,
-      "system_module": 1
-    },
     "qorqut-code/app/qorqut/native_chat/attachment.py": {
       "link": 4,
       "platform_check": 1
@@ -247,31 +241,8 @@
     "qorqut-code/app/qorqut/native_chat/probe.py": {
       "platform_check": 2
     },
-    "qorqut-code/app/qorqut/native_chat/runtime_switch.py": {
-      "file_lock": 2,
-      "safe_file_access": 1,
-      "system_module": 1
-    },
-    "qorqut-code/app/qorqut/native_chat/uploads.py": {
-      "file_lock": 1,
-      "link": 1,
-      "safe_file_access": 15,
-      "system_module": 1
-    },
     "qorqut-code/app/qorqut/native_paths.py": {
       "platform_check": 1
-    },
-    "qorqut-code/app/qorqut/onboarding_preferences.py": {
-      "file_lock": 1,
-      "safe_file_access": 1,
-      "system_module": 1
-    },
-    "qorqut-code/app/qorqut/overseer/archive.py": {
-      "file_lock": 1,
-      "owner_check": 2,
-      "permission_bits": 1,
-      "safe_file_access": 3,
-      "system_module": 1
     },
     "qorqut-code/app/qorqut/overseer/evidence.py": {
       "safe_file_access": 1
@@ -288,12 +259,6 @@
     },
     "qorqut-code/app/qorqut/release_worker/artifact_placement.py": {
       "owner_check": 1
-    },
-    "qorqut-code/app/qorqut/release_worker/experience_binding.py": {
-      "file_lock": 1,
-      "link": 7,
-      "safe_file_access": 1,
-      "system_module": 1
     },
     "qorqut-code/app/qorqut/release_worker/io.py": {
       "file_lock": 7,
@@ -317,13 +282,6 @@
     },
     "qorqut-code/app/qorqut/release_worker/session_backup.py": {
       "proc_read": 3
-    },
-    "qorqut-code/app/qorqut/service/ownership.py": {
-      "file_lock": 1,
-      "owner_check": 2,
-      "permission_bits": 1,
-      "safe_file_access": 5,
-      "system_module": 1
     },
     "qorqut-code/app/qorqut/shared_context/service.py": {
       "safe_file_access": 1
@@ -351,17 +309,6 @@
       "proc_read": 7,
       "process_control": 2,
       "safe_file_access": 1
-    },
-    "qorqut-code/app/qorqut/transport/auth.py": {
-      "file_lock": 2,
-      "permission_bits": 1,
-      "safe_file_access": 3,
-      "system_module": 1
-    },
-    "qorqut-code/app/qorqut/viewbox_preferences.py": {
-      "file_lock": 1,
-      "safe_file_access": 1,
-      "system_module": 1
     },
     "qorqut-code/app/scripts/check_browser_tabs.py": {
       "proc_read": 4
@@ -450,18 +397,8 @@
     "qorqut-code/qorqut-context/qorqut_context/claude_tools.py": {
       "local_socket": 1
     },
-    "qorqut-code/qorqut-context/qorqut_context/engine.py": {
-      "file_lock": 2,
-      "safe_file_access": 3,
-      "system_module": 1
-    },
     "qorqut-code/qorqut-context/qorqut_context/git_store.py": {
       "owner_check": 3
-    },
-    "qorqut-code/qorqut-context/qorqut_context/integration/driver.py": {
-      "file_lock": 2,
-      "safe_file_access": 1,
-      "system_module": 1
     },
     "qorqut-code/qorqut-context/qorqut_context/integration/questions/store.py": {
       "safe_file_access": 1
@@ -469,19 +406,8 @@
     "qorqut-code/qorqut-context/qorqut_context/integration/recovery.py": {
       "safe_file_access": 1
     },
-    "qorqut-code/qorqut-context/qorqut_context/integration/usage/collector.py": {
-      "file_lock": 2,
-      "safe_file_access": 1,
-      "system_module": 1
-    },
     "qorqut-code/qorqut-context/qorqut_context/pipeline.py": {
       "permission_bits": 1
-    },
-    "qorqut-code/qorqut-context/qorqut_context/recovery.py": {
-      "file_lock": 1,
-      "permission_bits": 6,
-      "safe_file_access": 2,
-      "system_module": 1
     },
     "qorqut-code/qorqut-context/qorqut_context/runner.py": {
       "permission_bits": 1,
@@ -501,18 +427,8 @@
     "qorqut-code/qorqut-operations/qorqut_operations/history_exports/_fs.py": {
       "safe_file_access": 6
     },
-    "qorqut-code/qorqut-operations/qorqut_operations/history_exports/_service.py": {
-      "file_lock": 1,
-      "safe_file_access": 13,
-      "system_module": 1
-    },
     "qorqut-code/qorqut-operations/qorqut_operations/history_exports/_state.py": {
       "safe_file_access": 9
-    },
-    "qorqut-code/qorqut-operations/qorqut_operations/storage/admission.py": {
-      "file_lock": 2,
-      "safe_file_access": 1,
-      "system_module": 1
     },
     "qorqut-code/qorqut-operations/qorqut_operations/storage/database.py": {
       "link": 1,

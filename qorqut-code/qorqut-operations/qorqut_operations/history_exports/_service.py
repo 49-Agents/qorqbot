@@ -5,8 +5,8 @@ Adapted from the pinned v2.2 donor (``qorqut_app.history``). Differences that ma
 * Database rows come from a trusted ``ExportCatalog`` and the authored areas from a trusted area provider, both read
   inside the SAME existing Operations read unit, which is closed before any filesystem or Git work.
 * The runtime root is never resolved with ``realpath``: the operations root, ``.runtime`` and the repository are opened
-  with ``O_NOFOLLOW`` descriptors from the explicit locations the host supplies and re-checked before every Git command,
-  so a replaced runtime location is refused rather than silently followed.
+  with descriptors that never follow a link, from the explicit locations the host supplies, and re-checked before every
+  Git command, so a replaced runtime location is refused rather than silently followed.
 * The host supplies where things are, never this module: ``locations()`` returns the operations root and the history
   repository, and ``resolve_areas(selection)`` places each validated area below that root. Both are called again on every
   use, so the host's own path validation (and its translation of a refused path into a ``DomainError``) runs each time.
@@ -23,19 +23,18 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
-import fcntl
 import logging
 import os
 from pathlib import Path
-import shutil
 import stat
 from uuid import uuid4
 
 from qorqut_operations.contracts import DomainError
+from qorqut_system import locks, private_files
 
 from . import _areas, _state
 from ._capture import Capture
-from ._fs import DIRECTORY, names_directory, open_directory
+from ._fs import names_directory, open_directory
 from ._git import REF, REGULAR, Git, git_date
 from ._tree import MANIFEST, blob_id, manifest_file, table_files
 from .catalog import ExportCatalog
@@ -76,7 +75,7 @@ class _Guard:
                 and names_directory(locations.runtime, locations.runtime_path)):
             raise DomainError("history_incompatible", "The history runtime location was replaced while in use")
         try:
-            info = os.stat(locations.repository_name, dir_fd=locations.runtime, follow_symlinks=False)
+            info = private_files.stat_entry(locations.runtime, locations.repository_name)
         except FileNotFoundError:
             return
         if not stat.S_ISDIR(info.st_mode):
@@ -148,11 +147,11 @@ class History:
         try:
             if create:
                 try:
-                    os.mkdir(runtime_path.name, 0o700, dir_fd=root)
+                    private_files.make_folder(root, runtime_path.name)
                 except FileExistsError:
                     pass
             try:
-                runtime = os.open(runtime_path.name, DIRECTORY, dir_fd=root)
+                runtime = private_files.open_child_folder(root, runtime_path.name).descriptor
             except FileNotFoundError as error:
                 raise DomainError("history_uninitialized", "History has not been initialized") from error
             except OSError as error:
@@ -167,17 +166,17 @@ class History:
     @contextmanager
     def _lock(self, runtime):
         try:
-            descriptor = os.open(LOCK, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=runtime)
+            handle = locks.open_lock(runtime, LOCK)
         except OSError as error:
             raise DomainError("history_incompatible", "The history lock location is not a plain file") from error
         try:
             try:
-                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                handle.acquire(exclusive=True, wait=False)
             except BlockingIOError as error:
                 raise DomainError("history_busy", "Another history operation is running", retryable=True) from error
             yield
         finally:
-            os.close(descriptor)
+            handle.close()
 
     def _git(self, locations, guard):
         return Git(locations.repository, runner=self._runner, timeout=self._timeout, guard=guard)
@@ -185,7 +184,7 @@ class History:
     @staticmethod
     def _present(locations):
         try:
-            os.stat(locations.repository_name, dir_fd=locations.runtime, follow_symlinks=False)
+            private_files.stat_entry(locations.runtime, locations.repository_name)
         except FileNotFoundError:
             return False
         return True
@@ -213,14 +212,14 @@ class History:
 
     def _create(self, locations, guard):
         temporary = f".history-init-{uuid4().hex}"
-        os.mkdir(temporary, 0o700, dir_fd=locations.runtime)
+        private_files.make_folder(locations.runtime, temporary)
         try:
             git = Git(locations.runtime_path / temporary, runner=self._runner, timeout=self._timeout, guard=guard)
             git.create()
             git.validate()
-            os.rename(temporary, locations.repository_name, src_dir_fd=locations.runtime, dst_dir_fd=locations.runtime)
+            private_files.rename_entry(locations.runtime, temporary, locations.repository_name)
         except BaseException:
-            shutil.rmtree(temporary, ignore_errors=True, dir_fd=locations.runtime)
+            private_files.remove_tree(locations.runtime, temporary, ignore_errors=True)
             raise
 
     def validate(self):

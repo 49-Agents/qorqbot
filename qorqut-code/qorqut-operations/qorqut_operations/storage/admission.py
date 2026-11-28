@@ -7,14 +7,13 @@ the generic part every mutation path shares. ``RecoveryAdmission`` is the in-pro
 from __future__ import annotations
 
 from contextlib import contextmanager
-import fcntl
-import os
 from pathlib import Path
 from threading import Condition, local
 import time
 from time import monotonic
 
 from qorqut_operations.contracts import DomainError
+from qorqut_system import locks
 
 
 class InstallationRecoveryLock:
@@ -30,13 +29,12 @@ class InstallationRecoveryLock:
         if type(timeout) is not int or not 0 <= timeout <= 600:
             raise ValueError("Recovery lock timeout must be bounded")
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        descriptor = os.open(self.path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        handle = locks.open_lock(self.path.parent, self.path.name)
         deadline = monotonic() + timeout
-        flag = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
         try:
             while True:
                 try:
-                    fcntl.flock(descriptor, flag | fcntl.LOCK_NB)
+                    handle.acquire(exclusive=exclusive, wait=False)
                     break
                 except BlockingIOError:
                     if monotonic() >= deadline:
@@ -45,8 +43,8 @@ class InstallationRecoveryLock:
                     time.sleep(0.01)
             yield
         finally:
-            fcntl.flock(descriptor, fcntl.LOCK_UN)
-            os.close(descriptor)
+            handle.release()
+            handle.close()
 
     def shared(self, *, timeout=600):
         return self.acquire(exclusive=False, timeout=timeout)
