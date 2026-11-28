@@ -23,10 +23,11 @@ logger = logging.getLogger(__name__)
 
 UUID_SELECTOR = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 # 'unsafe-inline' styles are needed only so the sandboxed, script-less HTML preview frame (srcdoc, which inherits this
-# policy) can keep its own inline styles; scripts come from this origin's own files alone.
+# policy) can keep its own inline styles; scripts come from this origin's own files alone. frame-src 'self' lets a PDF
+# show in Chrome's own viewer, framed from this origin's /api/root/files/pdf; 'none' blocked every PDF.
 FILE_VIEWER_PATH = "/files/view"
 FILE_VIEWER_POLICY = ("default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
-                      "connect-src 'self'; frame-src 'none'; base-uri 'none'; form-action 'none'")
+                      "connect-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'")
 # Core's own URL namespaces: API, MCP, health, dashboard static files and extension assets. No extension route sits in one.
 CORE_NAMESPACES = ("/api", "/mcp", "/health", "/js", "/css", "/icons", "/extensions")
 
