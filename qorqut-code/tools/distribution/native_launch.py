@@ -229,34 +229,86 @@ def verify(runtime):
     return manifest
 
 
-def run(argv, *, env, cwd):
-    subprocess.run(list(map(str, argv)), env=env, cwd=cwd, check=True)
+def run(argv, *, env, cwd, log=None):
+    """Run one set-up step. With ``log`` its output goes to that file instead of the terminal, and a failure is raised
+    with the step's last lines and the file's path, so the owner sees the real error and where the rest is."""
+    if log is None:
+        subprocess.run(list(map(str, argv)), env=env, cwd=cwd, check=True)
+        return
+    with Path(log).open('ab') as stream:
+        stream.write(('\n$ ' + shlex.join(map(str, argv)) + '\n').encode())
+        stream.flush()
+        start = stream.tell()
+        code = subprocess.run(list(map(str, argv)), env=env, cwd=cwd, stdout=stream, stderr=subprocess.STDOUT).returncode
+    if code:
+        with Path(log).open('rb') as stream:
+            stream.seek(max(start, Path(log).stat().st_size - 8192))
+            lines = [line for line in stream.read().decode(errors='replace').splitlines() if line.strip()][-5:]
+        raise RuntimeError('Setting up Qorqbot did not finish:\n  ' + '\n  '.join(lines or ['no details'])
+                           + '\nThe full details are in ' + str(log))
+
+
+INITIALIZATION_RECEIPT = 'instance/config/initialization-receipt.json'
+
+
+def setup_log(root):
+    """The file set-up output goes to: ``instance/logs/setup.log``, beside the application's log. The instance folder
+    must stay empty until it is initialized, so until then the log waits in ``.run`` (``keep_setup_log`` moves it)."""
+    root = Path(root)
+    if not (root / INITIALIZATION_RECEIPT).exists():
+        (root / '.run').mkdir(mode=0o700, exist_ok=True)
+        return root / '.run/setup.log'
+    logs = root / 'instance/logs'
+    logs.mkdir(mode=0o700, exist_ok=True)
+    return logs / 'setup.log'
+
+
+def keep_setup_log(root):
+    waiting = Path(root) / '.run/setup.log'
+    if waiting.is_file():
+        with setup_log(root).open('ab') as stream:
+            stream.write(waiting.read_bytes())
+        waiting.unlink()
 
 
 def install_hint(*packages, system=None):
     """The command that installs ``packages`` here: Homebrew on macOS, apt on Ubuntu (including Ubuntu in WSL)."""
     if (system or platform.system()) == 'Darwin':
         names = {'python3.12': 'python@3.12', 'python3.12-venv': None}
-        return 'brew install ' + ' '.join(n for n in (names.get(p, p) for p in packages) if n)
-    return 'sudo apt install ' + ' '.join(packages)
+        return 'brew install ' + ' '.join(dict.fromkeys(n for n in (names.get(p, p) for p in packages) if n))
+    return 'sudo apt install ' + ' '.join(dict.fromkeys(packages))
 
 
-def require_prerequisites(env, self_contained=False):
+def missing_prerequisites(env):
+    """``(names, packages)`` of what this computer lacks to build Qorqbot's environment, all of it at once."""
+    names, packages = [], []
+    if sys.version_info[:2] != (3, 12):
+        names.append('Python 3.12 with venv support')
+        packages += ['python3.12', 'python3.12-venv']
+    else:
+        try:
+            import ensurepip  # noqa: F401
+        except ImportError:
+            names.append('Python 3.12 venv support')
+            packages.append('python3.12-venv')
+    if not shutil.which('git', path=env.get('PATH')):
+        names.append('Git')
+        packages.append('git')
+    return names, packages
+
+
+def require_prerequisites(env, self_contained=False, system=None):
     if self_contained:
         # The package runs on the Python and git it ships; nothing has to be installed first.
         if sys.version_info[:2] != (3, 12):
             raise RuntimeError('Start Qorqbot with its own ./qorqbot command, which uses the Python shipped in this folder.')
         return
-    if sys.version_info[:2] != (3, 12):
-        raise RuntimeError('This download requires Python 3.12 with venv support. Install it with: '
-                           + install_hint('python3.12', 'python3.12-venv'))
-    if not shutil.which('git', path=env.get('PATH')):
-        raise RuntimeError('Git is required. Install it with: ' + install_hint('git'))
-    try:
-        import ensurepip
-    except ImportError:
-        raise RuntimeError('Python venv support is required. Install it with: '
-                           + install_hint('python3.12-venv')) from None
+    names, packages = missing_prerequisites(env)
+    if names:
+        listed = names[0] if len(names) == 1 else ', '.join(names[:-1]) + ' and ' + names[-1]
+        raise RuntimeError(f"{listed} {'is' if len(names) == 1 else 'are'} required. Install "
+                           f"{'it' if len(names) == 1 else 'them'} with this command, then run ./qorqbot again:\n  "
+                           + install_hint(*packages, system=system))
 
 
 # The browser tool the agents' own browser control drives (qorqut.browser), pinned to the version and npm integrity
@@ -385,7 +437,7 @@ def readiness_notes(path, system=None):
     dashboard downloads them and signs them in. Returned as lines to print, never raised."""
     notes = []
     if not chrome_installed(path, system):
-        notes.append('Your agents need Google Chrome to work on the web. Install it from ' + CHROME_URL)
+        notes.append('Your agents need Google Chrome to work on websites. Get it from ' + CHROME_URL)
     return notes
 
 
@@ -698,7 +750,8 @@ def prepare(root, env):
         if read_json(marker)['root'] != str(root):
             raise RuntimeError('This installation has moved. Restore its original folder before starting it.')
         return
-    print('Preparing Qorqbot from the bundled files…', flush=True)
+    if (root / INITIALIZATION_RECEIPT).exists():
+        print('Preparing Qorqbot from the bundled files…', flush=True)  # a first start has said so already (main)
     verify(runtime)
     venv = runtime / 'venv'
     if 'venv' in bundled(runtime):
@@ -710,20 +763,21 @@ def prepare(root, env):
     if venv.exists():
         raise RuntimeError('An incomplete Python environment remains in runtime/venv. Keep it for diagnosis; setup was not retried.')
     require_prerequisites(env)
-    run([sys.executable, '-I', '-B', '-m', 'venv', '--copies', venv], env=env, cwd=root)
+    log = setup_log(root)
+    run([sys.executable, '-I', '-B', '-m', 'venv', '--copies', venv], env=env, cwd=root, log=log)
     python = venv / 'bin/python'
     # Standard pip resolves the declared library dependencies from the verified
     # local wheelhouse. External programs are never installed by this command.
     run([python, '-I', '-B', '-m', 'pip', 'install', '--no-index', '--no-compile',
          '--find-links', runtime / 'wheelhouse', '--find-links', runtime / 'wheels',
-         '--require-hashes', '-r', runtime / 'requirements.lock'], env=env, cwd=root)
-    run([python, '-I', '-B', '-m', 'pip', 'check'], env=env, cwd=root)
+         '--require-hashes', '-r', runtime / 'requirements.lock'], env=env, cwd=root, log=log)
+    run([python, '-I', '-B', '-m', 'pip', 'check'], env=env, cwd=root, log=log)
     save_json(marker, {'format': 1, 'root': str(root)})
 
 
 def initialize(root, env):
     runtime, instance = root / 'runtime', root / 'instance'
-    receipt = instance / 'config/initialization-receipt.json'
+    receipt = root / INITIALIZATION_RECEIPT
     if receipt.exists():
         record = read_json(receipt)
         if record.get('state') != 'initialized' or record.get('instance_root') != str(instance):
@@ -740,7 +794,8 @@ def initialize(root, env):
         save_json(initial, {'extensions': [{'factory': WHATSAPP_FACTORY, 'config': {}}]})
         selection = ['--extensions-config', initial]
     run([runtime / 'venv/bin/python', '-I', '-B', '-m', 'qorqut.bootstrap.initialize',
-         '--prepared-root', runtime, '--instance-root', instance, *selection], env=env, cwd=root)
+         '--prepared-root', runtime, '--instance-root', instance, *selection], env=env, cwd=root, log=setup_log(root))
+    keep_setup_log(root)
     (instance / 'config/operational-timezone').write_text(env['QORQUT_TIMEZONE'] + '\n')
     # A new installation keeps Claude Code and Codex in folders of its own from its first start (``client_homes``).
     (root / OWN_CLIENT_HOMES).write_text('1\n')
@@ -755,7 +810,7 @@ def ensure_context_repository(root, env, record):
     command = [root / 'runtime/venv/bin/python', '-I', '-B', '-m', 'qorqut.bootstrap.context_repository', '--instance-root', instance]
     for name, location in record['components'].items():
         command.extend(['--component', f'{name}={location}'])
-    run(command, env=env, cwd=root)
+    run(command, env=env, cwd=root, log=setup_log(root))
 
 
 TREG_FACTORY = 'qorqut_treg.extension:create'
@@ -920,7 +975,8 @@ def run_service(argv, *, env, cwd, log, state, url, show):
             if restarted:
                 print(f'Qorqbot restarted and is running at {url}', flush=True)
             else:
-                print(f'Qorqbot is running at {url}\nPress Ctrl+C to stop.', flush=True)
+                print(f'Qorqbot is running at {url}\nKeep this window open while you use Qorqbot. Press Ctrl+C to stop it.',
+                      flush=True)
                 if sys.stdout.isatty():
                     for note in readiness_notes(env.get('PATH')):
                         print(note, flush=True)
@@ -1008,6 +1064,9 @@ def main(argv=None):
         require_completed_update(root)
         env = environment(root, runtime / 'setup-state')
         require_prerequisites(env, self_contained=bool(bundled(runtime)))
+        if not (root / INITIALIZATION_RECEIPT).exists():
+            # Set-up output goes to its log (``setup_log``); the owner sees this line, then the address.
+            print('Setting up Qorqbot for the first time. This takes about half a minute.', flush=True)
         prepare(root, env)
         record = initialize(root, env)
         select_treg(root)

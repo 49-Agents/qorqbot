@@ -119,7 +119,7 @@ class EnvironmentTests(unittest.TestCase):
         instance = self.root / 'instance'
         receipt = {'state': 'initialized', 'instance_root': str(instance), 'components': {}}
 
-        def bootstrap(argv, *, env, cwd):
+        def bootstrap(argv, *, env, cwd, log=None):
             (instance / 'config').mkdir(parents=True)
             (instance / 'config/initialization-receipt.json').write_text(json.dumps(receipt))
 
